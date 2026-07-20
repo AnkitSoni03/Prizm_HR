@@ -1,0 +1,516 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { Layout } from '../components/layout/Layout';
+import { ProtectedRoute } from '../components/ProtectedRoute';
+import { LoginPage } from '../pages/auth/LoginPage';
+import { ActivatePage } from '../pages/auth/ActivatePage';
+import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
+import { SuperAdminDashboard } from '../pages/super-admin/SuperAdminDashboard';
+import { CompaniesPage } from '../pages/super-admin/CompaniesPage';
+import { CompanyDetailPage } from '../pages/super-admin/CompanyDetailPage';
+import { UsersPage } from '../pages/super-admin/UsersPage';
+import { SettingsPage as SuperAdminSettingsPage } from '../pages/super-admin/SettingsPage';
+import { CompanyAdminDashboard } from '../pages/company-admin/CompanyAdminDashboard';
+import { EmployeesPage } from '../pages/company-admin/EmployeesPage';
+import { ShiftsRostersPage } from '../pages/company-admin/ShiftsRostersPage';
+import { ApprovalsPage } from '../pages/company-admin/ApprovalsPage';
+import { PayrollPage } from '../pages/company-admin/PayrollPage';
+import {
+  HolidaysPage as CompanyAdminHolidaysPage,
+  HolidaysPage as BrandAdminHolidaysPage,
+} from '../pages/company-admin/HolidaysPage';
+import {
+  OrganizationPage as CompanyAdminOrganizationPage,
+  OrganizationPage as BrandAdminOrganizationPage,
+} from '../pages/company-admin/OrganizationPage';
+import {
+  CompanyPoliciesPage as CompanyAdminPoliciesPage,
+  CompanyPoliciesPage as BrandAdminPoliciesPage,
+  CompanyPoliciesPage as EssPoliciesPage,
+} from '../pages/company-admin/CompanyPoliciesPage';
+import {
+  ProvideLeavesPage as CompanyAdminProvideLeavesPage,
+  ProvideLeavesPage as EssProvideLeavesPage,
+} from '../pages/company-admin/ProvideLeavesPage';
+import { SettingsPage as CompanyAdminSettingsPage } from '../pages/company-admin/SettingsPage';
+import { GroupAdminDashboard } from '../pages/group-admin/GroupAdminDashboard';
+import { CompaniesPage as GroupCompaniesPage } from '../pages/group-admin/CompaniesPage';
+import { CompanyDetailPage as GroupCompanyDetailPage } from '../pages/group-admin/CompanyDetailPage';
+import { SettingsPage as GroupAdminSettingsPage } from '../pages/group-admin/SettingsPage';
+import { BrandAdminDashboard } from '../pages/brand-admin/BrandAdminDashboard';
+import { EmployeesPage as BrandEmployeesPage } from '../pages/brand-admin/EmployeesPage';
+import { ShiftsRostersPage as BrandShiftsRostersPage } from '../pages/brand-admin/ShiftsRostersPage';
+import { ApprovalsPage as BrandApprovalsPage } from '../pages/brand-admin/ApprovalsPage';
+import { SettingsPage as BrandAdminSettingsPage } from '../pages/brand-admin/SettingsPage';
+import { EssDashboard } from '../pages/ess/EssDashboard';
+import { MyAttendancePage } from '../pages/ess/MyAttendancePage';
+import { LeaveBalancePage } from '../pages/ess/LeaveBalancePage';
+import { MyLeavePage } from '../pages/ess/MyLeavePage';
+import { TeamApprovalsPage } from '../pages/ess/TeamApprovalsPage';
+import { MyOdPage } from '../pages/ess/MyOdPage';
+import { MyCompOffPage } from '../pages/ess/MyCompOffPage';
+import { MyPayslipsPage } from '../pages/ess/MyPayslipsPage';
+import { HolidaysPage as EssHolidaysPage } from '../pages/ess/HolidaysPage';
+import { MyProfilePage } from '../pages/ess/MyProfilePage';
+import { SettingsPage as EssSettingsPage } from '../pages/ess/SettingsPage';
+import {
+  BRAND_ADMIN_NAV,
+  COMPANY_ADMIN_NAV,
+  ESS_NAV,
+  GROUP_ADMIN_NAV,
+  SUPER_ADMIN_NAV,
+} from './navConfig';
+
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate" element={<ActivatePage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+      <Route
+        path="/super-admin"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Dashboard">
+              <SuperAdminDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/super-admin/companies"
+        element={
+          <ProtectedRoute permission="group:read">
+            <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Companies">
+              <CompaniesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/super-admin/companies/:id"
+        element={
+          <ProtectedRoute permission="company:read">
+            <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Company Detail">
+              <CompanyDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/super-admin/users"
+        element={
+          <ProtectedRoute permission="employee:read">
+            <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Users">
+              <UsersPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/super-admin/settings"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Settings">
+              <SuperAdminSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Dashboard">
+              <CompanyAdminDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/employees"
+        element={
+          <ProtectedRoute permission="employee:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Employees">
+              <EmployeesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/organization"
+        element={
+          <ProtectedRoute permission="department:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Organization">
+              <CompanyAdminOrganizationPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/shifts-rosters"
+        element={
+          <ProtectedRoute permission="shift:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Shifts & Rosters">
+              <ShiftsRostersPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/approvals"
+        element={
+          <ProtectedRoute permission="leave_request:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Approvals">
+              <ApprovalsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/holidays"
+        element={
+          <ProtectedRoute permission="holiday:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Holidays">
+              <CompanyAdminHolidaysPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/policies"
+        element={
+          <ProtectedRoute permission="company_policy:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Company Policies">
+              <CompanyAdminPoliciesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/payroll"
+        element={
+          <ProtectedRoute permission="payroll_settings:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Payroll">
+              <PayrollPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/provide-leaves"
+        element={
+          <ProtectedRoute permission="leave_balance:adjust">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Provide Leaves">
+              <CompanyAdminProvideLeavesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/settings"
+        element={
+          <ProtectedRoute permission="company:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Settings">
+              <CompanyAdminSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-admin"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Dashboard">
+              <GroupAdminDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-admin/companies"
+        element={
+          <ProtectedRoute permission="company:read">
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Companies">
+              <GroupCompaniesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-admin/companies/:id"
+        element={
+          <ProtectedRoute permission="company:read">
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Company Detail">
+              <GroupCompanyDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-admin/settings"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Settings">
+              <GroupAdminSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Dashboard">
+              <BrandAdminDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/employees"
+        element={
+          <ProtectedRoute permission="employee:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Employees">
+              <BrandEmployeesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/organization"
+        element={
+          <ProtectedRoute permission="department:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Organization">
+              <BrandAdminOrganizationPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/shifts-rosters"
+        element={
+          <ProtectedRoute permission="shift_roster:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Shifts & Rosters">
+              <BrandShiftsRostersPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/approvals"
+        element={
+          <ProtectedRoute permission="leave_request:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Approvals">
+              <BrandApprovalsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/holidays"
+        element={
+          <ProtectedRoute permission="holiday:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Holidays">
+              <BrandAdminHolidaysPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/policies"
+        element={
+          <ProtectedRoute permission="company_policy:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Company Policies">
+              <BrandAdminPoliciesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/settings"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Settings">
+              <BrandAdminSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Dashboard">
+              <EssDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/attendance"
+        element={
+          <ProtectedRoute permission="attendance:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Attendance">
+              <MyAttendancePage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/leave-balance"
+        element={
+          <ProtectedRoute permission="leave_balance:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Leave Balance">
+              <LeaveBalancePage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/leave"
+        element={
+          <ProtectedRoute permission="leave_request:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Leave">
+              <MyLeavePage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/team-approvals"
+        element={
+          <ProtectedRoute permission="leave_request:read_reports">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Team Approvals">
+              <TeamApprovalsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/od"
+        element={
+          <ProtectedRoute permission="od_request:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My OD">
+              <MyOdPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/comp-off"
+        element={
+          <ProtectedRoute permission="comp_off:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Comp-Off">
+              <MyCompOffPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/payslips"
+        element={
+          <ProtectedRoute permission="payslip:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Payslips">
+              <MyPayslipsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/holidays"
+        element={
+          <ProtectedRoute permission="holiday:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Yearly Holidays">
+              <EssHolidaysPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/policies"
+        element={
+          <ProtectedRoute permission="company_policy:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Company Policies">
+              <EssPoliciesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/provide-leaves"
+        element={
+          <ProtectedRoute permission="leave_balance:adjust">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Provide Leaves">
+              <EssProvideLeavesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/profile"
+        element={
+          <ProtectedRoute permission="employee:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Profile">
+              <MyProfilePage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/settings"
+        element={
+          <ProtectedRoute>
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Settings">
+              <EssSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  );
+}

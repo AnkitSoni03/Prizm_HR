@@ -1,0 +1,153 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg-page: #f7f9fc;
+  --bg-sidebar: #0a2533;
+  --bg-card: #ffffff;
+  --bg-muted: #eef2f8;
+  --border-color: #b1afaf;
+
+  --brand: #3354a4;
+  --brand-hover: #1e3c72;
+  --brand-soft: rgb(51 84 164 / 0.08);
+  --nav-active: var(--brand);
+
+  --ink: #0a1733;
+  --ink-muted: #5a6b85;
+
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+
+  --glow: 0 0 #0000;
+
+  /* Elevation scale, tuned per-theme — a black drop shadow all but
+     disappears against a dark navy card, so dark mode leans on a larger,
+     softer spread instead of just upping the opacity of the same shadow. */
+  --elevation-xs: 0 1px 2px 0 rgb(10 23 51 / 0.05);
+  --elevation-sm:
+    0 1px 3px 0 rgb(10 23 51 / 0.08), 0 1px 2px -1px rgb(10 23 51 / 0.06);
+  --elevation-md:
+    0 6px 16px -4px rgb(10 23 51 / 0.12), 0 2px 6px -2px rgb(10 23 51 / 0.06);
+  --elevation-lg:
+    0 16px 36px -8px rgb(10 23 51 / 0.18), 0 6px 12px -4px rgb(10 23 51 / 0.08);
+}
+
+/* Palette pinned to docs/dark-theme-example.png's legend: Primary Dark
+   #0D1224 (page/sidebar), Light/Text #F6F7F9 (ink), Primary Blue #243B7A
+   (nav-active fill — solid, only ever used under white text so it can stay
+   at its true swatch value), Accent Blue #3656C5 (buttons/icons/links).
+   --brand/--brand-hover are lightened tints of Accent Blue rather than the
+   exact swatch — the raw #3656C5 only hits ~2.9:1 against the page
+   background, under WCAG AA's 4.5:1 for text/icon/border use. */
+
+.dark {
+  --bg-page: #000000;
+  --bg-sidebar: #0c0c0f;
+  --bg-card: #17181d;
+  --bg-muted: #23252d;
+  --border-color: #353842;
+
+  --brand: #3354a4;
+  --brand-hover: #1e3c72;
+  --brand-soft: rgb(51 84 164 / 0.08);
+  --nav-active: var(--brand);
+
+  --ink: #ffffff;
+  --ink-muted: #9ca3af;
+
+  --success: #10b981;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  --glow: 0 0 0 1px rgb(84 120 208 / 0.25), 0 0 18px rgb(84 120 208 / 0.35);
+
+  --elevation-xs: 0 1px 2px 0 rgb(0 0 0 / 0.28);
+  --elevation-sm:
+    0 1px 3px 0 rgb(0 0 0 / 0.36), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --elevation-md:
+    0 6px 16px -4px rgb(0 0 0 / 0.45), 0 2px 6px -2px rgb(0 0 0 / 0.3);
+  --elevation-lg:
+    0 16px 36px -8px rgb(0 0 0 / 0.55), 0 6px 12px -4px rgb(0 0 0 / 0.35);
+}
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-page: var(--bg-page);
+  --color-sidebar: var(--bg-sidebar);
+  --color-card: var(--bg-card);
+  --color-muted: var(--bg-muted);
+  --color-border: var(--border-color);
+
+  --color-primary: var(--brand);
+  --color-primary-hover: var(--brand-hover);
+  --color-primary-light: var(--brand-soft);
+  --color-nav-active: var(--nav-active);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --shadow-glow: var(--glow);
+  --shadow-xs: var(--elevation-xs);
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-family: var(--font-sans);
+  }
+
+  body {
+    @apply bg-page text-ink antialiased transition-colors duration-200;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-tight text-ink;
+    line-height: 1.25;
+  }
+
+  h1 {
+    @apply text-xl sm:text-2xl;
+  }
+
+  h2 {
+    @apply text-lg;
+  }
+
+  h3 {
+    @apply text-base;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
