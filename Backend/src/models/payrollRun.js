@@ -29,6 +29,7 @@ module.exports = (sequelize, DataTypes) => {
       totalGross: { type: DataTypes.DECIMAL(14, 2), allowNull: true },
       totalDeductions: { type: DataTypes.DECIMAL(14, 2), allowNull: true },
       totalNet: { type: DataTypes.DECIMAL(14, 2), allowNull: true },
+      totalEmployerContributions: { type: DataTypes.DECIMAL(14, 2), allowNull: true },
       processedAt: { type: DataTypes.DATE, allowNull: true },
       processedByUserId: { type: DataTypes.BIGINT, allowNull: true },
       paidAt: { type: DataTypes.DATE, allowNull: true },

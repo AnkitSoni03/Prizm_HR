@@ -9,6 +9,7 @@ import { createDepartment, createDesignation } from '../../../api/companyAdmin/o
 import { useAuth } from '../../../context/auth-context';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
+import { INDIAN_STATES } from '../../../utils/indianStates';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
@@ -61,6 +62,7 @@ export function EmployeeFormModal({
   const [managerId, setManagerId] = useState('');
   const [dateOfJoining, setDateOfJoining] = useState('');
   const [employmentType, setEmploymentType] = useState<'full_time' | 'part_time' | 'contract'>('full_time');
+  const [workState, setWorkState] = useState('');
   const [powerKeys, setPowerKeys] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +95,7 @@ export function EmployeeFormModal({
         managerId: managerId || null,
         dateOfJoining,
         employmentType,
+        workState: workState || undefined,
       });
 
       // The employee already exists at this point — a failure here is a
@@ -244,6 +247,17 @@ export function EmployeeFormModal({
             label: `${employee.name} (${employee.employeeCode})`,
           }))}
         />
+        <Select
+          id="employee-work-state"
+          label="Work State"
+          value={workState}
+          onChange={(event) => setWorkState(event.target.value)}
+          placeholder="Not set"
+          options={INDIAN_STATES.map((state) => ({ value: state, label: state }))}
+        />
+        <p className="-mt-2 text-xs text-ink-muted">
+          Used for Professional Tax when statutory deductions are enabled.
+        </p>
         {canAssignPowers && (
           <div className="border-t border-border pt-4">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">

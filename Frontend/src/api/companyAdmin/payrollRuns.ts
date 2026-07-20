@@ -11,6 +11,7 @@ export interface PayrollRun {
   totalGross: number | null;
   totalDeductions: number | null;
   totalNet: number | null;
+  totalEmployerContributions: number | null;
   processedAt: string | null;
   paidAt: string | null;
   notes: string | null;

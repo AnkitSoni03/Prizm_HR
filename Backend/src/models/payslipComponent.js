@@ -22,7 +22,10 @@ module.exports = (sequelize, DataTypes) => {
       payslipId: { type: DataTypes.BIGINT, allowNull: false },
       componentDefinitionId: { type: DataTypes.BIGINT, allowNull: true },
       category: {
-        type: DataTypes.ENUM('earning', 'deduction', 'reimbursement'),
+        // 'employer_contribution' rows are system-computed, informational
+        // only (employer PF/ESI share) — see payrollRun.service.js, which
+        // deliberately never sums this category into gross or deductions.
+        type: DataTypes.ENUM('earning', 'deduction', 'reimbursement', 'employer_contribution'),
         allowNull: false,
       },
       name: { type: DataTypes.STRING, allowNull: false },

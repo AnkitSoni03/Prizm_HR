@@ -53,6 +53,10 @@ module.exports = (sequelize, DataTypes) => {
       customRoleId: { type: DataTypes.BIGINT, allowNull: true },
       userId: { type: DataTypes.BIGINT, allowNull: true },
       dateOfJoining: { type: DataTypes.DATEONLY, allowNull: true },
+      // Free text, not an ENUM — used for Professional Tax slab lookup only;
+      // an unrecognized/blank value just falls back to the 'default' slab
+      // (see statutoryDeduction.service.js).
+      workState: { type: DataTypes.STRING, allowNull: true },
       employmentType: {
         type: DataTypes.ENUM('full_time', 'part_time', 'contract'),
         allowNull: false,

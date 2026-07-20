@@ -143,7 +143,11 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
         </div>
 
         {currentRun.status !== 'draft' && (
-          <div className="grid grid-cols-3 gap-2 rounded-xl border border-border bg-page px-3 py-2.5 text-center text-sm">
+          <div
+            className={`grid gap-2 rounded-xl border border-border bg-page px-3 py-2.5 text-center text-sm ${
+              currentRun.totalEmployerContributions ? 'grid-cols-4' : 'grid-cols-3'
+            }`}
+          >
             <div>
               <p className="text-xs text-ink-muted">Gross</p>
               <p className="font-semibold text-ink">{(currentRun.totalGross ?? 0).toLocaleString()}</p>
@@ -156,6 +160,12 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
               <p className="text-xs text-ink-muted">Net</p>
               <p className="font-semibold text-ink">{(currentRun.totalNet ?? 0).toLocaleString()}</p>
             </div>
+            {!!currentRun.totalEmployerContributions && (
+              <div>
+                <p className="text-xs text-ink-muted">Employer Contributions</p>
+                <p className="font-semibold text-ink">{currentRun.totalEmployerContributions.toLocaleString()}</p>
+              </div>
+            )}
           </div>
         )}
 

@@ -34,6 +34,7 @@ async function createComponent({
   defaultValue,
   percentageOfComponentId,
   displayOrder,
+  isPfWage,
 }) {
   if (calculationType === 'formula') {
     throw new HttpError(400, 'Formula-based components are not yet supported');
@@ -47,6 +48,12 @@ async function createComponent({
     });
     if (!reference) throw new HttpError(400, 'Referenced component not found for this company');
   }
+  // isPfWage only makes sense for a component that's actually paid out as an
+  // earning (Basic/DA) — a deduction or reimbursement can't be part of the
+  // PF wage basis.
+  if (isPfWage && componentCategory !== 'earning') {
+    throw new HttpError(400, 'Only an earning component can count toward the PF wage basis');
+  }
 
   try {
     return await db.SalaryComponentDefinition.create({
@@ -58,6 +65,7 @@ async function createComponent({
       defaultValue: defaultValue || 0,
       percentageOfComponentId: calculationType === 'percentage_of_component' ? percentageOfComponentId : null,
       displayOrder: displayOrder || 0,
+      isPfWage: !!isPfWage,
     });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -69,13 +77,18 @@ async function createComponent({
 
 async function updateComponent({ companyId, id, updates }) {
   const component = await getComponentForWrite({ companyId, id });
-  const { name, defaultValue, displayOrder, isActive } = updates;
+  const { name, defaultValue, displayOrder, isActive, isPfWage } = updates;
+
+  if (isPfWage && component.componentCategory !== 'earning') {
+    throw new HttpError(400, 'Only an earning component can count toward the PF wage basis');
+  }
 
   await component.update({
     ...(name !== undefined && { name }),
     ...(defaultValue !== undefined && { defaultValue }),
     ...(displayOrder !== undefined && { displayOrder }),
     ...(isActive !== undefined && { isActive }),
+    ...(isPfWage !== undefined && { isPfWage }),
   });
   return component;
 }

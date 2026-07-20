@@ -94,6 +94,10 @@ export interface Employee {
   employeeCode: string;
   dateOfJoining: string | null;
   employmentType: 'full_time' | 'part_time' | 'contract';
+  // Free text — used for Professional Tax slab lookup only (see
+  // Backend/src/config/statutoryDefaults.js). An unrecognized/blank value
+  // just falls back to the 'default' PT slab.
+  workState: string | null;
   status: 'onboarding' | 'active' | 'on_notice' | 'exited' | 'archived';
   createdAt: string;
   updatedAt: string;

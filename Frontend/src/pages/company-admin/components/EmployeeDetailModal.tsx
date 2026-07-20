@@ -31,6 +31,7 @@ import {
 import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
+import { INDIAN_STATES } from '../../../utils/indianStates';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -96,6 +97,7 @@ export function EmployeeDetailModal({
   const [dateOfJoining, setDateOfJoining] = useState(employee.dateOfJoining ?? '');
   const [employmentType, setEmploymentType] = useState(employee.employmentType);
   const [status, setStatus] = useState(employee.status);
+  const [workState, setWorkState] = useState(employee.workState ?? '');
   const [isSavingDetails, setIsSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
@@ -231,6 +233,7 @@ export function EmployeeDetailModal({
         status,
         dateOfJoining: dateOfJoining || null,
         managerId: managerId || null,
+        workState: workState || null,
       });
       onUpdated();
     } catch (err) {
@@ -389,6 +392,15 @@ export function EmployeeDetailModal({
                 onChange={(event) => setStatus(event.target.value as Employee['status'])}
                 disabled={!canUpdate}
                 options={STATUS_OPTIONS}
+              />
+              <Select
+                id="employee-work-state-edit"
+                label="Work State"
+                value={workState}
+                onChange={(event) => setWorkState(event.target.value)}
+                disabled={!canUpdate}
+                placeholder="Not set"
+                options={INDIAN_STATES.map((state) => ({ value: state, label: state }))}
               />
             </div>
             {canUpdate && (

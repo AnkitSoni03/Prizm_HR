@@ -102,6 +102,7 @@ async function createEmployee({
   userId,
   dateOfJoining,
   employmentType,
+  workState,
 }) {
   const company = await db.Company.findByPk(companyId);
   if (!company) throw new HttpError(404, 'Company not found');
@@ -143,6 +144,7 @@ async function createEmployee({
       userId: userId || null,
       dateOfJoining: dateOfJoining || null,
       employmentType,
+      workState: workState || null,
       status: 'onboarding',
     });
   } catch (err) {
@@ -156,7 +158,7 @@ async function createEmployee({
 // brandId/departmentId are deliberately excluded here — changing those goes
 // through transferEmployee (gated by the separate employee:transfer
 // permission) so the two permission codes stay meaningful.
-const UPDATABLE_FIELDS = ['designationId', 'employmentType', 'status', 'dateOfJoining', 'managerId', 'userId'];
+const UPDATABLE_FIELDS = ['designationId', 'employmentType', 'status', 'dateOfJoining', 'managerId', 'userId', 'workState'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });

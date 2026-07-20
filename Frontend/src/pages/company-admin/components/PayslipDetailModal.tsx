@@ -41,6 +41,7 @@ export function PayslipDetailModal({ payslipId, own, title = 'Payslip', onClose 
 
   const earnings = payslip?.components?.filter((c) => c.category === 'earning' || c.category === 'reimbursement') ?? [];
   const deductions = payslip?.components?.filter((c) => c.category === 'deduction') ?? [];
+  const employerContributions = payslip?.components?.filter((c) => c.category === 'employer_contribution') ?? [];
 
   return (
     <Modal title={title} onClose={onClose} widthClassName="max-w-lg">
@@ -115,6 +116,25 @@ export function PayslipDetailModal({ payslipId, own, title = 'Payslip', onClose 
             <span>Net Pay</span>
             <span>{payslip.netPay.toLocaleString()}</span>
           </div>
+
+          {employerContributions.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Employer Contributions
+              </p>
+              <div className="space-y-1 rounded-xl bg-page px-3 py-2 text-ink-muted">
+                {employerContributions.map((c) => (
+                  <div key={c.id} className="flex justify-between text-sm">
+                    <span>{c.name}</span>
+                    <span>{c.amount.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-ink-muted">
+                Paid by the company on top of your salary — does not affect your net pay.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </Modal>

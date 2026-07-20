@@ -3,7 +3,9 @@ import { apiClient } from '../client';
 export interface PayslipComponent {
   id: string;
   componentDefinitionId: string | null;
-  category: 'earning' | 'deduction' | 'reimbursement';
+  // 'employer_contribution' rows are informational only (employer PF/ESI
+  // share) — never part of grossEarnings/totalDeductions/netPay.
+  category: 'earning' | 'deduction' | 'reimbursement' | 'employer_contribution';
   name: string;
   amount: number;
 }
@@ -20,6 +22,7 @@ export interface Payslip {
   payableDays: number;
   grossEarnings: number;
   totalDeductions: number;
+  employerContributions: number;
   netPay: number;
   components?: PayslipComponent[];
 }

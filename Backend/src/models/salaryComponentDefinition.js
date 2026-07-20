@@ -34,6 +34,11 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: { type: DataTypes.DECIMAL(12, 2), allowNull: false, defaultValue: 0 },
       percentageOfComponentId: { type: DataTypes.BIGINT, allowNull: true },
       isStatutory: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      // Only meaningful when componentCategory = 'earning'. Marks this
+      // component (typically Basic, DA) as part of the PF wage basis — see
+      // statutoryDeduction.service.js and payrollRun.service.js's
+      // pfWageAmount accumulation.
+      isPfWage: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
       taxable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
       displayOrder: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },

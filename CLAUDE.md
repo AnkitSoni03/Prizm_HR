@@ -839,9 +839,66 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     based components, a payslip PDF export (detail view is in-app HTML only), and any automatic/
     cron-triggered draft-run creation (runs are admin-initiated only — auto-creating a real-money
     payroll run without a human trigger was judged too risky to do silently).
+- ✅ Statutory payroll deductions — PF + ESI + PT (2026-07-20): the `payroll_settings.
+  enable_statutory_deductions`/`statutory_config` placeholders from Phase-5 v1 (previous entry)
+  are now real. **TDS deliberately deferred** — unlike PF/ESI/PT, it needs tax-regime selection,
+  investment declarations, and annualized projection; a "simplified" version would be silently
+  wrong for real tax withholding, which is worse than not having it.
+  - New `employees.work_state` (nullable, free text — not an ENUM) for Professional Tax slab
+    lookup; no employee identity/location field existed anywhere in the schema before this.
+    New `salary_component_definitions.is_pf_wage` marks which of a company's own earning
+    components (Basic, DA) count toward the PF wage basis — components are an arbitrary
+    company-defined catalog, so there was no other way to know "which one is Basic".
+  - **Rates/ceilings/PT slabs are company-editable**, not hardcoded: new
+    `Backend/src/config/statutoryDefaults.js` exports `DEFAULT_STATUTORY_CONFIG` (current-law PF
+    12%/12%/₹15,000 ceiling, ESI 0.75%/3.25%/₹21,000 threshold, PT slabs for Karnataka/
+    Maharashtra/West Bengal/Tamil Nadu + a `default` catch-all) and `resolveStatutoryConfig()`,
+    which shallow-merges a company's `statutory_config` JSONB on top of the defaults — every
+    existing company (still `{}`) gets working defaults with zero backfill.
+  - New pure `statutoryDeduction.service.js::computeStatutoryDeductions` (no DB access) does the
+    actual PF/ESI/PT math. Wired into `payrollRun.service.js::processRun` additively: a
+    `pfWageAmount` running total is accumulated alongside the *existing* per-segment earning loop
+    (untouched — this proration engine had a real, carefully-fixed bug in Phase-5 v1 and stayed
+    off-limits here), and statutory entries are injected into the same `componentTotals` map
+    *after* `grossEarnings` is computed, using the same synthetic-string-key pattern
+    `payroll_adjustment` entries already established. If `enableStatutoryDeductions` is false
+    (every company's default today), none of this runs — output is byte-identical to before this
+    feature existed, confirmed as the primary regression check.
+  - **Employer-side contributions** (PF 12%, ESI 3.25% — no employer-side PT exists in India) are
+    computed and stored too, informational only: a new `payslip_components.category` enum value
+    `'employer_contribution'` (via the same standalone `ALTER TYPE ... ADD VALUE` pattern
+    Phase-5 v1 already established) rides the *existing* `PayslipComponent.bulkCreate` call for
+    free — the existing gross/deduction filters only match `earning`/`reimbursement`/`deduction`,
+    so this category is naturally excluded from `netPay` math with zero changes to that logic.
+    New `payslips.employer_contributions` and `payroll_runs.total_employer_contributions` rollup
+    columns.
+  - RBAC: no new permission codes — reused the existing `payroll_settings:update` (statutory
+    config), `salary_component:create/update` (`is_pf_wage`), and `employee:create/update`
+    (`work_state`) grants.
+  - **Frontend**: `PayrollSettingsForm.tsx`'s "reserved, not yet calculated" copy is now a real
+    editable panel (PF/ESI rate/ceiling/threshold fields; PT is enabled/disabled only — full
+    slab-table editing is out of scope, flagged as a follow-up alongside TDS). New
+    `utils/indianStates.ts` backs a "Work State" select on both `EmployeeFormModal.tsx` (create)
+    and `EmployeeDetailModal.tsx` (edit) — **caught a real bug before it shipped**: the initial
+    PT slab keys (`TamilNadu`, `WestBengal`) didn't match the human-readable dropdown values
+    (`Tamil Nadu`, `West Bengal`), which would have silently fallen back to the `default` slab for
+    every employee in those two states with zero error — fixed by changing the config keys to the
+    spaced form to match. `SalaryComponentFormModal.tsx` gained an `is_pf_wage` checkbox (earning
+    components only). `PayslipDetailModal.tsx`/`PayrollRunDetailModal.tsx` show employer
+    contributions in a clearly-separate, informational section/column.
+  - Verified live against Supabase (34/34 assertions): the false→true regression guard: PF
+    ceiling capping correctly (₹20,000 Basic capped to ₹15,000 basis) vs. not hit (₹10,000 basic);
+    ESI threshold correctly excluding a ₹28,000-gross employee and including a ₹10,000-gross one;
+    two different states' PT slabs (Karnataka flat ₹200, Maharashtra's ₹175 bracket); employer
+    contributions correctly excluded from `netPay` at both the payslip and run-total level; the
+    `is_pf_wage`-on-a-deduction-component rejection (400) at both create and update; an
+    unrecognized work state falling back to the `default` PT slab. `tsc -p tsconfig.app.json
+    --noEmit`, `eslint`, and `vite build` all pass clean. Migrations applied cleanly to dev
+    Supabase. Test fixtures hard-deleted afterward; one orphan company from a script crash mid-run
+    (an `ApprovalHistory.actorUserId` NOT NULL violation in the test script itself, not product
+    code) was caught by an explicit orphan-row check and cleaned up separately.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
-  System (see build order below), or extending Payroll with statutory deductions if that becomes
-  the priority instead.
+  System (see build order below), or TDS as a follow-up to the statutory deductions work above.
 
 ### Known gotcha — tenant-scope hook + system-level rows
 `tenant-scope.js` auto-filters queries by `company_id` whenever a tenant context is active.

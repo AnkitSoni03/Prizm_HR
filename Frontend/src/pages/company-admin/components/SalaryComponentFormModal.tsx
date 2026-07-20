@@ -28,6 +28,7 @@ export function SalaryComponentFormModal({ existingComponents, onClose, onSaved 
   const [calculationType, setCalculationType] = useState<CalculationType>('fixed_amount');
   const [defaultValue, setDefaultValue] = useState('');
   const [percentageOfComponentId, setPercentageOfComponentId] = useState('');
+  const [isPfWage, setIsPfWage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +48,7 @@ export function SalaryComponentFormModal({ existingComponents, onClose, onSaved 
         calculationType,
         defaultValue: defaultValue ? Number(defaultValue) : undefined,
         percentageOfComponentId: calculationType === 'percentage_of_component' ? percentageOfComponentId : undefined,
+        isPfWage: componentCategory === 'earning' ? isPfWage : undefined,
       });
       onSaved();
       onClose();
@@ -116,6 +118,23 @@ export function SalaryComponentFormModal({ existingComponents, onClose, onSaved 
           value={defaultValue}
           onChange={(event) => setDefaultValue(event.target.value)}
         />
+        {componentCategory === 'earning' && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border px-3 py-2.5 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={isPfWage}
+              onChange={(event) => setIsPfWage(event.target.checked)}
+            />
+            <span>
+              <span className="block text-sm font-medium text-ink">Counts toward PF wage</span>
+              <span className="block text-xs text-ink-muted">
+                Include this component (e.g. Basic, DA) in the Provident Fund wage basis when
+                statutory deductions are enabled.
+              </span>
+            </span>
+          </label>
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

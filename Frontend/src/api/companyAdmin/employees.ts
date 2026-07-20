@@ -37,6 +37,7 @@ export async function createEmployee(input: {
   managerId: string | null;
   dateOfJoining: string;
   employmentType: 'full_time' | 'part_time' | 'contract';
+  workState?: string;
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
   return data.data;
@@ -50,6 +51,7 @@ export async function updateEmployee(
     status: Employee['status'];
     dateOfJoining: string | null;
     managerId: string | null;
+    workState: string | null;
   }>
 ): Promise<Employee> {
   const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}`, input);

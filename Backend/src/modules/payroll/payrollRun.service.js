@@ -9,6 +9,8 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser } = require('../../utils/notifications');
 const { getOrCreateSettings } = require('./payrollSettings.service');
 const { getOverlappingStructures } = require('./salaryStructure.service');
+const { resolveStatutoryConfig } = require('../../config/statutoryDefaults');
+const { computeStatutoryDeductions } = require('./statutoryDeduction.service');
 
 // If the company's pay cycle starts on the 1st (the common case), the
 // period is simply the calendar month. If it starts mid-month (e.g. 26th),
@@ -144,6 +146,13 @@ async function processRun({ companyId, id, actorUserId }) {
   if (run.status !== 'draft') throw new HttpError(409, 'Payroll run is not in draft status');
 
   const employees = await db.Employee.findAll({ where: { companyId, status: 'active' } });
+  // Fetched once, company-wide — not per employee. If disabled (the default
+  // for every company today), nothing below this changes: no statutory
+  // entries are ever computed or injected.
+  const settings = await getOrCreateSettings(companyId);
+  const resolvedStatutoryConfig = settings.enableStatutoryDeductions
+    ? resolveStatutoryConfig(settings.statutoryConfig)
+    : null;
 
   const payslipNotifications = [];
 
@@ -151,6 +160,7 @@ async function processRun({ companyId, id, actorUserId }) {
     let totalGross = 0;
     let totalDeductions = 0;
     let totalNet = 0;
+    let totalEmployerContributions = 0;
 
     for (const employee of employees) {
       const structures = await getOverlappingStructures({
@@ -172,8 +182,15 @@ async function processRun({ companyId, id, actorUserId }) {
       let workingDaysTotal = 0;
       let payableDaysTotal = 0;
       // componentDefinitionId -> { category, name, amount }; a synthetic
-      // key is used for adjustments with no component_definition_id.
+      // key is used for adjustments (and, below, statutory deductions) with
+      // no component_definition_id.
       const componentTotals = new Map();
+      // Prorated sum of earning components flagged isPfWage (Basic/DA,
+      // typically) — accumulated in the same segment loop as componentTotals
+      // below, using the same prorated `amount`. Used only by the statutory
+      // PF calculation after grossEarnings is known; does not affect any
+      // existing proration/componentTotals math.
+      let pfWageAmount = 0;
       const currentStructure = structures.find((s) => s.status === 'active') || structures[structures.length - 1];
 
       for (const structure of structures) {
@@ -202,6 +219,8 @@ async function processRun({ companyId, id, actorUserId }) {
           const existing = componentTotals.get(key);
           if (existing) existing.amount += amount;
           else componentTotals.set(key, { category: definition.componentCategory, name: definition.name, amount });
+
+          if (definition.isPfWage) pfWageAmount += amount;
         }
       }
 
@@ -236,8 +255,33 @@ async function processRun({ companyId, id, actorUserId }) {
       const grossEarnings = [...componentTotals.values()]
         .filter((c) => c.category === 'earning' || c.category === 'reimbursement')
         .reduce((sum, c) => sum + c.amount, 0);
+
+      // Injected only when the company has opted in — every existing
+      // company defaults to enableStatutoryDeductions: false, so this is a
+      // no-op for them and output stays byte-identical to before this
+      // feature existed. Entries use string keys (never numeric definition
+      // ids), so they can't collide with the structure-component/adjustment
+      // entries already in componentTotals.
+      if (resolvedStatutoryConfig) {
+        const { employeeEntries, employerEntries } = computeStatutoryDeductions({
+          statutoryConfig: resolvedStatutoryConfig,
+          workState: employee.workState,
+          pfWageAmount,
+          grossEarnings,
+        });
+        for (const entry of employeeEntries) {
+          componentTotals.set(entry.key, { category: 'deduction', name: entry.name, amount: entry.amount });
+        }
+        for (const entry of employerEntries) {
+          componentTotals.set(entry.key, { category: 'employer_contribution', name: entry.name, amount: entry.amount });
+        }
+      }
+
       const employeeDeductions = [...componentTotals.values()]
         .filter((c) => c.category === 'deduction')
+        .reduce((sum, c) => sum + c.amount, 0);
+      const employerContributions = [...componentTotals.values()]
+        .filter((c) => c.category === 'employer_contribution')
         .reduce((sum, c) => sum + c.amount, 0);
       const netPay = Math.round((grossEarnings - employeeDeductions) * 100) / 100;
 
@@ -252,6 +296,7 @@ async function processRun({ companyId, id, actorUserId }) {
           payableDays: payableDaysTotal,
           grossEarnings: Math.round(grossEarnings * 100) / 100,
           totalDeductions: Math.round(employeeDeductions * 100) / 100,
+          employerContributions: Math.round(employerContributions * 100) / 100,
           netPay,
         },
         { transaction: t }
@@ -271,6 +316,7 @@ async function processRun({ companyId, id, actorUserId }) {
       totalGross += grossEarnings;
       totalDeductions += employeeDeductions;
       totalNet += netPay;
+      totalEmployerContributions += employerContributions;
 
       if (employee.userId) {
         payslipNotifications.push({
@@ -289,6 +335,7 @@ async function processRun({ companyId, id, actorUserId }) {
         totalGross: Math.round(totalGross * 100) / 100,
         totalDeductions: Math.round(totalDeductions * 100) / 100,
         totalNet: Math.round(totalNet * 100) / 100,
+        totalEmployerContributions: Math.round(totalEmployerContributions * 100) / 100,
       },
       { transaction: t }
     );

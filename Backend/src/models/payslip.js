@@ -26,6 +26,9 @@ module.exports = (sequelize, DataTypes) => {
       grossEarnings: { type: DataTypes.DECIMAL(14, 2), allowNull: false },
       totalDeductions: { type: DataTypes.DECIMAL(14, 2), allowNull: false },
       netPay: { type: DataTypes.DECIMAL(14, 2), allowNull: false },
+      // Employer-side statutory contributions (PF/ESI employer share) —
+      // informational only, never part of netPay.
+      employerContributions: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },
     },
     {
       sequelize,

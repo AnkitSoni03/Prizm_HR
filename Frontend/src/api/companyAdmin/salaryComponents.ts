@@ -14,6 +14,7 @@ export interface SalaryComponentDefinition {
   percentageOfComponentId: string | null;
   percentageOfComponent?: { id: string; code: string; name: string } | null;
   isStatutory: boolean;
+  isPfWage: boolean;
   isActive: boolean;
   taxable: boolean;
   displayOrder: number;
@@ -34,6 +35,7 @@ export async function createSalaryComponent(input: {
   defaultValue?: number;
   percentageOfComponentId?: string;
   displayOrder?: number;
+  isPfWage?: boolean;
 }): Promise<SalaryComponentDefinition> {
   const { data } = await apiClient.post<{ data: SalaryComponentDefinition }>('/payroll/components', input);
   return data.data;
@@ -41,7 +43,7 @@ export async function createSalaryComponent(input: {
 
 export async function updateSalaryComponent(
   id: string,
-  input: Partial<{ name: string; defaultValue: number; displayOrder: number; isActive: boolean }>
+  input: Partial<{ name: string; defaultValue: number; displayOrder: number; isActive: boolean; isPfWage: boolean }>
 ): Promise<SalaryComponentDefinition> {
   const { data } = await apiClient.patch<{ data: SalaryComponentDefinition }>(`/payroll/components/${id}`, input);
   return data.data;

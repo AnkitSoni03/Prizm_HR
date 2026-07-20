@@ -59,6 +59,7 @@ async function create(req, res, next) {
       userId,
       dateOfJoining,
       employmentType,
+      workState,
     } = req.body;
 
     // brandId is conditionally required (validated in the service against
@@ -92,6 +93,7 @@ async function create(req, res, next) {
       userId,
       dateOfJoining,
       employmentType,
+      workState,
     });
     res.status(201).json({ data: employee });
   } catch (err) {
