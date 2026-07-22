@@ -3,10 +3,13 @@ import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Tabs } from '../../../components/ui/Tabs';
+import { Avatar } from '../../../components/ui/Avatar';
 import { ShiftFormModal } from './ShiftFormModal';
 import { CreateRosterModal } from './CreateRosterModal';
 import { EmployeeFormModal } from './EmployeeFormModal';
 import { EditBrandModal } from './EditBrandModal';
+import { useConfirm } from '../../../context/confirm-context';
+import { useToast } from '../../../context/toast-context';
 import {
   deleteShift,
   listEmployees,
@@ -60,6 +63,8 @@ export function BrandCard({
   onDepartmentCreated,
   onDesignationCreated,
 }: BrandCardProps) {
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [panelTab, setPanelTab] = useState<PanelTab>('shifts');
   const [rosters, setRosters] = useState<ShiftRoster[] | null>(null);
@@ -103,12 +108,18 @@ export function BrandCard({
   }
 
   async function handleDeleteShift(shift: Shift) {
-    if (!window.confirm(`Delete shift "${shift.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete shift',
+      message: `Delete shift "${shift.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteShift(shift.id, companyId);
       onShiftsChanged();
     } catch {
-      window.alert('Could not delete this shift — it may still be in use by an employee shift or roster.');
+      showToast('Could not delete this shift — it may still be in use by an employee shift or roster.');
     }
   }
 
@@ -307,15 +318,18 @@ export function BrandCard({
                       key={employee.id}
                       className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-2.5"
                     >
-                      <div>
-                        <p className="text-sm font-medium text-ink">{employee.name}</p>
-                        <p className="text-xs text-ink-muted">
-                          {employee.employeeCode} ·{' '}
-                          {departments.find((d) => d.id === employee.departmentId)?.name ?? '—'}
-                          {employee.designationId
-                            ? ` · ${designations.find((d) => d.id === employee.designationId)?.title ?? '—'}`
-                            : ''}
-                        </p>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar src={employee.photoDownloadUrl} size="sm" />
+                        <div>
+                          <p className="text-sm font-medium text-ink">{employee.name}</p>
+                          <p className="text-xs text-ink-muted">
+                            {employee.employeeCode} ·{' '}
+                            {departments.find((d) => d.id === employee.departmentId)?.name ?? '—'}
+                            {employee.designationId
+                              ? ` · ${designations.find((d) => d.id === employee.designationId)?.title ?? '—'}`
+                              : ''}
+                          </p>
+                        </div>
                       </div>
                       <Badge tone={employee.status === 'active' ? 'success' : 'neutral'}>
                         {employee.status}

@@ -16,6 +16,7 @@ export interface EmployeeProfile {
   department?: { id: string; name: string };
   designation?: { id: string; title: string } | null;
   manager?: { id: string; name: string; employeeCode: string } | null;
+  photoDownloadUrl?: string | null;
 }
 
 export interface EmployeeDocument {
@@ -28,9 +29,11 @@ export interface EmployeeDocument {
   updatedAt: string;
 }
 
-// Read-only — profile changes go through Company Admin/HR, not self-service.
-// Both endpoints are gated employee:read_own / employee_document:read_own,
-// scoped server-side to the caller's own employeeId.
+// Read-only — profile changes go through Company Admin/HR, not self-service
+// (the one exception is the profile photo, self-uploadable via
+// api/myPhoto.ts's dedicated /employees/me/photo endpoint). Both endpoints
+// below are gated employee:read_own / employee_document:read_own, scoped
+// server-side to the caller's own employeeId.
 export async function getMyProfile(employeeId: string): Promise<EmployeeProfile> {
   const { data } = await apiClient.get<{ data: EmployeeProfile }>(`/employees/${employeeId}`);
   return data.data;

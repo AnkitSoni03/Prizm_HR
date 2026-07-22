@@ -8,13 +8,18 @@ import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { Tabs } from '../../../components/ui/Tabs';
 import { useAuth } from '../../../context/auth-context';
+import { useToast } from '../../../context/toast-context';
 import {
   assignEmployeePowers,
   getEmployee,
   updateEmployee,
   transferEmployee,
   inviteEmployeeUser,
+  uploadEmployeePhoto,
+  removeEmployeePhoto,
 } from '../../../api/companyAdmin/employees';
+import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
+import { Avatar } from '../../../components/ui/Avatar';
 import {
   listEmployeeDocuments,
   uploadEmployeeDocument,
@@ -41,6 +46,10 @@ interface EmployeeDetailModalProps {
   employees: Employee[];
   onClose: () => void;
   onUpdated: () => void;
+  // Separate from onUpdated (which also closes this modal, e.g. after
+  // saving Details/Transfer) — a photo change should refresh the parent's
+  // list (so its avatar picks up the new photo) without closing this modal.
+  onPhotoChanged?: () => void;
 }
 
 const EMPLOYMENT_TYPES = [
@@ -78,8 +87,10 @@ export function EmployeeDetailModal({
   employees,
   onClose,
   onUpdated,
+  onPhotoChanged,
 }: EmployeeDetailModalProps) {
   const { user, hasPermission } = useAuth();
+  const showToast = useToast();
   const usesBrands = user?.companyUsesBrands ?? true;
   const canUpdate = hasPermission('employee:update');
   const canTransfer = hasPermission('employee:transfer');
@@ -91,6 +102,9 @@ export function EmployeeDetailModal({
   const canAdjustLeaveBalance = hasPermission('leave_balance:adjust');
 
   const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'leaveBalance' | 'powers'>('details');
+
+  const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
 
   const [designationId, setDesignationId] = useState(employee.designationId ?? '');
   const [managerId, setManagerId] = useState(employee.managerId ?? '');
@@ -222,6 +236,32 @@ export function EmployeeDetailModal({
     }
   }
 
+  async function handlePhotoSelect(file: File) {
+    setIsSavingPhoto(true);
+    try {
+      const updated = await uploadEmployeePhoto(employee.id, file);
+      setPhotoDownloadUrl(updated.photoDownloadUrl ?? null);
+      onPhotoChanged?.();
+    } catch {
+      showToast('Could not upload the photo. Please try again.');
+    } finally {
+      setIsSavingPhoto(false);
+    }
+  }
+
+  async function handlePhotoRemove() {
+    setIsSavingPhoto(true);
+    try {
+      const updated = await removeEmployeePhoto(employee.id);
+      setPhotoDownloadUrl(updated.photoDownloadUrl ?? null);
+      onPhotoChanged?.();
+    } catch {
+      showToast('Could not remove the photo. Please try again.');
+    } finally {
+      setIsSavingPhoto(false);
+    }
+  }
+
   async function handleSaveDetails(event: FormEvent) {
     event.preventDefault();
     setDetailsError(null);
@@ -305,7 +345,7 @@ export function EmployeeDetailModal({
       const updated = await verifyEmployeeDocument(employee.id, doc.id);
       setDocuments((prev) => (prev ? prev.map((d) => (d.id === updated.id ? updated : d)) : prev));
     } catch {
-      window.alert('Could not verify this document.');
+      showToast('Could not verify this document.');
     }
   }
 
@@ -324,6 +364,18 @@ export function EmployeeDetailModal({
 
       {activeTab === 'details' && (
         <div className="space-y-6">
+          {canUpdate ? (
+            <PhotoUploadField
+              previewUrl={photoDownloadUrl}
+              onSelect={handlePhotoSelect}
+              onRemove={photoDownloadUrl ? handlePhotoRemove : undefined}
+              isBusy={isSavingPhoto}
+            />
+          ) : (
+            <div className="flex items-center gap-4">
+              <Avatar src={photoDownloadUrl} size="xl" />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-xl border border-border bg-page px-4 py-3 text-sm">
             <p className="text-ink-muted">Employee Code</p>
             <p className="text-ink">{employee.employeeCode}</p>

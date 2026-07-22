@@ -6,6 +6,7 @@ const { HttpError } = require('../../utils/errors');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
+const { withEmployeePhoto } = require('../../utils/employeePhoto');
 
 async function listRegularizations({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
@@ -25,7 +26,7 @@ async function listRegularizations({ companyId, brandId, employeeId, status, lim
     offset,
     order: [['id', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode'] },
+      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'photoUrl'] },
       { model: db.Attendance, as: 'attendance' },
       {
         model: db.User,
@@ -35,7 +36,7 @@ async function listRegularizations({ companyId, brandId, employeeId, status, lim
       },
     ],
   });
-  return { rows, count };
+  return { rows: await withEmployeePhoto(rows), count };
 }
 
 // Self-service only (attendance_regularization:request is Employee-only in

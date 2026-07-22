@@ -5,6 +5,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useAuth } from '../../../context/auth-context';
+import { useConfirm } from '../../../context/confirm-context';
 import {
   cancelPayrollRun,
   getPayrollRunHistory,
@@ -31,6 +32,7 @@ const STATUS_TONE: Record<PayrollRun['status'], 'success' | 'warning' | 'danger'
 
 export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDetailModalProps) {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [history, setHistory] = useState<PayrollRunHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,7 +65,12 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
   }, [currentRun.id]);
 
   async function handleProcess() {
-    if (!window.confirm(`Process payroll for ${currentRun.periodMonth}/${currentRun.periodYear}? Payslips will be generated for every active employee with a salary structure.`)) return;
+    const confirmed = await confirm({
+      title: 'Process payroll run',
+      message: `Process payroll for ${currentRun.periodMonth}/${currentRun.periodYear}? Payslips will be generated for every active employee with a salary structure.`,
+      confirmLabel: 'Process',
+    });
+    if (!confirmed) return;
     setIsActing(true);
     setError(null);
     try {
@@ -79,7 +86,12 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
   }
 
   async function handlePay() {
-    if (!window.confirm('Mark this payroll run as paid? Every employee will be notified.')) return;
+    const confirmed = await confirm({
+      title: 'Mark as paid',
+      message: 'Mark this payroll run as paid? Every employee will be notified.',
+      confirmLabel: 'Mark as Paid',
+    });
+    if (!confirmed) return;
     setIsActing(true);
     setError(null);
     try {
@@ -95,7 +107,13 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
   }
 
   async function handleCancel() {
-    if (!window.confirm('Cancel this draft payroll run?')) return;
+    const confirmed = await confirm({
+      title: 'Cancel payroll run',
+      message: 'Cancel this draft payroll run?',
+      confirmLabel: 'Cancel Run',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     setIsActing(true);
     setError(null);
     try {

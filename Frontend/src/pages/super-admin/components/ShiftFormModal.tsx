@@ -124,9 +124,7 @@ export function ShiftFormModal({ companyId, shift, shifts, onClose, onSaved }: S
     const existingForComparison = shifts.filter((s) => s.id !== shift?.id);
     const conflicts = findTimeConflicts(rows, existingForComparison);
     if (conflicts.length > 0) {
-      window.alert(
-        `Can't save — a shift with the same time already exists:\n\n${conflicts.join('\n')}`
-      );
+      setError(`Can't save — a shift with the same time already exists: ${conflicts.join(' ')}`);
       return;
     }
 

@@ -8,6 +8,7 @@ const { datesBetween, addDays } = require('../../utils/dateRange');
 const { getOrCreateBalance } = require('./leaveBalance.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
+const { withEmployeePhoto } = require('../../utils/employeePhoto');
 
 function yearOf(dateStr) {
   return Number(dateStr.slice(0, 4));
@@ -39,7 +40,7 @@ async function listLeaveRequests({ companyId, brandId, employeeId, status, limit
     offset,
     order: [['id', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode'] },
+      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'photoUrl'] },
       { model: db.LeaveType, as: 'leaveType' },
       {
         model: db.User,
@@ -49,7 +50,7 @@ async function listLeaveRequests({ companyId, brandId, employeeId, status, limit
       },
     ],
   });
-  return { rows, count };
+  return { rows: await withEmployeePhoto(rows), count };
 }
 
 async function getLeaveRequestForDecision({ companyId, id }) {

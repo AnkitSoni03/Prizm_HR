@@ -4,6 +4,7 @@ const { Router } = require('express');
 const controller = require('./employee.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission } = require('../../middleware/rbac.middleware');
+const { upload } = require('../../middleware/upload.middleware');
 const employeeDocumentRoutes = require('./employeeDocument.routes');
 
 const router = Router();
@@ -26,6 +27,13 @@ async function requireEmployeeReadAccess(req, res, next) {
   }
 }
 
+// Self-service photo routes, defined before '/:id/photo' so 'me' is never
+// swallowed by the :id param — no permission code (mirrors auth's own
+// change-password: managing your own profile photo isn't a resource-scoped
+// RBAC action).
+router.post('/me/photo', upload.single('photo'), controller.uploadMyPhoto);
+router.delete('/me/photo', controller.removeMyPhoto);
+
 router.get('/', requirePermission('employee:read'), controller.list);
 router.get('/:id', requireEmployeeReadAccess, controller.get);
 router.post('/', requirePermission('employee:create'), controller.create);
@@ -35,6 +43,8 @@ router.patch('/:id', requirePermission('employee:update'), controller.update);
 // user's explicit "all admins have right to assign that power".
 router.put('/:id/powers', requirePermission('employee:update'), controller.assignPowers);
 router.patch('/:id/transfer', requirePermission('employee:transfer'), controller.transfer);
+router.post('/:id/photo', requirePermission('employee:update'), upload.single('photo'), controller.uploadPhoto);
+router.delete('/:id/photo', requirePermission('employee:update'), controller.removePhoto);
 router.delete('/:id', requirePermission('employee:delete'), controller.remove);
 
 router.use('/:employeeId/documents', employeeDocumentRoutes);

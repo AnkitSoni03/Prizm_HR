@@ -50,4 +50,32 @@ async function getOwnPayslip({ companyId, employeeId, id }) {
   return payslip;
 }
 
-module.exports = { listPayslipsForRun, getPayslipForRead, listOwnPayslips, getOwnPayslip };
+// Used only by the PDF export path — eager-loads Company + Employee's
+// department/designation that the lean JSON loaders above don't need.
+// employeeId is set for the ESS own-path, omitted for the admin path.
+async function loadPayslipForPdf({ companyId, employeeId, id }) {
+  const where = { id, companyId };
+  if (employeeId != null) where.employeeId = employeeId;
+
+  const payslip = await db.Payslip.findOne({
+    where,
+    include: [
+      { model: db.Company, as: 'company', attributes: ['id', 'name', 'legalName', 'gstNumber'] },
+      {
+        model: db.Employee,
+        as: 'employee',
+        attributes: ['id', 'name', 'employeeCode'],
+        include: [
+          { model: db.Department, as: 'department', attributes: ['id', 'name'] },
+          { model: db.Designation, as: 'designation', attributes: ['id', 'title'] },
+        ],
+      },
+      { model: db.PayrollRun, as: 'payrollRun', attributes: ['id', 'periodMonth', 'periodYear', 'status'] },
+      COMPONENTS_INCLUDE,
+    ],
+  });
+  if (!payslip) throw new HttpError(404, 'Payslip not found');
+  return payslip;
+}
+
+module.exports = { listPayslipsForRun, getPayslipForRead, listOwnPayslips, getOwnPayslip, loadPayslipForPdf };

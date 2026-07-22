@@ -7,6 +7,7 @@ const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { datesBetween } = require('../../utils/dateRange');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
+const { withEmployeePhoto } = require('../../utils/employeePhoto');
 
 async function listOdRequests({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
@@ -34,7 +35,7 @@ async function listOdRequests({ companyId, brandId, employeeId, status, limit, o
     offset,
     order: [['id', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode'] },
+      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'photoUrl'] },
       {
         model: db.User,
         as: 'approverUser',
@@ -43,7 +44,7 @@ async function listOdRequests({ companyId, brandId, employeeId, status, limit, o
       },
     ],
   });
-  return { rows, count };
+  return { rows: await withEmployeePhoto(rows), count };
 }
 
 async function createOdRequest({ companyId, employeeId, fromDate, toDate, purpose, location }) {

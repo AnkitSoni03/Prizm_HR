@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { AdminInvitationPanel } from './AdminInvitationPanel';
 import { useAuth } from '../../../context/auth-context';
+import { useConfirm } from '../../../context/confirm-context';
 import {
   getCompanyAdminInvitation,
   inviteCompanyAdmin,
@@ -38,6 +39,7 @@ function statusTone(status: Company['status']) {
 
 export function EditCompanyModal({ company, plans, onClose, onSaved }: EditCompanyModalProps) {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
   // Group Admin/Company Admin both hold company:update (see
   // company.controller.js::update) so they can reach this modal too, but
   // neither holds user:invite or company:suspend — those stay Super-Admin-
@@ -74,7 +76,13 @@ export function EditCompanyModal({ company, plans, onClose, onSaved }: EditCompa
     event.preventDefault();
     setError(null);
     if (canChangeStatus && status !== company.status && status !== 'active') {
-      if (!window.confirm(`Set "${company.name}" to ${status}? This affects everyone in this company.`)) return;
+      const confirmed = await confirm({
+        title: 'Confirm status change',
+        message: `Set "${company.name}" to ${status}? This affects everyone in this company.`,
+        confirmLabel: 'Set Status',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
     }
     setIsSubmitting(true);
     try {

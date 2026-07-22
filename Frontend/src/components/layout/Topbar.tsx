@@ -1,8 +1,9 @@
-import { LogOut, Menu, Moon, Sun, UserRound } from 'lucide-react';
+import { LogOut, Menu, Moon, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
 import { NotificationBell } from '../NotificationBell';
+import { Avatar } from '../ui/Avatar';
 
 interface TopbarProps {
   title: string;
@@ -46,9 +47,7 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
         </button>
 
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-light text-primary">
-            <UserRound className="h-4 w-4" strokeWidth={2} />
-          </div>
+          <Avatar src={user?.photoUrl} alt={user?.email} />
           <span className="hidden text-sm text-ink-muted sm:inline">{user?.email ?? 'Account'}</span>
         </div>
 

@@ -12,6 +12,7 @@ import { listBrands, listDepartments, listDesignations } from '../../api/company
 import type { Brand, Department, Designation, Employee } from '../../api/tenancy';
 import { EmployeeFormModal } from './components/EmployeeFormModal';
 import { EmployeeDetailModal } from './components/EmployeeDetailModal';
+import { Avatar } from '../../components/ui/Avatar';
 
 const LIMIT = 20;
 
@@ -157,8 +158,9 @@ export function EmployeesPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedEmployee(employee)}
-                    className="font-medium text-ink hover:text-primary hover:underline"
+                    className="flex items-center gap-2.5 font-medium text-ink hover:text-primary hover:underline"
                   >
+                    <Avatar src={employee.photoDownloadUrl} size="sm" />
                     {employee.name ?? '—'}
                   </button>
                 ),
@@ -216,6 +218,7 @@ export function EmployeesPage() {
             loadEmployees();
             setSelectedEmployee(null);
           }}
+          onPhotoChanged={loadEmployees}
         />
       )}
     </div>

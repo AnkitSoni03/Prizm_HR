@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Table } from '../../components/ui/Table';
+import { PhotoUploadField } from '../../components/ui/PhotoUploadField';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
+import { useToast } from '../../context/toast-context';
 import { getMyProfile, listMyDocuments, type EmployeeDocument, type EmployeeProfile } from '../../api/ess/profile';
+import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 const EMPLOYMENT_TYPE_LABEL: Record<EmployeeProfile['employmentType'], string> = {
@@ -29,10 +32,12 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 export function MyProfilePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const showToast = useToast();
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
 
   useEffect(() => {
     if (!user?.employeeId) return;
@@ -62,6 +67,32 @@ export function MyProfilePage() {
     return <p className="text-sm text-ink-muted">Loading…</p>;
   }
 
+  async function handlePhotoSelect(file: File) {
+    setIsSavingPhoto(true);
+    try {
+      const updated = await uploadMyPhoto(file);
+      setProfile((prev) => (prev ? { ...prev, photoDownloadUrl: updated.photoDownloadUrl } : prev));
+      await refreshUser();
+    } catch {
+      showToast('Could not upload the photo. Please try again.');
+    } finally {
+      setIsSavingPhoto(false);
+    }
+  }
+
+  async function handlePhotoRemove() {
+    setIsSavingPhoto(true);
+    try {
+      const updated = await removeMyPhoto();
+      setProfile((prev) => (prev ? { ...prev, photoDownloadUrl: updated.photoDownloadUrl } : prev));
+      await refreshUser();
+    } catch {
+      showToast('Could not remove the photo. Please try again.');
+    } finally {
+      setIsSavingPhoto(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card p-6">
@@ -71,6 +102,15 @@ export function MyProfilePage() {
             <p className="text-sm text-ink-muted">{profile.employeeCode}</p>
           </div>
           <Badge tone={statusTone(profile.status)}>{profile.status.replace('_', ' ')}</Badge>
+        </div>
+
+        <div className="mb-5">
+          <PhotoUploadField
+            previewUrl={profile.photoDownloadUrl}
+            onSelect={handlePhotoSelect}
+            onRemove={profile.photoDownloadUrl ? handlePhotoRemove : undefined}
+            isBusy={isSavingPhoto}
+          />
         </div>
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">

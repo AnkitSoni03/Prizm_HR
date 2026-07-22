@@ -5,6 +5,8 @@ import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import {
   deleteDepartment,
   deleteDesignation,
@@ -20,6 +22,8 @@ type Tab = 'brands' | 'departments' | 'designations';
 
 export function OrganizationPage() {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [activeTab, setActiveTab] = useState<Tab>('brands');
 
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -51,22 +55,34 @@ export function OrganizationPage() {
   }, []);
 
   async function handleDeleteDepartment(department: Department) {
-    if (!window.confirm(`Delete department "${department.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete department',
+      message: `Delete department "${department.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDepartment(department.id);
       loadAll();
     } catch {
-      window.alert('Could not delete this department — it may still have employees assigned.');
+      showToast('Could not delete this department — it may still have employees assigned.');
     }
   }
 
   async function handleDeleteDesignation(designation: Designation) {
-    if (!window.confirm(`Delete designation "${designation.title}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete designation',
+      message: `Delete designation "${designation.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDesignation(designation.id);
       loadAll();
     } catch {
-      window.alert('Could not delete this designation — it may still have employees assigned.');
+      showToast('Could not delete this designation — it may still have employees assigned.');
     }
   }
 

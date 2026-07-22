@@ -8,6 +8,7 @@ import { Select } from '../../components/ui/Select';
 import { Pagination } from '../../components/ui/Pagination';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
+import { Avatar } from '../../components/ui/Avatar';
 import { useAuth } from '../../context/auth-context';
 import {
   approveCompOffCredit,
@@ -30,8 +31,19 @@ import {
   type CompOffCredit,
   type LeaveRequest,
   type OdRequest,
+  type RequestEmployee,
 } from '../../api/companyAdmin/approvals';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+
+function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; employeeId: string }) {
+  const label = employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
+  return (
+    <div className="flex items-center gap-2.5">
+      <Avatar src={employee?.photoDownloadUrl} size="sm" />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 type Tab = 'leave' | 'od' | 'regularization' | 'compOff';
 
@@ -256,7 +268,11 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
             rowKey={(r) => r.id}
             emptyMessage="No leave requests found."
             columns={[
-              { key: 'employee', header: 'Employee', render: (r) => r.employee?.employeeCode ?? r.employeeId },
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
               { key: 'type', header: 'Type', render: (r) => r.leaveType?.name ?? '—' },
               {
                 key: 'dates',
@@ -302,7 +318,11 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
             rowKey={(r) => r.id}
             emptyMessage="No OD requests found."
             columns={[
-              { key: 'employee', header: 'Employee', render: (r) => r.employee?.employeeCode ?? r.employeeId },
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
               {
                 key: 'dates',
                 header: 'Dates',
@@ -347,7 +367,11 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
             rowKey={(r) => r.id}
             emptyMessage="No regularization requests found."
             columns={[
-              { key: 'employee', header: 'Employee', render: (r) => r.employee?.employeeCode ?? r.employeeId },
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
               { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.attendance?.date) },
               { key: 'requestedStatus', header: 'Requested Status', render: (r) => r.requestedStatus },
               { key: 'reason', header: 'Reason', render: (r) => r.reason },
@@ -388,7 +412,11 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
             rowKey={(r) => r.id}
             emptyMessage="No comp-off credits found."
             columns={[
-              { key: 'employee', header: 'Employee', render: (r) => r.employee?.employeeCode ?? r.employeeId },
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
               { key: 'earnedDate', header: 'Earned Date', render: (r) => formatDisplayDate(r.earnedDate) },
               { key: 'expiryDate', header: 'Expiry Date', render: (r) => formatDisplayDate(r.expiryDate) },
               {

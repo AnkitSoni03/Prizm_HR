@@ -57,6 +57,9 @@ module.exports = (sequelize, DataTypes) => {
       // an unrecognized/blank value just falls back to the 'default' slab
       // (see statutoryDeduction.service.js).
       workState: { type: DataTypes.STRING, allowNull: true },
+      // GCS object path (private bucket), not a public URL — resolved to a
+      // signed download URL on read (see employee.service.js::withPhotoUrl).
+      photoUrl: { type: DataTypes.STRING, allowNull: true },
       employmentType: {
         type: DataTypes.ENUM('full_time', 'part_time', 'contract'),
         allowNull: false,

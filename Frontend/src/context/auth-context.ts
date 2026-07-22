@@ -16,6 +16,10 @@ export interface AuthUser {
   // null for Super Admin (no company of their own); otherwise whether the
   // caller's company operates with Brands or directly at the Company level.
   companyUsesBrands: boolean | null;
+  // Resolved from the caller's own linked Employee record (employeeId), if
+  // any — most pure admin accounts have none and this is simply null,
+  // falling back to the generic avatar icon.
+  photoUrl: string | null;
 }
 
 export interface AuthContextValue {
@@ -25,6 +29,11 @@ export interface AuthContextValue {
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
   hasPermission: (code: string) => boolean;
+  // Re-fetches GET /auth/me and updates the cached user — used after a
+  // self-service change that /auth/me reflects but the login flow already
+  // cached (e.g. uploading your own profile photo, so the Topbar avatar
+  // updates without a full page reload).
+  refreshUser: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);

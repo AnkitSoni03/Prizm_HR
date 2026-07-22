@@ -1,6 +1,6 @@
-import { UserRound } from 'lucide-react';
 import { useAuth } from '../context/auth-context';
 import type { AuthRole } from '../context/auth-context';
+import { Avatar } from './ui/Avatar';
 
 function scopeLabel(role: AuthRole): string {
   if (role.brandId) return 'Brand-scoped';
@@ -19,9 +19,7 @@ export function AccountProfileCard() {
   return (
     <div className="max-w-md rounded-xl border border-border bg-card p-5">
       <div className="mb-4 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-primary">
-          <UserRound className="h-5 w-5" strokeWidth={2} />
-        </div>
+        <Avatar src={user?.photoUrl} alt={user?.email} size="lg" />
         <div>
           <p className="text-sm font-semibold text-ink">{user?.email ?? '—'}</p>
           <p className="text-xs text-ink-muted">Account Profile</p>

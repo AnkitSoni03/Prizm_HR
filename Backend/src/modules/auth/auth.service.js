@@ -6,6 +6,7 @@ const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
 const { syncHrTeamRole } = require('../../utils/hrTeamSync');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
+const { getSignedDownloadUrl } = require('../../utils/gcs');
 const {
   signAccessToken,
   generateOpaqueToken,
@@ -391,6 +392,22 @@ async function getCurrentUser({ userId, companyId }) {
   // their own (companyId null), so this is null for that portal.
   const company = companyId ? await db.Company.findByPk(companyId, { attributes: ['usesBrands'] }) : null;
 
+  // Photo lives on the Employee record, not User (see the employee module) —
+  // only resolvable for a caller whose account is actually linked to one
+  // (ESS employees; most admin-only accounts have no employeeId and simply
+  // get null here, falling back to the generic avatar icon on the frontend).
+  let photoUrl = null;
+  if (user.employeeId) {
+    const employee = await db.Employee.findByPk(user.employeeId, { attributes: ['photoUrl'] });
+    if (employee && employee.photoUrl) {
+      try {
+        photoUrl = await getSignedDownloadUrl(employee.photoUrl);
+      } catch (err) {
+        console.error('Could not generate signed URL for profile photo:', err);
+      }
+    }
+  }
+
   return {
     id: user.id,
     email: user.email,
@@ -398,6 +415,7 @@ async function getCurrentUser({ userId, companyId }) {
     roles,
     permissions,
     companyUsesBrands: company ? company.usesBrands : null,
+    photoUrl,
   };
 }
 

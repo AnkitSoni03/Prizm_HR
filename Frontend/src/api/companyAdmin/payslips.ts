@@ -57,3 +57,13 @@ export async function getMyPayslip(id: string): Promise<Payslip> {
   const { data } = await apiClient.get<{ data: Payslip }>(`/payroll/payslips/mine/${id}`);
   return data.data;
 }
+
+export async function downloadPayslipPdf(id: string): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/payroll/payslips/${id}/pdf`, { responseType: 'blob' });
+  return data;
+}
+
+export async function downloadMyPayslipPdf(id: string): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(`/payroll/payslips/mine/${id}/pdf`, { responseType: 'blob' });
+  return data;
+}

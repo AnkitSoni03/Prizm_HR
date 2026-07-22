@@ -6,6 +6,8 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import { deleteShift, listShiftRosters, listShifts } from '../../api/companyAdmin/attendance';
 import { listBrands } from '../../api/companyAdmin/org';
 import { listEmployees } from '../../api/companyAdmin/employees';
@@ -21,6 +23,8 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function ShiftsRostersPage() {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [activeTab, setActiveTab] = useState<Tab>('shifts');
 
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -75,12 +79,18 @@ export function ShiftsRostersPage() {
   }, [activeTab, brandFilter]);
 
   async function handleDeleteShift(shift: Shift) {
-    if (!window.confirm(`Delete shift "${shift.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete shift',
+      message: `Delete shift "${shift.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteShift(shift.id);
       loadShifts();
     } catch {
-      window.alert('Could not delete this shift — it may still be in use by an employee shift or roster.');
+      showToast('Could not delete this shift — it may still be in use by an employee shift or roster.');
     }
   }
 

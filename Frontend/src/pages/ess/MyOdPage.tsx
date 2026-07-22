@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
+import { useConfirm } from '../../context/confirm-context';
 import { cancelOdRequest, createOdRequest, listMyOdRequests, type OdRequest } from '../../api/ess/od';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
@@ -34,6 +35,7 @@ function formatDate(d: Date): string {
 }
 
 export function MyOdPage() {
+  const confirm = useConfirm();
   const [requests, setRequests] = useState<OdRequest[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [offset, setOffset] = useState(0);
@@ -95,7 +97,13 @@ export function MyOdPage() {
   }
 
   async function handleCancel(id: string) {
-    if (!window.confirm('Cancel this OD request?')) return;
+    const confirmed = await confirm({
+      title: 'Cancel OD request',
+      message: 'Cancel this OD request?',
+      confirmLabel: 'Cancel Request',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     await cancelOdRequest(id);
     load();
   }

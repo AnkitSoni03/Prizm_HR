@@ -77,6 +77,20 @@ export async function assignEmployeePowers(id: string, powerKeys: string[]): Pro
   return data.data;
 }
 
+// Replaces this employee's photo wholesale — optional, file-based (not a
+// URL field). Any previous photo is deleted server-side.
+export async function uploadEmployeePhoto(id: string, file: File): Promise<Employee> {
+  const formData = new FormData();
+  formData.append('photo', file);
+  const { data } = await apiClient.post<{ data: Employee }>(`/employees/${id}/photo`, formData);
+  return data.data;
+}
+
+export async function removeEmployeePhoto(id: string): Promise<Employee> {
+  const { data } = await apiClient.delete<{ data: Employee }>(`/employees/${id}/photo`);
+  return data.data;
+}
+
 // Invites this employee's occupant to log in to the ESS portal — creates a
 // login-capable User linked to this employee record (users.employee_id) and
 // an Invitation carrying the Employee role, same activation-link pattern as

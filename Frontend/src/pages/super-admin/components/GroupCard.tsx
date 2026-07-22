@@ -5,6 +5,8 @@ import { Button } from '../../../components/ui/Button';
 import { CreateCompanyModal } from './CreateCompanyModal';
 import { EditGroupModal } from './EditGroupModal';
 import { CompanyCard } from './CompanyCard';
+import { useConfirm } from '../../../context/confirm-context';
+import { useToast } from '../../../context/toast-context';
 import { deleteGroup, listCompanies, type Company, type Group, type Plan } from '../../../api/tenancy';
 
 interface GroupCardProps {
@@ -30,6 +32,8 @@ export function GroupCard({
   onDeleted,
   onSaved,
 }: GroupCardProps) {
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [companies, setCompanies] = useState<Company[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -60,12 +64,18 @@ export function GroupCard({
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Delete group "${group.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete group',
+      message: `Delete group "${group.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteGroup(group.id);
       onDeleted();
     } catch {
-      window.alert('Could not delete this group — it may still have active companies under it.');
+      showToast('Could not delete this group — it may still have active companies under it.');
     }
   }
 

@@ -3,6 +3,7 @@ import { FileText, Paperclip } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { useToast } from '../../../context/toast-context';
 import {
   createCompanyPolicy,
   updateCompanyPolicy,
@@ -20,6 +21,7 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalProps) {
   const isEdit = !!policy;
+  const showToast = useToast();
   const [title, setTitle] = useState(policy?.title ?? '');
   const [body, setBody] = useState(policy?.body ?? '');
   const [file, setFile] = useState<File | null>(null);
@@ -53,7 +55,7 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
         try {
           await uploadPolicyAttachment(saved.id, file);
         } catch {
-          window.alert(
+          showToast(
             `"${title}" was saved, but the attachment could not be uploaded. You can try again from the edit form.`
           );
         }

@@ -7,6 +7,7 @@ const { isHoliday, isWeeklyOff } = require('../../utils/workingDays');
 const { addDays } = require('../../utils/dateRange');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
+const { withEmployeePhoto } = require('../../utils/employeePhoto');
 
 // PHASE4_MODELS.md's stated default; no company-level setting exists yet to
 // make this configurable (flagged as a follow-up rather than invented here).
@@ -76,7 +77,7 @@ async function listCompOffCredits({ companyId, brandId, employeeId, status, limi
     offset,
     order: [['earnedDate', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode'] },
+      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'photoUrl'] },
       {
         model: db.User,
         as: 'approverUser',
@@ -85,7 +86,7 @@ async function listCompOffCredits({ companyId, brandId, employeeId, status, limi
       },
     ],
   });
-  return { rows, count };
+  return { rows: await withEmployeePhoto(rows), count };
 }
 
 async function getCompOffCreditForDecision({ companyId, id }) {

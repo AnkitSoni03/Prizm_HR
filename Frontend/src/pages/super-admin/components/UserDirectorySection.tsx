@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { Pagination } from '../../../components/ui/Pagination';
+import { Avatar } from '../../../components/ui/Avatar';
 import type { Employee } from '../../../api/tenancy';
 
 export interface DirectorySection {
@@ -61,11 +62,14 @@ export function UserDirectorySection({ section }: { section: DirectorySection })
             key={employee.id}
             className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-page px-4 py-2.5"
           >
-            <div>
-              <p className="text-sm font-medium text-ink">{employee.name ?? '—'}</p>
-              <p className="text-xs text-ink-muted">
-                {employee.employeeCode} · {employee.employmentType.replace('_', ' ')}
-              </p>
+            <div className="flex items-center gap-2.5">
+              <Avatar src={employee.photoDownloadUrl} size="sm" />
+              <div>
+                <p className="text-sm font-medium text-ink">{employee.name ?? '—'}</p>
+                <p className="text-xs text-ink-muted">
+                  {employee.employeeCode} · {employee.employmentType.replace('_', ' ')}
+                </p>
+              </div>
             </div>
             <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>
           </div>

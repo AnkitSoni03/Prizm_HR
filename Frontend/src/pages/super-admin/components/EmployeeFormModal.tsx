@@ -5,10 +5,13 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { useAuth } from '../../../context/auth-context';
+import { useToast } from '../../../context/toast-context';
+import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import {
   createDepartment,
   createDesignation,
   createEmployee,
+  uploadEmployeePhoto,
   type Department,
   type Designation,
   type Employee,
@@ -49,6 +52,7 @@ export function EmployeeFormModal({
   onDesignationCreated,
 }: EmployeeFormModalProps) {
   const { hasPermission } = useAuth();
+  const showToast = useToast();
   const canCreateDepartment = hasPermission('department:create');
   const canCreateDesignation = hasPermission('designation:create');
 
@@ -63,6 +67,7 @@ export function EmployeeFormModal({
   const [employmentType, setEmploymentType] = useState<'full_time' | 'part_time' | 'contract'>(
     'full_time'
   );
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +90,7 @@ export function EmployeeFormModal({
         resolvedDesignationId = designation.id;
       }
 
-      await createEmployee({
+      const employee = await createEmployee({
         companyId,
         name,
         employeeCode,
@@ -96,6 +101,20 @@ export function EmployeeFormModal({
         dateOfJoining,
         employmentType,
       });
+
+      // Non-blocking, same as elsewhere — the employee already exists at
+      // this point, so a photo upload failure shouldn't be conflated with
+      // "employee creation failed".
+      if (photoFile) {
+        try {
+          await uploadEmployeePhoto(employee.id, photoFile);
+        } catch {
+          showToast(
+            `${employee.name ?? employee.employeeCode} was created, but the photo could not be uploaded.`
+          );
+        }
+      }
+
       onCreated();
       onClose();
     } catch (err) {
@@ -121,6 +140,7 @@ export function EmployeeFormModal({
             {error}
           </div>
         )}
+        <PhotoUploadField previewUrl={null} onSelect={setPhotoFile} />
         <Input
           id="employee-name"
           label="Name"

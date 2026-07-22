@@ -5,6 +5,8 @@ import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import { deleteShift, listShiftRosters, listShifts } from '../../api/companyAdmin/attendance';
 import { listBrands } from '../../api/companyAdmin/org';
 import { listEmployees } from '../../api/companyAdmin/employees';
@@ -29,6 +31,8 @@ const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // 20260711100000-seed-group-brand-admin-portal-permissions.js).
 export function ShiftsRostersPage() {
   const { user, hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const brandId = user?.roles.find((role) => role.name === 'Brand Admin')?.brandId ?? null;
   const ownBrand = useOwnBrand(brandId);
 
@@ -52,12 +56,18 @@ export function ShiftsRostersPage() {
   }
 
   async function handleDeleteShift(shift: Shift) {
-    if (!window.confirm(`Delete shift "${shift.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete shift',
+      message: `Delete shift "${shift.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteShift(shift.id);
       loadShifts();
     } catch {
-      window.alert('Could not delete this shift — it may still be in use by an employee shift or roster.');
+      showToast('Could not delete this shift — it may still be in use by an employee shift or roster.');
     }
   }
 

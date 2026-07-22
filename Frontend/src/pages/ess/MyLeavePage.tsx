@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
+import { useConfirm } from '../../context/confirm-context';
 import {
   cancelLeaveRequest,
   createLeaveRequest,
@@ -41,6 +42,7 @@ function formatDate(d: Date): string {
 }
 
 export function MyLeavePage() {
+  const confirm = useConfirm();
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
@@ -109,7 +111,13 @@ export function MyLeavePage() {
   }
 
   async function handleCancel(id: string) {
-    if (!window.confirm('Cancel this leave request?')) return;
+    const confirmed = await confirm({
+      title: 'Cancel leave request',
+      message: 'Cancel this leave request?',
+      confirmLabel: 'Cancel Request',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     await cancelLeaveRequest(id);
     loadRequests();
   }

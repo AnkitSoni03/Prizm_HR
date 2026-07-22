@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Building2, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { EditCompanyModal } from './EditCompanyModal';
+import { useConfirm } from '../../../context/confirm-context';
+import { useToast } from '../../../context/toast-context';
 import { deleteCompany, type Company, type Plan } from '../../../api/tenancy';
 
 interface CompanyCardProps {
@@ -27,6 +29,8 @@ function companyStatusTone(status: Company['status']) {
 // inline here.
 export function CompanyCard({ company, plans, canDeleteCompany, canEdit, onDeleted, onSaved }: CompanyCardProps) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const planName = plans.find((plan) => plan.id === company.planId)?.name ?? '—';
   const detailPath = `/super-admin/companies/${company.id}`;
@@ -49,12 +53,18 @@ export function CompanyCard({ company, plans, canDeleteCompany, canEdit, onDelet
 
   async function handleDeleteCompany(event: MouseEvent) {
     event.stopPropagation();
-    if (!window.confirm(`Delete company "${company.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete company',
+      message: `Delete company "${company.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteCompany(company.id);
       onDeleted();
     } catch {
-      window.alert('Could not delete this company — it may still have active brands, employees, or users.');
+      showToast('Could not delete this company — it may still have active brands, employees, or users.');
     }
   }
 

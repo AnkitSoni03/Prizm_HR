@@ -4,6 +4,8 @@ import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import { holidayAuditName as policyAuditName } from '../../api/companyAdmin/holidays';
 import {
   deleteCompanyPolicy,
@@ -20,6 +22,8 @@ interface CompanyPoliciesPageProps {
 
 export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPageProps = {}) {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const canCreate = hasPermission('company_policy:create');
   const canUpdate = hasPermission('company_policy:update');
   const canDelete = hasPermission('company_policy:delete');
@@ -49,12 +53,18 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
   }, [extraParams.companyId]);
 
   async function handleDelete(policy: CompanyPolicy) {
-    if (!window.confirm(`Delete policy "${policy.title}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete policy',
+      message: `Delete policy "${policy.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteCompanyPolicy(policy.id);
       loadPolicies();
     } catch {
-      window.alert('Could not delete this policy.');
+      showToast('Could not delete this policy.');
     }
   }
 

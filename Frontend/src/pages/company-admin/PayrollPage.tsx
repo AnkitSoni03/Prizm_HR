@@ -10,6 +10,8 @@ import { Button } from '../../components/ui/Button';
 import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import type { Employee } from '../../api/tenancy';
 import { PayrollSettingsForm } from './components/PayrollSettingsForm';
@@ -79,6 +81,7 @@ export function PayrollPage() {
 }
 
 function ComponentsTab({ canWrite }: { canWrite: boolean }) {
+  const showToast = useToast();
   const [components, setComponents] = useState<SalaryComponentDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +110,7 @@ function ComponentsTab({ canWrite }: { canWrite: boolean }) {
       else await updateSalaryComponent(component.id, { isActive: true });
       load();
     } catch {
-      window.alert('Could not update this component.');
+      showToast('Could not update this component.');
     }
   }
 
@@ -317,6 +320,8 @@ const ADJUSTMENT_STATUS_TONE: Record<PayrollAdjustment['status'], 'success' | 'w
 };
 
 function AdjustmentsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: boolean }) {
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [adjustments, setAdjustments] = useState<PayrollAdjustment[]>([]);
   const [total, setTotal] = useState(0);
@@ -352,12 +357,18 @@ function AdjustmentsTab({ canCreate, canDelete }: { canCreate: boolean; canDelet
   }, []);
 
   async function handleCancel(adjustment: PayrollAdjustment) {
-    if (!window.confirm('Cancel this pending adjustment?')) return;
+    const confirmed = await confirm({
+      title: 'Cancel adjustment',
+      message: 'Cancel this pending adjustment?',
+      confirmLabel: 'Cancel Adjustment',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await cancelPayrollAdjustment(adjustment.id);
       load();
     } catch {
-      window.alert('Could not cancel this adjustment.');
+      showToast('Could not cancel this adjustment.');
     }
   }
 

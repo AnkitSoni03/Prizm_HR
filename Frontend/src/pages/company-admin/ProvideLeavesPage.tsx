@@ -5,6 +5,7 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { Avatar } from '../../components/ui/Avatar';
 import { useAuth } from '../../context/auth-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments } from '../../api/companyAdmin/org';
@@ -197,7 +198,16 @@ export function ProvideLeavesPage() {
                   />
                 ),
               },
-              { key: 'name', header: 'Name', render: (employee) => employee.name ?? '—' },
+              {
+                key: 'name',
+                header: 'Name',
+                render: (employee) => (
+                  <div className="flex items-center gap-2.5">
+                    <Avatar src={employee.photoDownloadUrl} size="sm" />
+                    {employee.name ?? '—'}
+                  </div>
+                ),
+              },
               { key: 'code', header: 'Code', render: (employee) => employee.employeeCode },
               {
                 key: 'department',

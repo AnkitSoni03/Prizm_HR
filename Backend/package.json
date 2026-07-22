@@ -13,6 +13,7 @@
   "type": "commonjs",
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@simplewebauthn/server": "^13.3.2",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
@@ -26,6 +27,7 @@
     "nodemailer": "^9.0.3",
     "pg": "^8.22.0",
     "pg-hstore": "^2.3.4",
+    "react": "^19.2.7",
     "sequelize": "^6.37.8"
   },
   "devDependencies": {

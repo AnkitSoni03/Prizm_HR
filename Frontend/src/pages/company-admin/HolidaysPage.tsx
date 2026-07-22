@@ -5,12 +5,16 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import { deleteHoliday, holidayAuditName, listHolidays, type Holiday } from '../../api/companyAdmin/holidays';
 import { HolidayFormModal } from './components/HolidayFormModal';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 export function HolidaysPage() {
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const canCreate = hasPermission('holiday:create');
   const canUpdate = hasPermission('holiday:update');
   const canDelete = hasPermission('holiday:delete');
@@ -39,12 +43,18 @@ export function HolidaysPage() {
   }, []);
 
   async function handleDelete(holiday: Holiday) {
-    if (!window.confirm(`Delete holiday "${holiday.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete holiday',
+      message: `Delete holiday "${holiday.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteHoliday(holiday.id);
       loadHolidays();
     } catch {
-      window.alert('Could not delete this holiday.');
+      showToast('Could not delete this holiday.');
     }
   }
 

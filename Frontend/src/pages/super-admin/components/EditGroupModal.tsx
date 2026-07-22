@@ -4,6 +4,7 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { AdminInvitationPanel } from './AdminInvitationPanel';
+import { useConfirm } from '../../../context/confirm-context';
 import {
   getGroupAdminInvitation,
   inviteGroupAdmin,
@@ -21,6 +22,7 @@ interface EditGroupModalProps {
 }
 
 export function EditGroupModal({ group, plans, onClose, onSaved }: EditGroupModalProps) {
+  const confirm = useConfirm();
   const [name, setName] = useState(group.name);
   const [status, setStatus] = useState(group.status);
   const [planId, setPlanId] = useState(group.planId ?? '');
@@ -46,7 +48,13 @@ export function EditGroupModal({ group, plans, onClose, onSaved }: EditGroupModa
     event.preventDefault();
     setError(null);
     if (status !== group.status && status !== 'active') {
-      if (!window.confirm(`Set "${group.name}" to ${status}? This affects every company under it.`)) return;
+      const confirmed = await confirm({
+        title: 'Confirm status change',
+        message: `Set "${group.name}" to ${status}? This affects every company under it.`,
+        confirmLabel: 'Set Status',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
     }
     setIsSubmitting(true);
     try {

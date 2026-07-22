@@ -4,10 +4,12 @@ import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
-import { assignEmployeePowers, createEmployee } from '../../../api/companyAdmin/employees';
+import { assignEmployeePowers, createEmployee, uploadEmployeePhoto } from '../../../api/companyAdmin/employees';
 import { createDepartment, createDesignation } from '../../../api/companyAdmin/org';
 import { useAuth } from '../../../context/auth-context';
+import { useToast } from '../../../context/toast-context';
 import { PowerAssignment } from '../../../components/PowerAssignment';
+import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import { INDIAN_STATES } from '../../../utils/indianStates';
 
@@ -44,6 +46,7 @@ export function EmployeeFormModal({
   onDesignationCreated,
 }: EmployeeFormModalProps) {
   const { user, hasPermission } = useAuth();
+  const showToast = useToast();
   const usesBrands = user?.companyUsesBrands ?? true;
   const canCreateDepartment = hasPermission('department:create');
   const canCreateDesignation = hasPermission('designation:create');
@@ -64,6 +67,7 @@ export function EmployeeFormModal({
   const [employmentType, setEmploymentType] = useState<'full_time' | 'part_time' | 'contract'>('full_time');
   const [workState, setWorkState] = useState('');
   const [powerKeys, setPowerKeys] = useState<string[]>([]);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -106,8 +110,20 @@ export function EmployeeFormModal({
         try {
           await assignEmployeePowers(employee.id, powerKeys);
         } catch {
-          window.alert(
+          showToast(
             `${employee.name ?? employee.employeeCode} was created, but the selected powers could not be assigned. You can assign them from the employee's details.`
+          );
+        }
+      }
+
+      // Same non-blocking treatment as powers — the photo is optional and
+      // can always be added later from the edit modal.
+      if (photoFile) {
+        try {
+          await uploadEmployeePhoto(employee.id, photoFile);
+        } catch {
+          showToast(
+            `${employee.name ?? employee.employeeCode} was created, but the photo could not be uploaded. You can add it from the employee's details.`
           );
         }
       }
@@ -134,6 +150,7 @@ export function EmployeeFormModal({
             {error}
           </div>
         )}
+        <PhotoUploadField previewUrl={null} onSelect={setPhotoFile} />
         <Input
           id="employee-name"
           label="Name"

@@ -69,6 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user]
   );
 
+  const refreshUser = useCallback(async () => {
+    const profile = await fetchCurrentUser();
+    setUser(profile);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -77,8 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       hasPermission,
+      refreshUser,
     }),
-    [user, isLoading, login, logout, hasPermission]
+    [user, isLoading, login, logout, hasPermission, refreshUser]
   );
 
   // Block on the one-time session check before mounting routes, so

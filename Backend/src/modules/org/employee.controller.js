@@ -167,4 +167,93 @@ async function assignPowers(req, res, next) {
   }
 }
 
-module.exports = { list, get, create, update, transfer, remove, assignPowers };
+async function uploadPhoto(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'file is required' });
+    }
+
+    const employee = await service.uploadEmployeePhoto({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+    });
+    res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removePhoto(req, res, next) {
+  try {
+    const employee = await service.removeEmployeePhoto({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
+    res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Self-service variants — the caller uploads/removes their own photo via
+// their own JWT-carried employeeId, no employee:update permission needed
+// (mirrors auth.controller.js's change-password: managing your own basic
+// profile attribute isn't a resource-scoped RBAC action).
+async function uploadMyPhoto(req, res, next) {
+  try {
+    if (!req.auth.employeeId) {
+      return res.status(400).json({ error: 'No employee record linked to this account' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'file is required' });
+    }
+
+    const employee = await service.uploadEmployeePhoto({
+      companyId: req.auth.companyId,
+      id: req.auth.employeeId,
+      scopedBrandIds: undefined,
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+    });
+    res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeMyPhoto(req, res, next) {
+  try {
+    if (!req.auth.employeeId) {
+      return res.status(400).json({ error: 'No employee record linked to this account' });
+    }
+
+    const employee = await service.removeEmployeePhoto({
+      companyId: req.auth.companyId,
+      id: req.auth.employeeId,
+      scopedBrandIds: undefined,
+    });
+    res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  list,
+  get,
+  create,
+  update,
+  transfer,
+  remove,
+  assignPowers,
+  uploadPhoto,
+  removePhoto,
+  uploadMyPhoto,
+  removeMyPhoto,
+};

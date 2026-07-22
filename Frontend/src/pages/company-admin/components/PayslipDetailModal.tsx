@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { Badge } from '../../../components/ui/Badge';
-import { getPayslip, getMyPayslip, type Payslip } from '../../../api/companyAdmin/payslips';
+import { Button } from '../../../components/ui/Button';
+import {
+  getPayslip,
+  getMyPayslip,
+  downloadPayslipPdf,
+  downloadMyPayslipPdf,
+  type Payslip,
+} from '../../../api/companyAdmin/payslips';
+import { triggerBlobDownload } from '../../../utils/downloadBlob';
 
 interface PayslipDetailModalProps {
   payslipId: string;
@@ -18,6 +27,7 @@ export function PayslipDetailModal({ payslipId, own, title = 'Payslip', onClose 
   const [payslip, setPayslip] = useState<Payslip | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +53,23 @@ export function PayslipDetailModal({ payslipId, own, title = 'Payslip', onClose 
   const deductions = payslip?.components?.filter((c) => c.category === 'deduction') ?? [];
   const employerContributions = payslip?.components?.filter((c) => c.category === 'employer_contribution') ?? [];
 
+  async function handleDownload() {
+    if (!payslip) return;
+    setIsDownloading(true);
+    try {
+      const blob = await (own ? downloadMyPayslipPdf(payslipId) : downloadPayslipPdf(payslipId));
+      const period = payslip.payrollRun
+        ? `${payslip.payrollRun.periodYear}-${String(payslip.payrollRun.periodMonth).padStart(2, '0')}`
+        : 'payslip';
+      const code = payslip.employee?.employeeCode ?? payslip.employeeId;
+      triggerBlobDownload(blob, `payslip-${period}-${code}.pdf`);
+    } catch {
+      setError('Could not download the PDF.');
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   return (
     <Modal title={title} onClose={onClose} widthClassName="max-w-lg">
       {isLoading && (
@@ -58,9 +85,21 @@ export function PayslipDetailModal({ payslipId, own, title = 'Payslip', onClose 
             <p className="text-sm text-ink-muted">
               {payslip.payrollRun ? `${payslip.payrollRun.periodMonth}/${payslip.payrollRun.periodYear}` : '—'}
             </p>
-            {payslip.payrollRun && (
-              <Badge tone={payslip.payrollRun.status === 'paid' ? 'success' : 'neutral'}>{payslip.payrollRun.status}</Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {payslip.payrollRun && (
+                <Badge tone={payslip.payrollRun.status === 'paid' ? 'success' : 'neutral'}>{payslip.payrollRun.status}</Badge>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                className="px-2.5 py-1.5 text-xs"
+                isLoading={isDownloading}
+                onClick={handleDownload}
+              >
+                <Download className="h-3.5 w-3.5" strokeWidth={1.75} />
+                PDF
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2 rounded-xl border border-border bg-page px-3 py-2.5 text-center text-sm">

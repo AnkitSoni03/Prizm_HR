@@ -5,6 +5,8 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Tabs } from '../../components/ui/Tabs';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
+import { useToast } from '../../context/toast-context';
 import { CreateBrandModal } from './components/CreateBrandModal';
 import { EditCompanyModal } from './components/EditCompanyModal';
 import { BrandCard } from './components/BrandCard';
@@ -45,6 +47,8 @@ export function CompanyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
+  const confirm = useConfirm();
+  const showToast = useToast();
 
   const [activeTab, setActiveTab] = useState<Tab>('brands');
   const [company, setCompany] = useState<Company | null>(null);
@@ -142,23 +146,35 @@ export function CompanyDetailPage() {
 
   async function handleDeleteDepartment(department: Department) {
     if (!company) return;
-    if (!window.confirm(`Delete department "${department.name}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete department',
+      message: `Delete department "${department.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDepartment(department.id, company.id);
       loadDepartments(company.id);
     } catch {
-      window.alert('Could not delete this department — it may still have employees assigned.');
+      showToast('Could not delete this department — it may still have employees assigned.');
     }
   }
 
   async function handleDeleteDesignation(designation: Designation) {
     if (!company) return;
-    if (!window.confirm(`Delete designation "${designation.title}"? This cannot be undone.`)) return;
+    const confirmed = await confirm({
+      title: 'Delete designation',
+      message: `Delete designation "${designation.title}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteDesignation(designation.id, company.id);
       loadDesignations(company.id);
     } catch {
-      window.alert('Could not delete this designation — it may still have employees assigned.');
+      showToast('Could not delete this designation — it may still have employees assigned.');
     }
   }
 

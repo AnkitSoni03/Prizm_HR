@@ -1,11 +1,29 @@
 'use strict';
 
+const crypto = require('crypto');
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { syncHrTeamRole } = require('../../utils/hrTeamSync');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { POWER_KEYS, permissionCodesForKeys } = require('../../config/powerCatalog');
+const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
+
+// photoUrl stores an internal GCS object path (private bucket), same
+// convention as company_policies.file_url — never handed to the frontend
+// directly. Every response mints a fresh, short-lived v4 signed URL as
+// photoDownloadUrl instead. Falls back to null (not a throw) on a GCS
+// hiccup so a signing outage never breaks an employee list/read.
+async function withPhotoUrl(employee) {
+  const plain = employee.toJSON ? employee.toJSON() : employee;
+  if (!plain.photoUrl) return { ...plain, photoDownloadUrl: null };
+  try {
+    return { ...plain, photoDownloadUrl: await getSignedDownloadUrl(plain.photoUrl) };
+  } catch (err) {
+    console.error('Could not generate signed URL for employee photo:', err);
+    return { ...plain, photoDownloadUrl: null };
+  }
+}
 
 async function assertBelongsToCompany(model, id, companyId, label) {
   const row = await model.findOne({ where: { id, companyId } });
@@ -40,7 +58,7 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
     offset,
     order: [['id', 'ASC']],
   });
-  return { rows, count };
+  return { rows: await Promise.all(rows.map(withPhotoUrl)), count };
 }
 
 // Includes brand/department/designation/manager names — the Employee role
@@ -66,7 +84,7 @@ async function getEmployeeForRead(id) {
     ],
   });
   if (!employee) throw new HttpError(404, 'Employee not found');
-  return employee;
+  return withPhotoUrl(employee);
 }
 
 // Mutations don't benefit from the tenant-scope hook (it only covers
@@ -133,7 +151,7 @@ async function createEmployee({
   }
 
   try {
-    return await db.Employee.create({
+    const employee = await db.Employee.create({
       companyId,
       name,
       employeeCode,
@@ -147,6 +165,7 @@ async function createEmployee({
       workState: workState || null,
       status: 'onboarding',
     });
+    return withPhotoUrl(employee);
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       throw new HttpError(409, 'employeeCode already in use for this company');
@@ -172,7 +191,7 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   if (patch.designationId) await assertBelongsToCompany(db.Designation, patch.designationId, companyId, 'Designation');
 
   await employee.update(patch);
-  return employee;
+  return withPhotoUrl(employee);
 }
 
 async function transferEmployee({ companyId, id, brandId, departmentId, scopedBrandIds }) {
@@ -222,7 +241,7 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
     }
   }
 
-  return employee;
+  return withPhotoUrl(employee);
 }
 
 async function deleteEmployee({ companyId, id, scopedBrandIds }) {
@@ -306,6 +325,50 @@ async function assignEmployeePowers({ companyId, id, powerKeys, scopedBrandIds }
   return getEmployeeForRead(employee.id);
 }
 
+// Replaces this employee's photo wholesale — any previous photo is
+// best-effort deleted from the bucket first so orphaned objects don't
+// accumulate, same pattern as companyPolicy.service.js::uploadPolicyAttachment.
+// Optional, per the caller's request — an employee with no photo is a
+// perfectly valid, expected state, never backfilled or required.
+async function uploadEmployeePhoto({ companyId, id, scopedBrandIds, buffer, originalName, mimeType }) {
+  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+
+  if (employee.photoUrl) {
+    try {
+      await deleteObject(employee.photoUrl);
+    } catch (err) {
+      console.error('Could not delete previous employee photo:', err);
+    }
+  }
+
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const destination = buildObjectPath({
+    companyId,
+    resource: 'employee-photos',
+    resourceId: employee.id,
+    fileName: `${crypto.randomUUID()}-${safeName}`,
+  });
+  await uploadBuffer({ buffer, destination, contentType: mimeType });
+
+  await employee.update({ photoUrl: destination });
+  return withPhotoUrl(employee);
+}
+
+async function removeEmployeePhoto({ companyId, id, scopedBrandIds }) {
+  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+
+  if (employee.photoUrl) {
+    try {
+      await deleteObject(employee.photoUrl);
+    } catch (err) {
+      console.error('Could not delete employee photo:', err);
+    }
+    await employee.update({ photoUrl: null });
+  }
+
+  return withPhotoUrl(employee);
+}
+
 module.exports = {
   listEmployees,
   getEmployeeForRead,
@@ -315,4 +378,6 @@ module.exports = {
   transferEmployee,
   deleteEmployee,
   assignEmployeePowers,
+  uploadEmployeePhoto,
+  removeEmployeePhoto,
 };

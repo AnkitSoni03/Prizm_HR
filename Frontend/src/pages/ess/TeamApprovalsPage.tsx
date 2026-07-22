@@ -9,6 +9,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
+import { Avatar } from '../../components/ui/Avatar';
 import { useAuth } from '../../context/auth-context';
 import {
   approveLeaveRequest,
@@ -21,8 +22,19 @@ import {
   rejectOdRequest,
   type LeaveRequest,
   type OdRequest,
+  type RequestEmployee,
 } from '../../api/companyAdmin/approvals';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+
+function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; employeeId: string }) {
+  const label = employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
+  return (
+    <div className="flex items-center gap-2.5">
+      <Avatar src={employee?.photoDownloadUrl} size="sm" />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 type Tab = 'leave' | 'od';
 
@@ -238,7 +250,11 @@ export function TeamApprovalsPage() {
             rows={leaveRequests}
             rowKey={(r) => r.id}
             columns={[
-              { key: 'employee', header: 'Employee', render: (r) => r.employee?.employeeCode ?? r.employeeId },
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
               { key: 'type', header: 'Type', render: (r) => r.leaveType?.name ?? '—' },
               {
                 key: 'dates',
@@ -289,7 +305,11 @@ export function TeamApprovalsPage() {
             rows={odRequests}
             rowKey={(r) => r.id}
             columns={[
-              { key: 'employee', header: 'Employee', render: (r) => r.employee?.employeeCode ?? r.employeeId },
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
               {
                 key: 'dates',
                 header: 'Dates',

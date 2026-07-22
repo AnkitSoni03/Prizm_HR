@@ -3,6 +3,8 @@ import { apiClient } from '../client';
 export interface RequestEmployee {
   id: string;
   employeeCode: string;
+  name?: string | null;
+  photoDownloadUrl?: string | null;
 }
 
 // The reliable "who decided this" identity — a User always exists for any

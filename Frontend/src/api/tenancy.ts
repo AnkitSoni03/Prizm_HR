@@ -107,6 +107,10 @@ export interface Employee {
   // keys are already assigned when the edit modal opens.
   customRoleId?: string | null;
   customRole?: { id: string; permissions: { code: string }[] } | null;
+  // Signed, short-lived download URL resolved fresh on every response — see
+  // employee.service.js::withPhotoUrl. Null when no photo has been uploaded
+  // (the common case; always optional).
+  photoDownloadUrl?: string | null;
 }
 
 export interface Plan {
@@ -418,6 +422,21 @@ export async function createEmployee(input: {
   employmentType: 'full_time' | 'part_time' | 'contract';
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
+  return data.data;
+}
+
+// Optional, file-based (not a URL field) — any previous photo is deleted
+// server-side. Mirrors api/companyAdmin/employees.ts's own copy, used by the
+// Super Admin portal's Employee form/detail views instead.
+export async function uploadEmployeePhoto(id: string, file: File): Promise<Employee> {
+  const formData = new FormData();
+  formData.append('photo', file);
+  const { data } = await apiClient.post<{ data: Employee }>(`/employees/${id}/photo`, formData);
+  return data.data;
+}
+
+export async function removeEmployeePhoto(id: string): Promise<Employee> {
+  const { data } = await apiClient.delete<{ data: Employee }>(`/employees/${id}/photo`);
   return data.data;
 }
 

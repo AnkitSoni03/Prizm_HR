@@ -4,6 +4,7 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { AdminInvitationPanel } from './AdminInvitationPanel';
+import { useConfirm } from '../../../context/confirm-context';
 import {
   getBrandAdminInvitation,
   inviteBrandAdmin,
@@ -19,6 +20,7 @@ interface EditBrandModalProps {
 }
 
 export function EditBrandModal({ brand, onClose, onSaved }: EditBrandModalProps) {
+  const confirm = useConfirm();
   const [name, setName] = useState(brand.name);
   const [code, setCode] = useState(brand.code ?? '');
   const [address, setAddress] = useState(brand.address ?? '');
@@ -47,7 +49,13 @@ export function EditBrandModal({ brand, onClose, onSaved }: EditBrandModalProps)
     event.preventDefault();
     setError(null);
     if (isActive !== brand.isActive && !isActive) {
-      if (!window.confirm(`Deactivate "${brand.name}"? Its employees and rosters stay, but the brand will show as inactive.`)) return;
+      const confirmed = await confirm({
+        title: 'Deactivate brand',
+        message: `Deactivate "${brand.name}"? Its employees and rosters stay, but the brand will show as inactive.`,
+        confirmLabel: 'Deactivate',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
     }
     setIsSubmitting(true);
     try {
