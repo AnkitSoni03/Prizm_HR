@@ -28,5 +28,6 @@ router.post('/checkin/assertion-options', requirePermission('attendance:mark'), 
 router.post('/checkin', requirePermission('attendance:mark'), controller.checkIn);
 router.get('/', requireReadAccess, controller.list);
 router.get('/:id', requireReadAccess, controller.get);
+router.get('/:id/video-url', requireReadAccess, controller.videoUrl);
 
 module.exports = router;

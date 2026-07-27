@@ -137,6 +137,14 @@
   h3 {
     @apply text-base;
   }
+
+  /* Native date/time picker glyph renders black-on-black in dark mode
+     (browsers don't theme it automatically) — invert it to white. */
+  .dark input[type="date"]::-webkit-calendar-picker-indicator,
+  .dark input[type="time"]::-webkit-calendar-picker-indicator,
+  .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.2);
+  }
 }
 
 @keyframes fade-in {

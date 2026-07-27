@@ -65,4 +65,18 @@ async function get(req, res, next) {
   }
 }
 
-module.exports = { assertionOptions, checkIn, list, get };
+async function videoUrl(req, res, next) {
+  try {
+    const result = await service.getAttendanceVideoUrl({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedEmployeeId: req.attendanceEmployeeScope,
+      type: req.query.type,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { assertionOptions, checkIn, list, get, videoUrl };

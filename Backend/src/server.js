@@ -6,6 +6,8 @@ const app = require('./app');
 const db = require('./models');
 const { runLeaveAccrual } = require('./jobs/leaveAccrual.job');
 const { sweepExpiredCompOff } = require('./jobs/compOffExpiry.job');
+const { sweepExpiredPendingAttendance } = require('./jobs/pendingAttendanceExpiry.job');
+const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanup.job');
 
 const PORT = process.env.PORT || 5000;
 
@@ -22,6 +24,15 @@ function startLeaveJobs() {
   });
   cron.schedule('0 0 * * *', () => {
     sweepExpiredCompOff().catch((err) => console.error('comp-off-expiry job failed:', err));
+  });
+  // Office kiosk flow: sweep abandoned scans every 5 minutes (short-lived by
+  // design, unlike the daily/monthly jobs above), and clean up videos past
+  // the 90-day retention window daily at 2am.
+  cron.schedule('*/5 * * * *', () => {
+    sweepExpiredPendingAttendance().catch((err) => console.error('pending-attendance-expiry job failed:', err));
+  });
+  cron.schedule('0 2 * * *', () => {
+    cleanupExpiredAttendanceVideos().catch((err) => console.error('attendance-video-cleanup job failed:', err));
   });
 }
 

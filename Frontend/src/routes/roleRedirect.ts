@@ -7,6 +7,7 @@ const ROLE_PORTALS: Array<[string, string]> = [
   ['Group Admin', '/group-admin'],
   ['Brand Admin', '/brand-admin'],
   ['Company Admin', '/company-admin'],
+  ['Scanner', '/kiosk'],
   ['Employee', '/ess'],
 ];
 

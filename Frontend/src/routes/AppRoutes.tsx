@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { LoginPage } from '../pages/auth/LoginPage';
+import { KioskPage } from '../pages/kiosk/KioskPage';
 import { ActivatePage } from '../pages/auth/ActivatePage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
@@ -15,6 +16,14 @@ import { EmployeesPage } from '../pages/company-admin/EmployeesPage';
 import { ShiftsRostersPage } from '../pages/company-admin/ShiftsRostersPage';
 import { ApprovalsPage } from '../pages/company-admin/ApprovalsPage';
 import { PayrollPage } from '../pages/company-admin/PayrollPage';
+import {
+  ScannerAccountsPage as CompanyAdminScannerAccountsPage,
+  ScannerAccountsPage as BrandAdminScannerAccountsPage,
+} from '../pages/company-admin/ScannerAccountsPage';
+import {
+  AttendanceRecordsPage as CompanyAdminAttendanceRecordsPage,
+  AttendanceRecordsPage as BrandAdminAttendanceRecordsPage,
+} from '../pages/company-admin/AttendanceRecordsPage';
 import {
   HolidaysPage as CompanyAdminHolidaysPage,
   HolidaysPage as BrandAdminHolidaysPage,
@@ -43,6 +52,7 @@ import { ShiftsRostersPage as BrandShiftsRostersPage } from '../pages/brand-admi
 import { ApprovalsPage as BrandApprovalsPage } from '../pages/brand-admin/ApprovalsPage';
 import { SettingsPage as BrandAdminSettingsPage } from '../pages/brand-admin/SettingsPage';
 import { EssDashboard } from '../pages/ess/EssDashboard';
+import { OfficeCheckInPage } from '../pages/ess/OfficeCheckInPage';
 import { MyAttendancePage } from '../pages/ess/MyAttendancePage';
 import { LeaveBalancePage } from '../pages/ess/LeaveBalancePage';
 import { MyLeavePage } from '../pages/ess/MyLeavePage';
@@ -65,6 +75,9 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Fullscreen kiosk view, deliberately outside ProtectedRoute/Layout —
+          it does its own login gate and has no use for portal chrome. */}
+      <Route path="/kiosk" element={<KioskPage />} />
       <Route path="/activate" element={<ActivatePage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -174,6 +187,28 @@ export function AppRoutes() {
           <ProtectedRoute permission="leave_request:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Approvals">
               <ApprovalsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/attendance-records"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Attendance Records">
+              <CompanyAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/scanner-accounts"
+        element={
+          <ProtectedRoute permission="scanner_account:create">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Kiosk Accounts">
+              <CompanyAdminScannerAccountsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -334,6 +369,28 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/brand-admin/attendance-records"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Attendance Records">
+              <BrandAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/scanner-accounts"
+        element={
+          <ProtectedRoute permission="scanner_account:create">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Kiosk Accounts">
+              <BrandAdminScannerAccountsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/brand-admin/holidays"
         element={
           <ProtectedRoute permission="holiday:read">
@@ -372,6 +429,17 @@ export function AppRoutes() {
           <ProtectedRoute>
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Dashboard">
               <EssDashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/office-checkin"
+        element={
+          <ProtectedRoute permission="attendance:mark">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Office Check-In">
+              <OfficeCheckInPage />
             </Layout>
           </ProtectedRoute>
         }

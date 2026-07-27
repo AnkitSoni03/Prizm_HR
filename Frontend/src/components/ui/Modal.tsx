@@ -6,9 +6,14 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   widthClassName?: string;
+  // Rendered directly under the title, pinned together with it (see the
+  // sticky wrapper below) — for a Tabs bar so switching tabs (e.g. the
+  // "Powers" tab in EmployeeDetailModal) stays reachable without hunting for
+  // it after scrolling down into a tab's content.
+  tabs?: ReactNode;
 }
 
-export function Modal({ title, onClose, children, widthClassName = 'max-w-md' }: ModalProps) {
+export function Modal({ title, onClose, children, widthClassName = 'max-w-md', tabs }: ModalProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onClose();
@@ -32,16 +37,19 @@ export function Modal({ title, onClose, children, widthClassName = 'max-w-md' }:
         ].join(' ')}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-5 flex shrink-0 items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded-md p-1 text-ink-muted transition-colors hover:bg-page hover:text-ink"
-          >
-            <X className="h-4 w-4" strokeWidth={1.75} />
-          </button>
+        <div className="sticky top-0 z-10 -mx-6 shrink-0 bg-card px-6 max-md:-mx-5 max-md:px-5">
+          <div className="mb-5 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-ink">{title}</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="rounded-md p-1 text-ink-muted transition-colors hover:bg-page hover:text-ink"
+            >
+              <X className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          </div>
+          {tabs}
         </div>
         {children}
       </div>

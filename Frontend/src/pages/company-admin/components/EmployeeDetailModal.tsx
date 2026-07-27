@@ -350,18 +350,23 @@ export function EmployeeDetailModal({
   }
 
   return (
-    <Modal title={employee.name ?? employee.employeeCode} onClose={onClose} widthClassName="max-w-2xl">
-      <Tabs
-        items={[
-          { key: 'details', label: 'Details' },
-          { key: 'documents', label: 'Documents' },
-          { key: 'leaveBalance', label: 'Leave Balance' },
-          { key: 'powers', label: 'Powers' },
-        ]}
-        active={activeTab}
-        onChange={(key) => setActiveTab(key as 'details' | 'documents' | 'leaveBalance' | 'powers')}
-      />
-
+    <Modal
+      title={employee.name ?? employee.employeeCode}
+      onClose={onClose}
+      widthClassName="max-w-2xl"
+      tabs={
+        <Tabs
+          items={[
+            { key: 'details', label: 'Details' },
+            { key: 'documents', label: 'Documents' },
+            { key: 'leaveBalance', label: 'Leave Balance' },
+            { key: 'powers', label: 'Powers' },
+          ]}
+          active={activeTab}
+          onChange={(key) => setActiveTab(key as 'details' | 'documents' | 'leaveBalance' | 'powers')}
+        />
+      }
+    >
       {activeTab === 'details' && (
         <div className="space-y-6">
           {canUpdate ? (

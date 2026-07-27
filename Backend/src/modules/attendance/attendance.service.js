@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const redis = require('../../config/redis');
+const { getSignedDownloadUrl } = require('../../utils/gcs');
 const { generateAssertionOptions, verifyDeviceAssertion } = require('../../utils/webauthn');
 const { validateAndConsumeQrToken } = require('./qrTerminal.service');
 const { getActiveRosterEntry } = require('./shiftRoster.service');
@@ -75,14 +76,14 @@ async function getAssertionOptions({ employeeId }) {
   return options;
 }
 
-// PHASE3_MODELS.md step 4, in order. Any failure throws and nothing is
-// written — the employee has to file an attendance_regularization instead;
-// there is intentionally no fallback punch path.
-async function checkIn({ companyId, employeeId, qrToken, webauthnAssertion }) {
-  if (!employeeId) throw new HttpError(400, 'No employee record linked to this user');
-
-  const { terminal, jti } = await validateAndConsumeQrToken(qrToken);
-
+// Shared by the old terminal+qrToken checkIn() and the new office-kiosk
+// flow (officeKiosk.service.js) — verifies the WebAuthn assertion and the
+// strictly-increasing signature counter, but deliberately does NOT persist
+// the new counter (device.update) itself: the old flow only persists it
+// after its own terminal/company/brand checks pass, so a caller with
+// further gating to do after verification must call device.update itself,
+// exactly where it used to happen, to keep that flow's behavior unchanged.
+async function verifyEmployeeBiometric({ employeeId, webauthnAssertion }) {
   const expectedChallenge = await redis.get(assertionChallengeKey(employeeId));
   if (!expectedChallenge) {
     throw new HttpError(400, 'No pending WebAuthn challenge — call the assertion-options endpoint first');
@@ -110,6 +111,82 @@ async function checkIn({ companyId, employeeId, qrToken, webauthnAssertion }) {
 
   await redis.del(assertionChallengeKey(employeeId));
 
+  return { device, newCounter };
+}
+
+// Shared "actually write the punch" step, used by both the old terminal
+// flow and the new office-kiosk flow — they diverge only in how the punch
+// gets authorized, not in what happens once it's authorized. Wrapped in a
+// transaction with a Postgres advisory lock on the employee id so a
+// double-tap/retry landing on two different API instances can't create two
+// records — a protection the old flow never had, added here for both flows
+// with no change to the successful-path output.
+async function applyAttendancePunch({ employeeId, now, source, deviceId, terminalId = null, qrTokenJti = null, kioskUserId = null }) {
+  return db.sequelize.transaction(async (t) => {
+    await db.sequelize.query('SELECT pg_advisory_xact_lock(:employeeId)', {
+      replacements: { employeeId },
+      transaction: t,
+    });
+
+    const today = dateOnly(now);
+    const shift = await resolveShiftForDate({ employeeId, dateStr: today });
+
+    // Night shift: a scan shortly after midnight closing out yesterday's
+    // still-open session belongs to yesterday's attendance row, not today's.
+    let businessDate = today;
+    if (shift && shift.isNightShift) {
+      const yesterday = addDays(today, -1);
+      const openSession = await db.Attendance.findOne({
+        where: { employeeId, date: yesterday, checkIn: { [Op.ne]: null }, checkOut: null },
+        transaction: t,
+      });
+      if (openSession) businessDate = yesterday;
+    }
+
+    let attendance = await db.Attendance.findOne({ where: { employeeId, date: businessDate }, transaction: t });
+
+    if (!attendance) {
+      attendance = await db.Attendance.create(
+        { employeeId, date: businessDate, checkIn: now, source, deviceId, terminalId, qrTokenJti, kioskUserId, status: 'present' },
+        { transaction: t }
+      );
+      await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
+      return { action: 'check_in', attendance };
+    }
+
+    if (!attendance.checkIn) {
+      await attendance.update(
+        { checkIn: now, source, deviceId, terminalId, qrTokenJti, kioskUserId, status: 'present' },
+        { transaction: t }
+      );
+      await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
+      return { action: 'check_in', attendance };
+    }
+
+    if (!attendance.checkOut) {
+      const scheduledEnd = scheduledEndDateTime(businessDate, shift);
+      const overtimeMinutes = scheduledEnd && now > scheduledEnd
+        ? Math.round((now - scheduledEnd) / 60000)
+        : 0;
+
+      await attendance.update({ checkOut: now, overtimeMinutes }, { transaction: t });
+      return { action: 'check_out', attendance };
+    }
+
+    throw new HttpError(409, 'Already checked in and out for this date');
+  });
+}
+
+// PHASE3_MODELS.md step 4, in order. Any failure throws and nothing is
+// written — the employee has to file an attendance_regularization instead;
+// there is intentionally no fallback punch path.
+async function checkIn({ companyId, employeeId, qrToken, webauthnAssertion }) {
+  if (!employeeId) throw new HttpError(400, 'No employee record linked to this user');
+
+  const { terminal, jti } = await validateAndConsumeQrToken(qrToken);
+
+  const { device, newCounter } = await verifyEmployeeBiometric({ employeeId, webauthnAssertion });
+
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(401, 'Employee not found for this company');
   if (terminal.companyId !== companyId) {
@@ -126,62 +203,14 @@ async function checkIn({ companyId, employeeId, qrToken, webauthnAssertion }) {
 
   await device.update({ lastUsedAt: new Date(), signatureCounter: newCounter });
 
-  const now = new Date();
-  const today = dateOnly(now);
-  const shift = await resolveShiftForDate({ employeeId, dateStr: today });
-
-  // Night shift: a scan shortly after midnight closing out yesterday's
-  // still-open session belongs to yesterday's attendance row, not today's.
-  let businessDate = today;
-  if (shift && shift.isNightShift) {
-    const yesterday = addDays(today, -1);
-    const openSession = await db.Attendance.findOne({
-      where: { employeeId, date: yesterday, checkIn: { [Op.ne]: null }, checkOut: null },
-    });
-    if (openSession) businessDate = yesterday;
-  }
-
-  let attendance = await db.Attendance.findOne({ where: { employeeId, date: businessDate } });
-
-  if (!attendance) {
-    attendance = await db.Attendance.create({
-      employeeId,
-      date: businessDate,
-      checkIn: now,
-      source: 'qr',
-      deviceId: device.id,
-      terminalId: terminal.id,
-      qrTokenJti: jti,
-      status: 'present',
-    });
-    await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
-    return { action: 'check_in', attendance };
-  }
-
-  if (!attendance.checkIn) {
-    await attendance.update({
-      checkIn: now,
-      source: 'qr',
-      deviceId: device.id,
-      terminalId: terminal.id,
-      qrTokenJti: jti,
-      status: 'present',
-    });
-    await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
-    return { action: 'check_in', attendance };
-  }
-
-  if (!attendance.checkOut) {
-    const scheduledEnd = scheduledEndDateTime(businessDate, shift);
-    const overtimeMinutes = scheduledEnd && now > scheduledEnd
-      ? Math.round((now - scheduledEnd) / 60000)
-      : 0;
-
-    await attendance.update({ checkOut: now, overtimeMinutes });
-    return { action: 'check_out', attendance };
-  }
-
-  throw new HttpError(409, 'Already checked in and out for this date');
+  return applyAttendancePunch({
+    employeeId,
+    now: new Date(),
+    source: 'qr',
+    deviceId: device.id,
+    terminalId: terminal.id,
+    qrTokenJti: jti,
+  });
 }
 
 async function listAttendance({ companyId, employeeId, brandId, from, to, limit, offset }) {
@@ -201,7 +230,7 @@ async function listAttendance({ companyId, employeeId, brandId, from, to, limit,
     limit,
     offset,
     order: [['date', 'DESC']],
-    include: [{ model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'brandId'] }],
+    include: [{ model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'brandId'] }],
   });
   return { rows, count };
 }
@@ -222,10 +251,27 @@ async function getAttendanceForRead({ companyId, id, scopedEmployeeId }) {
   return attendance;
 }
 
+// Signed URL is generated fresh on every call, never persisted — same
+// pattern as companyPolicy.service.js's document downloads.
+async function getAttendanceVideoUrl({ companyId, id, scopedEmployeeId, type }) {
+  if (type !== 'checkin' && type !== 'checkout') {
+    throw new HttpError(400, "type must be 'checkin' or 'checkout'");
+  }
+  const attendance = await getAttendanceForRead({ companyId, id, scopedEmployeeId });
+  const objectPath = type === 'checkin' ? attendance.videoObjectPathCheckin : attendance.videoObjectPathCheckout;
+  if (!objectPath) throw new HttpError(404, 'No video recorded for this attendance record');
+
+  const url = await getSignedDownloadUrl(objectPath);
+  return { url };
+}
+
 module.exports = {
   getAssertionOptions,
   checkIn,
   listAttendance,
   getAttendanceForRead,
+  getAttendanceVideoUrl,
   resolveShiftForDate,
+  verifyEmployeeBiometric,
+  applyAttendancePunch,
 };

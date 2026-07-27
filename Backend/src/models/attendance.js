@@ -8,6 +8,7 @@ module.exports = (sequelize, DataTypes) => {
       Attendance.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
       Attendance.belongsTo(models.EmployeeDevice, { foreignKey: 'deviceId', as: 'device' });
       Attendance.belongsTo(models.QrAttendanceTerminal, { foreignKey: 'terminalId', as: 'terminal' });
+      Attendance.belongsTo(models.User, { foreignKey: 'kioskUserId', as: 'kioskUser' });
       Attendance.hasMany(models.AttendanceRegularization, { foreignKey: 'attendanceId', as: 'regularizations' });
     }
   }
@@ -18,10 +19,13 @@ module.exports = (sequelize, DataTypes) => {
       date: { type: DataTypes.DATEONLY, allowNull: false },
       checkIn: { type: DataTypes.DATE, allowNull: true },
       checkOut: { type: DataTypes.DATE, allowNull: true },
-      source: { type: DataTypes.ENUM('qr', 'od'), allowNull: true },
+      source: { type: DataTypes.ENUM('qr', 'od', 'office_kiosk'), allowNull: true },
       deviceId: { type: DataTypes.BIGINT, allowNull: true },
       terminalId: { type: DataTypes.BIGINT, allowNull: true },
       qrTokenJti: { type: DataTypes.STRING, allowNull: true },
+      kioskUserId: { type: DataTypes.BIGINT, allowNull: true },
+      videoObjectPathCheckin: { type: DataTypes.STRING, allowNull: true },
+      videoObjectPathCheckout: { type: DataTypes.STRING, allowNull: true },
       status: {
         type: DataTypes.ENUM('present', 'absent', 'half_day', 'leave', 'holiday', 'weekoff', 'on_duty'),
         allowNull: false,
