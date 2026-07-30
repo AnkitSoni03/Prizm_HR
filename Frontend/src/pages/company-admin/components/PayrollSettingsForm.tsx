@@ -14,6 +14,12 @@ import {
 // statutoryConfig override (statutory_config starts as {} for every company).
 const DEFAULT_PF = { enabled: true, employeeRate: 12, employerRate: 12, wageCeiling: 15000 };
 const DEFAULT_ESI = { enabled: true, employeeRate: 0.75, employerRate: 3.25, wageThreshold: 21000 };
+const DEFAULT_TDS = {
+  enabled: false,
+  standardDeduction: 75000,
+  cessRate: 4,
+  rebate87A: { thresholdTaxableIncome: 700000, maxRebate: 25000 },
+};
 
 export function PayrollSettingsForm() {
   const { hasPermission } = useAuth();
@@ -25,6 +31,7 @@ export function PayrollSettingsForm() {
   const [pf, setPf] = useState(DEFAULT_PF);
   const [esi, setEsi] = useState(DEFAULT_ESI);
   const [ptEnabled, setPtEnabled] = useState(true);
+  const [tds, setTds] = useState(DEFAULT_TDS);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +48,11 @@ export function PayrollSettingsForm() {
       setPf({ ...DEFAULT_PF, ...result.statutoryConfig?.pf });
       setEsi({ ...DEFAULT_ESI, ...result.statutoryConfig?.esi });
       setPtEnabled(result.statutoryConfig?.pt?.enabled ?? true);
+      setTds({
+        ...DEFAULT_TDS,
+        ...result.statutoryConfig?.tds,
+        rebate87A: { ...DEFAULT_TDS.rebate87A, ...result.statutoryConfig?.tds?.rebate87A },
+      });
     } catch {
       setError('Could not load payroll settings.');
     } finally {
@@ -62,6 +74,7 @@ export function PayrollSettingsForm() {
         pf,
         esi,
         pt: { enabled: ptEnabled },
+        tds,
       };
       await updatePayrollSettings({
         payCycleStartDay,
@@ -118,8 +131,8 @@ export function PayrollSettingsForm() {
         <span>
           <span className="block text-sm font-medium text-ink">Enable statutory deductions</span>
           <span className="block text-xs text-ink-muted">
-            Automatically deducts PF, ESI, and Professional Tax on every payroll run using the
-            rates below. TDS is not yet supported.
+            Automatically deducts PF, ESI, Professional Tax, and TDS on every payroll run using
+            the settings below.
           </span>
         </span>
       </label>
@@ -217,6 +230,69 @@ export function PayrollSettingsForm() {
               </span>
             </span>
           </label>
+
+          <div>
+            <label className="mb-1.5 flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={tds.enabled}
+                disabled={!canUpdate}
+                onChange={(event) => setTds({ ...tds, enabled: event.target.checked })}
+              />
+              <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Tax Deducted at Source (TDS)
+              </span>
+            </label>
+            {tds.enabled && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    id="tds-standard-deduction"
+                    label="Standard deduction"
+                    type="number"
+                    value={tds.standardDeduction}
+                    disabled={!canUpdate}
+                    onChange={(event) => setTds({ ...tds, standardDeduction: Number(event.target.value) })}
+                  />
+                  <Input
+                    id="tds-cess-rate"
+                    label="Cess %"
+                    type="number"
+                    step="0.01"
+                    value={tds.cessRate}
+                    disabled={!canUpdate}
+                    onChange={(event) => setTds({ ...tds, cessRate: Number(event.target.value) })}
+                  />
+                  <Input
+                    id="tds-rebate-threshold"
+                    label="Section 87A rebate threshold"
+                    type="number"
+                    value={tds.rebate87A.thresholdTaxableIncome}
+                    disabled={!canUpdate}
+                    onChange={(event) =>
+                      setTds({
+                        ...tds,
+                        rebate87A: { ...tds.rebate87A, thresholdTaxableIncome: Number(event.target.value) },
+                      })
+                    }
+                  />
+                  <Input
+                    id="tds-rebate-max"
+                    label="Section 87A max rebate"
+                    type="number"
+                    value={tds.rebate87A.maxRebate}
+                    disabled={!canUpdate}
+                    onChange={(event) =>
+                      setTds({ ...tds, rebate87A: { ...tds.rebate87A, maxRebate: Number(event.target.value) } })
+                    }
+                  />
+                </div>
+                <p className="mt-1 text-xs text-ink-muted">
+                  New Tax Regime only. Slab rates follow current law and aren't editable here.
+                </p>
+              </>
+            )}
+          </div>
         </div>
       )}
 

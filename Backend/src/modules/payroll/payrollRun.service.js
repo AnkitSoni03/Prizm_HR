@@ -11,6 +11,10 @@ const { getOrCreateSettings } = require('./payrollSettings.service');
 const { getOverlappingStructures } = require('./salaryStructure.service');
 const { resolveStatutoryConfig } = require('../../config/statutoryDefaults');
 const { computeStatutoryDeductions } = require('./statutoryDeduction.service');
+const { computeTds } = require('./tdsCalculation.service');
+const { getRemainingMonthsInFY, isBeforeInFinancialYear } = require('../../utils/financialYear');
+
+const TDS_COMPONENT_NAME = 'Tax Deducted at Source (TDS)';
 
 // If the company's pay cycle starts on the 1st (the common case), the
 // period is simply the calendar month. If it starts mid-month (e.g. 26th),
@@ -153,6 +157,59 @@ async function processRun({ companyId, id, actorUserId }) {
   const resolvedStatutoryConfig = settings.enableStatutoryDeductions
     ? resolveStatutoryConfig(settings.statutoryConfig)
     : null;
+  const tdsConfig = resolvedStatutoryConfig && resolvedStatutoryConfig.tds.enabled ? resolvedStatutoryConfig.tds : null;
+
+  // Year-to-date figures for TDS's annualized projection, batch-fetched once
+  // per run (not per employee, to avoid N+1 across a run with many
+  // employees) — every prior run this FY is already processed/paid by the
+  // time a later run in the same FY is processed, so this data is stable.
+  let remainingMonthsInFY = 0;
+  const ytdTaxableGrossByEmployee = new Map();
+  const ytdTdsByEmployee = new Map();
+  if (tdsConfig) {
+    remainingMonthsInFY = getRemainingMonthsInFY(run.periodMonth);
+
+    const priorRuns = await db.PayrollRun.findAll({
+      where: { companyId, status: { [Op.in]: ['processed', 'paid'] } },
+      attributes: ['id', 'periodMonth', 'periodYear'],
+    });
+    const priorRunIds = priorRuns
+      .filter((r) => isBeforeInFinancialYear(r.periodYear, r.periodMonth, run.periodYear, run.periodMonth))
+      .map((r) => r.id);
+
+    if (priorRunIds.length > 0) {
+      const priorPayslips = await db.Payslip.findAll({
+        where: { companyId, payrollRunId: { [Op.in]: priorRunIds } },
+        attributes: ['id', 'employeeId'],
+      });
+      const payslipToEmployee = new Map(priorPayslips.map((p) => [p.id, p.employeeId]));
+      const priorPayslipIds = priorPayslips.map((p) => p.id);
+
+      if (priorPayslipIds.length > 0) {
+        const priorTaxableComponents = await db.PayslipComponent.findAll({
+          where: {
+            payslipId: { [Op.in]: priorPayslipIds },
+            category: { [Op.in]: ['earning', 'reimbursement'] },
+            taxable: true,
+          },
+          attributes: ['payslipId', 'amount'],
+        });
+        for (const c of priorTaxableComponents) {
+          const employeeId = payslipToEmployee.get(c.payslipId);
+          ytdTaxableGrossByEmployee.set(employeeId, (ytdTaxableGrossByEmployee.get(employeeId) || 0) + Number(c.amount));
+        }
+
+        const priorTdsComponents = await db.PayslipComponent.findAll({
+          where: { payslipId: { [Op.in]: priorPayslipIds }, name: TDS_COMPONENT_NAME },
+          attributes: ['payslipId', 'amount'],
+        });
+        for (const c of priorTdsComponents) {
+          const employeeId = payslipToEmployee.get(c.payslipId);
+          ytdTdsByEmployee.set(employeeId, (ytdTdsByEmployee.get(employeeId) || 0) + Number(c.amount));
+        }
+      }
+    }
+  }
 
   const payslipNotifications = [];
 
@@ -218,7 +275,14 @@ async function processRun({ companyId, id, actorUserId }) {
           const key = definition.id;
           const existing = componentTotals.get(key);
           if (existing) existing.amount += amount;
-          else componentTotals.set(key, { category: definition.componentCategory, name: definition.name, amount });
+          else {
+            componentTotals.set(key, {
+              category: definition.componentCategory,
+              name: definition.name,
+              amount,
+              taxable: definition.taxable !== false,
+            });
+          }
 
           if (definition.isPfWage) pfWageAmount += amount;
         }
@@ -233,6 +297,7 @@ async function processRun({ companyId, id, actorUserId }) {
           category: definition.componentCategory,
           name: definition.name,
           amount: Number(component.resolvedAmount),
+          taxable: definition.taxable !== false,
         });
       }
 
@@ -256,6 +321,13 @@ async function processRun({ companyId, id, actorUserId }) {
         .filter((c) => c.category === 'earning' || c.category === 'reimbursement')
         .reduce((sum, c) => sum + c.amount, 0);
 
+      // Excludes components flagged taxable: false (e.g. certain
+      // reimbursements) — used only by TDS's tax-base projection below,
+      // never by grossEarnings/netPay math.
+      const taxableGrossEarnings = [...componentTotals.values()]
+        .filter((c) => (c.category === 'earning' || c.category === 'reimbursement') && c.taxable !== false)
+        .reduce((sum, c) => sum + c.amount, 0);
+
       // Injected only when the company has opted in — every existing
       // company defaults to enableStatutoryDeductions: false, so this is a
       // no-op for them and output stays byte-identical to before this
@@ -274,6 +346,24 @@ async function processRun({ companyId, id, actorUserId }) {
         }
         for (const entry of employerEntries) {
           componentTotals.set(entry.key, { category: 'employer_contribution', name: entry.name, amount: entry.amount });
+        }
+      }
+
+      // Annualized-projection TDS (New Tax Regime only — see CLAUDE.md).
+      // projectedAnnualGross = this FY's prior taxable gross (0 for the
+      // first run of the FY) + this run's taxable gross repeated for every
+      // remaining month of the FY, including this one — the standard
+      // "assume the current month's rate continues" projection method.
+      if (tdsConfig) {
+        const ytdTaxableGross = ytdTaxableGrossByEmployee.get(employee.id) || 0;
+        const ytdTds = ytdTdsByEmployee.get(employee.id) || 0;
+        const projectedAnnualGross = ytdTaxableGross + taxableGrossEarnings * remainingMonthsInFY;
+        const tds = computeTds(
+          { tds: tdsConfig },
+          { projectedAnnualGross, taxAlreadyDeductedYtd: ytdTds, remainingMonths: remainingMonthsInFY }
+        );
+        if (tds) {
+          componentTotals.set(tds.key, { category: 'deduction', name: tds.name, amount: tds.amount, taxable: true });
         }
       }
 
@@ -309,6 +399,7 @@ async function processRun({ companyId, id, actorUserId }) {
           category: c.category,
           name: c.name,
           amount: Math.round(c.amount * 100) / 100,
+          taxable: c.taxable !== false,
         })),
         { transaction: t }
       );

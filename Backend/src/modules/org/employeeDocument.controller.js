@@ -21,7 +21,7 @@ async function get(req, res, next) {
       employeeId: req.params.employeeId,
       id: req.params.id,
     });
-    res.json({ data: doc });
+    res.json({ data: await service.withDownloadUrl(doc) });
   } catch (err) {
     next(err);
   }
@@ -29,16 +29,21 @@ async function get(req, res, next) {
 
 async function upload(req, res, next) {
   try {
-    const { type, fileUrl } = req.body;
-    if (!type || !fileUrl) {
-      return res.status(400).json({ error: 'type and fileUrl are required' });
+    const { type } = req.body;
+    if (!type) {
+      return res.status(400).json({ error: 'type is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'file is required' });
     }
 
     const doc = await service.uploadDocument({
       companyId: req.auth.companyId,
       employeeId: req.params.employeeId,
       type,
-      fileUrl,
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
     });
     res.status(201).json({ data: doc });
   } catch (err) {
@@ -52,6 +57,7 @@ async function verify(req, res, next) {
       companyId: req.auth.companyId,
       employeeId: req.params.employeeId,
       id: req.params.id,
+      verifiedByUserId: req.auth.userId,
     });
     res.json({ data: doc });
   } catch (err) {

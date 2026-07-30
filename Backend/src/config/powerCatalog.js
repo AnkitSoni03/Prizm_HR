@@ -49,6 +49,21 @@ const POWER_CATALOG = [
     ],
   },
   {
+    key: 'document_verification',
+    label: 'Document Verification',
+    description: "View any employee's documents and mark them verified.",
+    // Same rationale as assign_leaves: the "Document Verification" page has
+    // to browse/filter the employee directory to pick whose documents to
+    // review — employee:read/department:read/brand:read are needed for
+    // that (Company Admin/HR Manager already hold these broadly as part of
+    // their role, which is why this gap pattern keeps recurring for
+    // narrowly-scoped Employee powers).
+    permissionCodes: [
+      'employee_document:read', 'employee_document:verify',
+      'employee:read', 'department:read', 'brand:read',
+    ],
+  },
+  {
     key: 'run_payroll',
     label: 'Manage & Run Payroll',
     description: 'Configure salary structures, add adjustments, and process/pay monthly payroll runs.',

@@ -35,6 +35,7 @@ async function createComponent({
   percentageOfComponentId,
   displayOrder,
   isPfWage,
+  taxable,
 }) {
   if (calculationType === 'formula') {
     throw new HttpError(400, 'Formula-based components are not yet supported');
@@ -66,6 +67,10 @@ async function createComponent({
       percentageOfComponentId: calculationType === 'percentage_of_component' ? percentageOfComponentId : null,
       displayOrder: displayOrder || 0,
       isPfWage: !!isPfWage,
+      // Defaults true (matches the column default) — a component only needs
+      // this set explicitly to false to exclude it (e.g. a non-taxable
+      // reimbursement) from TDS's taxable-gross projection.
+      taxable: taxable === undefined ? true : !!taxable,
     });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {

@@ -29,6 +29,7 @@ export function SalaryComponentFormModal({ existingComponents, onClose, onSaved 
   const [defaultValue, setDefaultValue] = useState('');
   const [percentageOfComponentId, setPercentageOfComponentId] = useState('');
   const [isPfWage, setIsPfWage] = useState(false);
+  const [taxable, setTaxable] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,7 @@ export function SalaryComponentFormModal({ existingComponents, onClose, onSaved 
         defaultValue: defaultValue ? Number(defaultValue) : undefined,
         percentageOfComponentId: calculationType === 'percentage_of_component' ? percentageOfComponentId : undefined,
         isPfWage: componentCategory === 'earning' ? isPfWage : undefined,
+        taxable: componentCategory !== 'deduction' ? taxable : undefined,
       });
       onSaved();
       onClose();
@@ -131,6 +133,23 @@ export function SalaryComponentFormModal({ existingComponents, onClose, onSaved 
               <span className="block text-xs text-ink-muted">
                 Include this component (e.g. Basic, DA) in the Provident Fund wage basis when
                 statutory deductions are enabled.
+              </span>
+            </span>
+          </label>
+        )}
+        {componentCategory !== 'deduction' && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border px-3 py-2.5 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={taxable}
+              onChange={(event) => setTaxable(event.target.checked)}
+            />
+            <span>
+              <span className="block text-sm font-medium text-ink">Taxable</span>
+              <span className="block text-xs text-ink-muted">
+                Include this component in TDS's taxable-income projection. Turn off for a
+                reimbursement that isn't part of taxable salary.
               </span>
             </span>
           </label>

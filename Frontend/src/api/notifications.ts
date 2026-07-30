@@ -2,8 +2,15 @@ import { apiClient } from './client';
 
 export interface AppNotification {
   id: string;
-  type: 'approval_decision' | 'approval_pending' | 'request_cancelled' | 'request_expired' | 'payroll_run';
-  requestType: 'leave_request' | 'od_request' | 'attendance_regularization' | 'comp_off_credit' | 'payroll_run' | null;
+  type: 'approval_decision' | 'approval_pending' | 'request_cancelled' | 'request_expired' | 'payroll_run' | 'document_verified';
+  requestType:
+    | 'leave_request'
+    | 'od_request'
+    | 'attendance_regularization'
+    | 'comp_off_credit'
+    | 'payroll_run'
+    | 'employee_document'
+    | null;
   requestId: string | null;
   title: string;
   body: string | null;

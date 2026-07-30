@@ -22,6 +22,12 @@ export interface StatutoryConfig {
     enabled?: boolean;
     slabs?: Record<string, { upTo: number | null; amount: number }[]>;
   };
+  tds?: {
+    enabled?: boolean;
+    standardDeduction?: number;
+    cessRate?: number;
+    rebate87A?: { thresholdTaxableIncome?: number; maxRebate?: number };
+  };
 }
 
 export interface PayrollSettings {

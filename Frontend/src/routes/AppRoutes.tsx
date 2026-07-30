@@ -62,6 +62,7 @@ import { MyCompOffPage } from '../pages/ess/MyCompOffPage';
 import { MyPayslipsPage } from '../pages/ess/MyPayslipsPage';
 import { HolidaysPage as EssHolidaysPage } from '../pages/ess/HolidaysPage';
 import { MyProfilePage } from '../pages/ess/MyProfilePage';
+import { DocumentVerificationPage } from '../pages/ess/DocumentVerificationPage';
 import { SettingsPage as EssSettingsPage } from '../pages/ess/SettingsPage';
 import {
   BRAND_ADMIN_NAV,
@@ -550,6 +551,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="leave_balance:adjust">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Provide Leaves">
               <EssProvideLeavesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/document-verification"
+        element={
+          <ProtectedRoute permission="employee_document:verify">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Document Verification">
+              <DocumentVerificationPage />
             </Layout>
           </ProtectedRoute>
         }

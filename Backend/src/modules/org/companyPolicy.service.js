@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
+const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject, extractOriginalFileName } = require('../../utils/gcs');
 
 // Mirrors holiday.service.js's audit-include shape exactly (creator/updater
 // eager-loaded so both the admin-facing management page and the read-only
@@ -24,19 +24,26 @@ const AUDIT_INCLUDES = [
 ];
 
 // `fileUrl` stores an internal GCS object path, not a browsable URL — the
-// bucket is private, so every response mints a fresh, short-lived v4 signed
-// URL (see gcs.js) as `fileDownloadUrl`, only ever handed to a caller who
-// already passed company_policy:read. Never persisted or reused past its
-// ~15 minute expiry. Falls back to null (rather than throwing) on a GCS
-// hiccup so a signing outage never breaks the whole list/read.
+// bucket is private, so every response mints two fresh, short-lived (~15
+// min) v4 signed URLs (see gcs.js): `fileDownloadUrl` (plain, for inline
+// preview — an <img>/<iframe> src) and `fileAttachmentUrl` (forced
+// Content-Disposition: attachment, for a real Save-As via the Download
+// button), only ever handed to a caller who already passed
+// company_policy:read. Never persisted or reused past their ~15 minute
+// expiry. Falls back to null (rather than throwing) on a GCS hiccup so a
+// signing outage never breaks the whole list/read.
 async function withDownloadUrl(policy) {
   const plain = policy.toJSON ? policy.toJSON() : policy;
-  if (!plain.fileUrl) return { ...plain, fileDownloadUrl: null };
+  if (!plain.fileUrl) return { ...plain, fileDownloadUrl: null, fileAttachmentUrl: null };
   try {
-    return { ...plain, fileDownloadUrl: await getSignedDownloadUrl(plain.fileUrl) };
+    const [fileDownloadUrl, fileAttachmentUrl] = await Promise.all([
+      getSignedDownloadUrl(plain.fileUrl),
+      getSignedDownloadUrl(plain.fileUrl, { attachmentFileName: extractOriginalFileName(plain.fileUrl) }),
+    ]);
+    return { ...plain, fileDownloadUrl, fileAttachmentUrl };
   } catch (err) {
     console.error('Could not generate signed URL for policy attachment:', err);
-    return { ...plain, fileDownloadUrl: null };
+    return { ...plain, fileDownloadUrl: null, fileAttachmentUrl: null };
   }
 }
 

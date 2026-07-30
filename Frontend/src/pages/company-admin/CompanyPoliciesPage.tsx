@@ -13,6 +13,7 @@ import {
   type CompanyPolicy,
 } from '../../api/companyAdmin/companyPolicies';
 import { PolicyFormModal } from './components/PolicyFormModal';
+import { FilePreviewModal } from '../../components/ui/FilePreviewModal';
 
 interface CompanyPoliciesPageProps {
   // Set by the Group Admin portal's read-only company drill-in — same
@@ -32,6 +33,7 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<CompanyPolicy | 'new' | null>(null);
+  const [previewPolicy, setPreviewPolicy] = useState<CompanyPolicy | null>(null);
 
   async function loadPolicies() {
     setIsLoading(true);
@@ -109,9 +111,13 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
               header: 'Attachment',
               render: (p) =>
                 p.fileDownloadUrl ? (
-                  <a href={p.fileDownloadUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewPolicy(p)}
+                    className="text-primary hover:underline"
+                  >
                     View file
-                  </a>
+                  </button>
                 ) : (
                   '—'
                 ),
@@ -170,6 +176,16 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
           policy={editingPolicy === 'new' ? undefined : editingPolicy}
           onClose={() => setEditingPolicy(null)}
           onSaved={loadPolicies}
+        />
+      )}
+
+      {previewPolicy && (
+        <FilePreviewModal
+          title={previewPolicy.title}
+          fileUrl={previewPolicy.fileUrl}
+          previewUrl={previewPolicy.fileDownloadUrl}
+          downloadUrl={previewPolicy.fileAttachmentUrl}
+          onClose={() => setPreviewPolicy(null)}
         />
       )}
     </div>

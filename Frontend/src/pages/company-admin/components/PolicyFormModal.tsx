@@ -10,6 +10,7 @@ import {
   uploadPolicyAttachment,
   type CompanyPolicy,
 } from '../../../api/companyAdmin/companyPolicies';
+import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 
 interface PolicyFormModalProps {
   policy?: CompanyPolicy;
@@ -27,6 +28,7 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
   const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;
@@ -70,6 +72,7 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
   }
 
   return (
+    <>
     <Modal title={isEdit ? 'Edit Policy' : 'Add Company Policy'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <p className="text-sm text-danger">{error}</p>}
@@ -102,9 +105,9 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
             <div className="mb-2 flex items-center gap-2 rounded-xl border border-border bg-page px-3 py-2 text-sm text-ink-muted">
               <FileText className="h-4 w-4 shrink-0" strokeWidth={1.75} />
               {policy.fileDownloadUrl ? (
-                <a href={policy.fileDownloadUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                <button type="button" onClick={() => setShowPreview(true)} className="text-primary hover:underline">
                   Current attachment
-                </a>
+                </button>
               ) : (
                 <span>Current attachment</span>
               )}
@@ -136,5 +139,15 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
         </div>
       </form>
     </Modal>
+    {showPreview && policy?.fileDownloadUrl && (
+      <FilePreviewModal
+        title={policy.title}
+        fileUrl={policy.fileUrl}
+        previewUrl={policy.fileDownloadUrl}
+        downloadUrl={policy.fileAttachmentUrl}
+        onClose={() => setShowPreview(false)}
+      />
+    )}
+    </>
   );
 }

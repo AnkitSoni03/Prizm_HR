@@ -19,6 +19,8 @@ import {
   removeEmployeePhoto,
 } from '../../../api/companyAdmin/employees';
 import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
+import { FileUploadField } from '../../../components/ui/FileUploadField';
+import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 import { Avatar } from '../../../components/ui/Avatar';
 import {
   listEmployeeDocuments,
@@ -37,6 +39,8 @@ import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import { INDIAN_STATES } from '../../../utils/indianStates';
+import { holidayAuditName } from '../../../api/companyAdmin/holidays';
+import { formatDisplayDateTime } from '../../../utils/dateDisplay';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -50,6 +54,10 @@ interface EmployeeDetailModalProps {
   // saving Details/Transfer) — a photo change should refresh the parent's
   // list (so its avatar picks up the new photo) without closing this modal.
   onPhotoChanged?: () => void;
+  // Which tab to open on. Defaults to 'details'; the ESS Document
+  // Verification page (a power-holder with no employee:update) opens
+  // straight to 'documents' since that's the only tab it cares about.
+  initialTab?: 'details' | 'documents' | 'leaveBalance' | 'powers';
 }
 
 const EMPLOYMENT_TYPES = [
@@ -88,6 +96,7 @@ export function EmployeeDetailModal({
   onClose,
   onUpdated,
   onPhotoChanged,
+  initialTab = 'details',
 }: EmployeeDetailModalProps) {
   const { user, hasPermission } = useAuth();
   const showToast = useToast();
@@ -101,7 +110,7 @@ export function EmployeeDetailModal({
   const canReadLeaveBalance = hasPermission('leave_balance:read');
   const canAdjustLeaveBalance = hasPermission('leave_balance:adjust');
 
-  const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'leaveBalance' | 'powers'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'leaveBalance' | 'powers'>(initialTab);
 
   const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
@@ -132,8 +141,9 @@ export function EmployeeDetailModal({
 
   const [documents, setDocuments] = useState<EmployeeDocument[] | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<EmployeeDocument | null>(null);
   const [docType, setDocType] = useState('');
-  const [docFileUrl, setDocFileUrl] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
@@ -326,13 +336,14 @@ export function EmployeeDetailModal({
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
+    if (!docType || !docFile) return;
     setDocsError(null);
     setIsUploading(true);
     try {
-      const doc = await uploadEmployeeDocument(employee.id, { type: docType, fileUrl: docFileUrl });
+      const doc = await uploadEmployeeDocument(employee.id, { type: docType, file: docFile });
       setDocuments((prev) => (prev ? [...prev, doc] : [doc]));
       setDocType('');
-      setDocFileUrl('');
+      setDocFile(null);
     } catch (err) {
       setDocsError(extractError(err, 'Could not upload this document. Please try again.'));
     } finally {
@@ -350,10 +361,11 @@ export function EmployeeDetailModal({
   }
 
   return (
-    <Modal
-      title={employee.name ?? employee.employeeCode}
-      onClose={onClose}
-      widthClassName="max-w-2xl"
+    <>
+      <Modal
+        title={employee.name ?? employee.employeeCode}
+        onClose={onClose}
+        widthClassName="max-w-2xl"
       tabs={
         <Tabs
           items={[
@@ -603,18 +615,34 @@ export function EmployeeDetailModal({
                         <FileText className="h-4 w-4 text-ink-muted" strokeWidth={1.75} />
                         <div>
                           <p className="text-sm font-medium text-ink">{doc.type}</p>
-                          <a
-                            href={doc.fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-xs text-primary hover:underline"
-                          >
-                            View file
-                          </a>
+                          {doc.fileDownloadUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewDoc(doc)}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              View file
+                            </button>
+                          ) : (
+                            <span className="text-xs text-ink-muted">File unavailable</span>
+                          )}
+                          {doc.verified && (
+                            <p className="mt-0.5 text-xs text-ink-muted">
+                              Verified by {holidayAuditName(doc.verifier) ?? 'someone no longer in the system'}
+                              {doc.verifiedAt ? ` on ${formatDisplayDateTime(doc.verifiedAt)}` : ''}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge tone={doc.verified ? 'success' : 'warning'}>
+                        <Badge
+                          tone={doc.verified ? 'success' : 'warning'}
+                          title={
+                            doc.verified
+                              ? `Verified by ${holidayAuditName(doc.verifier) ?? 'someone no longer in the system'}`
+                              : undefined
+                          }
+                        >
                           {doc.verified ? 'Verified' : 'Unverified'}
                         </Badge>
                         {canVerifyDocs && !doc.verified && (
@@ -645,17 +673,10 @@ export function EmployeeDetailModal({
                       onChange={(event) => setDocType(event.target.value)}
                       placeholder="e.g. PAN Card"
                     />
-                    <Input
-                      id="doc-file-url"
-                      label="File URL"
-                      required
-                      value={docFileUrl}
-                      onChange={(event) => setDocFileUrl(event.target.value)}
-                      placeholder="https://…"
-                    />
+                    <FileUploadField file={docFile} onSelect={setDocFile} disabled={isUploading} />
                   </div>
                   <div className="flex justify-end">
-                    <Button type="submit" variant="secondary" isLoading={isUploading}>
+                    <Button type="submit" variant="secondary" isLoading={isUploading} disabled={!docType || !docFile}>
                       Add Document
                     </Button>
                   </div>
@@ -758,6 +779,16 @@ export function EmployeeDetailModal({
           )}
         </div>
       )}
-    </Modal>
+      </Modal>
+      {previewDoc && (
+        <FilePreviewModal
+          title={previewDoc.type}
+          fileUrl={previewDoc.fileUrl}
+          previewUrl={previewDoc.fileDownloadUrl}
+          downloadUrl={previewDoc.fileAttachmentUrl}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
+    </>
   );
 }

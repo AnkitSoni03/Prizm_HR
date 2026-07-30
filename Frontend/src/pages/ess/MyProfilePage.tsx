@@ -1,14 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import axios from 'axios';
 import { FileText } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Table } from '../../components/ui/Table';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
 import { PhotoUploadField } from '../../components/ui/PhotoUploadField';
+import { FileUploadField } from '../../components/ui/FileUploadField';
+import { FilePreviewModal } from '../../components/ui/FilePreviewModal';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
 import { useToast } from '../../context/toast-context';
-import { getMyProfile, listMyDocuments, type EmployeeDocument, type EmployeeProfile } from '../../api/ess/profile';
+import {
+  getMyProfile,
+  listMyDocuments,
+  uploadMyDocument,
+  type EmployeeDocument,
+  type EmployeeProfile,
+} from '../../api/ess/profile';
 import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
-import { formatDisplayDate } from '../../utils/dateDisplay';
+import { holidayAuditName } from '../../api/companyAdmin/holidays';
+import { formatDisplayDate, formatDisplayDateTime } from '../../utils/dateDisplay';
+
+function extractError(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
+    return err.response.data.error;
+  }
+  return fallback;
+}
 
 const EMPLOYMENT_TYPE_LABEL: Record<EmployeeProfile['employmentType'], string> = {
   full_time: 'Full-time',
@@ -32,12 +51,19 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 export function MyProfilePage() {
-  const { user, refreshUser } = useAuth();
+  const { user, hasPermission, refreshUser } = useAuth();
+  const canUploadDocs = hasPermission('employee_document:upload_own');
   const showToast = useToast();
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+
+  const [docType, setDocType] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [docUploadError, setDocUploadError] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<EmployeeDocument | null>(null);
 
   useEffect(() => {
     if (!user?.employeeId) return;
@@ -93,7 +119,26 @@ export function MyProfilePage() {
     }
   }
 
+  async function handleUploadDocument(event: FormEvent) {
+    event.preventDefault();
+    if (!user?.employeeId || !docType || !docFile) return;
+
+    setIsUploadingDoc(true);
+    setDocUploadError(null);
+    try {
+      const doc = await uploadMyDocument(user.employeeId, { type: docType, file: docFile });
+      setDocuments((prev) => [...prev, doc]);
+      setDocType('');
+      setDocFile(null);
+    } catch (err) {
+      setDocUploadError(extractError(err, 'Could not upload this document. Please try again.'));
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  }
+
   return (
+    <>
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card p-6">
         <div className="mb-5 flex items-center justify-between">
@@ -139,25 +184,89 @@ export function MyProfilePage() {
             {
               key: 'file',
               header: 'File',
-              render: (d) => (
-                <a
-                  href={d.fileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-primary hover:underline"
-                >
-                  View
-                </a>
-              ),
+              render: (d) =>
+                d.fileDownloadUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDoc(d)}
+                    className="font-medium text-primary hover:underline"
+                  >
+                    View
+                  </button>
+                ) : (
+                  <span className="text-ink-muted">Unavailable</span>
+                ),
             },
             {
               key: 'verified',
               header: 'Verified',
-              render: (d) => <Badge tone={d.verified ? 'success' : 'neutral'}>{d.verified ? 'Verified' : 'Pending'}</Badge>,
+              render: (d) => (
+                <Badge
+                  tone={d.verified ? 'success' : 'neutral'}
+                  title={d.verified ? `Verified by ${holidayAuditName(d.verifier) ?? 'someone no longer in the system'}` : undefined}
+                >
+                  {d.verified ? 'Verified' : 'Pending'}
+                </Badge>
+              ),
+            },
+            {
+              key: 'verifiedBy',
+              header: 'Verified By',
+              render: (d) =>
+                d.verified ? (
+                  <span className="text-ink-muted">
+                    {holidayAuditName(d.verifier) ?? '—'}
+                    {d.verifiedAt && (
+                      <span className="block text-xs text-ink-muted">{formatDisplayDateTime(d.verifiedAt)}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-ink-muted">—</span>
+                ),
             },
           ]}
         />
+
+        {canUploadDocs && (
+          <form
+            onSubmit={handleUploadDocument}
+            className="mt-4 space-y-4 rounded-xl border border-border bg-card p-5"
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Upload a Document</p>
+            {docUploadError && <p className="text-sm text-danger">{docUploadError}</p>}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                id="my-doc-type"
+                label="Type"
+                required
+                value={docType}
+                onChange={(event) => setDocType(event.target.value)}
+                placeholder="e.g. PAN Card"
+              />
+              <FileUploadField file={docFile} onSelect={setDocFile} disabled={isUploadingDoc} />
+            </div>
+            <p className="text-xs text-ink-muted">
+              Once uploaded, it'll show as "Pending" until an admin or a document verifier reviews it — you'll get
+              a notification when it's verified.
+            </p>
+            <div className="flex justify-end">
+              <Button type="submit" variant="secondary" isLoading={isUploadingDoc} disabled={!docType || !docFile}>
+                Upload Document
+              </Button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
+    {previewDoc && (
+      <FilePreviewModal
+        title={previewDoc.type}
+        fileUrl={previewDoc.fileUrl}
+        previewUrl={previewDoc.fileDownloadUrl}
+        downloadUrl={previewDoc.fileAttachmentUrl}
+        onClose={() => setPreviewDoc(null)}
+      />
+    )}
+    </>
   );
 }

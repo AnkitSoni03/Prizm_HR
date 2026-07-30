@@ -11,9 +11,12 @@ interface ModalProps {
   // "Powers" tab in EmployeeDetailModal) stays reachable without hunting for
   // it after scrolling down into a tab's content.
   tabs?: ReactNode;
+  // Rendered in the title row itself, to the left of the close (X) button —
+  // e.g. a Download button on FilePreviewModal.
+  headerActions?: ReactNode;
 }
 
-export function Modal({ title, onClose, children, widthClassName = 'max-w-md', tabs }: ModalProps) {
+export function Modal({ title, onClose, children, widthClassName = 'max-w-md', tabs, headerActions }: ModalProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onClose();
@@ -38,16 +41,19 @@ export function Modal({ title, onClose, children, widthClassName = 'max-w-md', t
         onClick={(event) => event.stopPropagation()}
       >
         <div className="sticky top-0 z-10 -mx-6 shrink-0 bg-card px-6 max-md:-mx-5 max-md:px-5">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-ink">{title}</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="rounded-md p-1 text-ink-muted transition-colors hover:bg-page hover:text-ink"
-            >
-              <X className="h-4 w-4" strokeWidth={1.75} />
-            </button>
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-ink">{title}</h2>
+            <div className="flex shrink-0 items-center gap-2">
+              {headerActions}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="rounded-md p-1 text-ink-muted transition-colors hover:bg-page hover:text-ink"
+              >
+                <X className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            </div>
           </div>
           {tabs}
         </div>

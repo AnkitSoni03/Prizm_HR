@@ -55,11 +55,28 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return '/ess/payslips';
   }
 
+  // A document's own owner always has their upload/verified status on their
+  // own My Profile page — no separate "my documents" route exists.
+  if (notification.requestType === 'employee_document' && notification.type === 'document_verified') {
+    return '/ess/profile';
+  }
+
   if (notification.type === 'approval_decision' || notification.type === 'request_expired') {
     return OWN_REQUEST_PATHS[notification.requestType] ?? null;
   }
 
   if (notification.type === 'approval_pending' || notification.type === 'request_cancelled') {
+    // A newly-uploaded document has no dedicated "pending" queue — route the
+    // recipient to wherever they'd actually review it: Company Admin/Brand
+    // Admin verify per-employee via the Employees list + detail modal; an
+    // Employee holding the "Document Verification" power has its own page.
+    if (notification.requestType === 'employee_document') {
+      if (portal === '/company-admin') return '/company-admin/employees';
+      if (portal === '/brand-admin') return '/brand-admin/employees';
+      if (portal === '/ess') return '/ess/document-verification';
+      return null;
+    }
+
     const tab = APPROVAL_TABS[notification.requestType];
     if (portal === '/company-admin') return `/company-admin/approvals?tab=${tab}`;
     if (portal === '/brand-admin') return `/brand-admin/approvals?tab=${tab}`;

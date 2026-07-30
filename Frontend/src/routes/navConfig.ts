@@ -3,6 +3,7 @@ import {
   CalendarCheck,
   CalendarClock,
   ClipboardCheck,
+  FileCheck2,
   FileText,
   LayoutDashboard,
   MonitorSmartphone,
@@ -81,5 +82,11 @@ export const ESS_NAV: NavItem[] = [
   { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/ess/policies', icon: FileText },
   { label: 'Provide Leaves', path: '/ess/provide-leaves', icon: Wallet, permission: 'leave_balance:adjust' },
+  {
+    label: 'Document Verification',
+    path: '/ess/document-verification',
+    icon: FileCheck2,
+    permission: 'employee_document:verify',
+  },
   { label: 'Settings', path: '/ess/settings', icon: Settings },
 ];

@@ -16,7 +16,7 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { code, name, componentCategory, calculationType, defaultValue, percentageOfComponentId, displayOrder, isPfWage } = req.body;
+    const { code, name, componentCategory, calculationType, defaultValue, percentageOfComponentId, displayOrder, isPfWage, taxable } = req.body;
     if (!code || !name || !componentCategory || !calculationType) {
       return res.status(400).json({ error: 'code, name, componentCategory and calculationType are required' });
     }
@@ -31,6 +31,7 @@ async function create(req, res, next) {
       percentageOfComponentId,
       displayOrder,
       isPfWage,
+      taxable,
     });
     res.status(201).json({ data: component });
   } catch (err) {

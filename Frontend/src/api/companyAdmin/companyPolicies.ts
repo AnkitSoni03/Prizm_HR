@@ -11,6 +11,10 @@ export interface CompanyPolicy {
   // URL minted fresh by the backend on every read.
   fileUrl: string | null;
   fileDownloadUrl: string | null;
+  // Same signed URL family as fileDownloadUrl, but with a forced
+  // Content-Disposition: attachment — use this one for a real Save-As
+  // (fileDownloadUrl is for inline preview instead).
+  fileAttachmentUrl: string | null;
   creator?: HolidayAuditUser | null;
   updater?: HolidayAuditUser | null;
 }

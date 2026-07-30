@@ -30,6 +30,11 @@ module.exports = (sequelize, DataTypes) => {
       },
       name: { type: DataTypes.STRING, allowNull: false },
       amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
+      // Snapshotted from salary_component_definitions.taxable at generation
+      // time — see the add-taxable migration comment. Only meaningful for
+      // 'earning'/'reimbursement' rows; TDS's YTD-taxable-gross query filters
+      // on both category and this flag together.
+      taxable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     },
     {
       sequelize,

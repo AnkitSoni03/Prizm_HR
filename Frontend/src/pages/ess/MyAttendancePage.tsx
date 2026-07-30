@@ -59,6 +59,21 @@ function formatTime(value: string | null): string {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// Working hours for a single day — only meaningful once both punches exist
+// (an open check-in with no check-out yet, or a leave/holiday/weekoff day
+// with neither, both correctly contribute 0).
+function workedMinutes(record: Attendance): number {
+  if (!record.checkIn || !record.checkOut) return 0;
+  const minutes = (new Date(record.checkOut).getTime() - new Date(record.checkIn).getTime()) / 60000;
+  return minutes > 0 ? minutes : 0;
+}
+
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
 export function MyAttendancePage() {
   // Lets the notification bell deep-link straight into a tab (e.g. a
   // regularization decision notification lands on ?tab=requests).
@@ -193,6 +208,11 @@ export function MyAttendancePage() {
               { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.date) },
               { key: 'checkIn', header: 'Check In', render: (r) => formatTime(r.checkIn) },
               { key: 'checkOut', header: 'Check Out', render: (r) => formatTime(r.checkOut) },
+              {
+                key: 'workingHours',
+                header: 'Working Hrs',
+                render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
+              },
               {
                 key: 'status',
                 header: 'Status',

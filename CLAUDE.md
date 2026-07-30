@@ -897,8 +897,63 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     Supabase. Test fixtures hard-deleted afterward; one orphan company from a script crash mid-run
     (an `ApprovalHistory.actorUserId` NOT NULL violation in the test script itself, not product
     code) was caught by an explicit orphan-row check and cleaned up separately.
+- ✅ TDS — New Tax Regime only (2026-07-30): closes the TDS gap explicitly deferred in the PF/ESI/PT
+  entry above. Scoped to **New Regime only** (explicit user choice) — no investment declarations
+  (80C/80D/HRA), no `dateOfBirth`/other Employee fields, no new tables, no new permission codes.
+  Standard **annualized-projection** method (same as greytHR/Zoho Payroll): each run projects the
+  employee's full-year taxable salary from this-FY-YTD-actual + current-month-rate, computes
+  annual tax under new-regime slabs + 4% cess + §87A rebate, subtracts tax already deducted this
+  FY, and spreads the remainder over the FY's remaining months (April–March).
+  - **`salary_component_definitions.taxable`** (seeded since Phase-5's statutory-deductions pass
+    but never wired to anything — confirmed by grep before starting) is the taxable-income basis:
+    TDS excludes any earning/reimbursement component marked `taxable: false`. Found and fixed a
+    real gap while wiring this up — `salaryComponent.service.js::createComponent`/the controller
+    never accepted `taxable` at all (no way to ever set it false), and `SalaryComponentFormModal.tsx`
+    had no checkbox for it, despite the frontend `SalaryComponentDefinition` type already declaring
+    the field. Added a `taxable` checkbox (earning/reimbursement categories only, default checked)
+    to the create form, matching the existing `isPfWage` checkbox pattern exactly — editing stays
+    creation-only, same precedent `isPfWage` already set.
+  - New `payslip_components.taxable` column (migration `20260730090000`) snapshots the flag per row
+    at processing time — same double-snapshot principle as `calculation_type`/`resolved_amount` —
+    so a later edit to a component's `taxable` flag can never retroactively change a historical
+    payslip's year-to-date reconstruction.
+  - New `Backend/src/utils/financialYear.js` (April–March FY helpers) and
+    `Backend/src/modules/payroll/tdsCalculation.service.js` (pure `computeTds`, no DB access, same
+    convention as `statutoryDeduction.service.js`). `statutoryDefaults.js` gained a `tds` section
+    (current-law new-regime slabs/standard-deduction/cess/§87A) alongside `pf`/`esi`/`pt`, merged
+    via `resolveStatutoryConfig` the same shallow-plus-one-level-deeper way as `pt.slabs`.
+  - **`payrollRun.service.js::processRun`** batch-fetches YTD taxable-gross and YTD-TDS-already-
+    deducted once per run (not per employee, to avoid N+1 across a run with many employees), then
+    injects a `statutory-tds` deduction entry into the same `componentTotals` map PF/ESI/PT already
+    use — zero changes to `netPay`/`Payslip.create` math, zero payslip-UI changes needed
+    (`PayslipDetailModal.tsx` already renders any `category: 'deduction'` row generically).
+  - **Caught and fixed a real correctness bug before it shipped**: the first draft of the
+    "prior runs in this FY" filter (`isBeforeInFinancialYear`) was a pure chronological
+    comparator — it would have pulled a **previous** financial year's payslips into a new FY's
+    YTD-TDS reconstruction (silently understating tax at the start of every new FY, the exact
+    class of bug this feature was built to avoid). Fixed by requiring both same-FY-membership
+    AND chronological order. Verified live with a dedicated regression scenario: processed a
+    March-2031 run (FY2030-31) then jumped straight to an April-2032 run (FY2032-33, skipping the
+    whole of FY2031-32) — confirmed April 2032's TDS came out identical to a fresh first-month
+    calculation, not deflated by the skipped FY's data.
+  - Verified live end-to-end against dev Supabase (15/15 assertions): a 3-component structure
+    (Basic + 40%-of-Basic HRA + a non-taxable reimbursement) produced the hand-calculated monthly
+    TDS exactly across three consecutive months with zero drift (sum of 3 months' TDS matched the
+    annual tax figure exactly); a lower-salary employee whose projected annual taxable income fell
+    under the ₹7L §87A threshold owed zero TDS; the FY-rollover regression above; disabling
+    `tds.enabled` while `pf`/`esi`/`pt` stayed enabled produced byte-identical PF/ESI/PT output and
+    no TDS row (existing companies, where `enableStatutoryDeductions` still defaults `false`, are
+    completely unaffected by construction — this was the primary safety check). `tsc -p
+    tsconfig.app.json --noEmit`, `eslint`, and `vite build` all pass clean. Migration applied
+    cleanly to dev Supabase. Test fixtures (company, employees, structures, a dedicated actor User
+    for `ApprovalHistory.actorUserId`, runs, payslips) hard-deleted afterward, scoped to the test
+    company/group id.
+  - Not built (deliberately, per explicit scope): Old Tax Regime (80C/80D/HRA declarations),
+    other-income declarations, arrears relief (§89), multiple-employer/previous-employer income
+    aggregation, Form 16/Form 24Q filing exports, an editable TDS slab table in the UI (code-default
+    only, same precedent as PT's slabs). All flagged as follow-ups, not gaps introduced silently.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
-  System (see build order below), or TDS as a follow-up to the statutory deductions work above.
+  System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 
 ### Known gotcha — tenant-scope hook + system-level rows
 `tenant-scope.js` auto-filters queries by `company_id` whenever a tenant context is active.

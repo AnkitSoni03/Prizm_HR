@@ -36,6 +36,7 @@ export async function createSalaryComponent(input: {
   percentageOfComponentId?: string;
   displayOrder?: number;
   isPfWage?: boolean;
+  taxable?: boolean;
 }): Promise<SalaryComponentDefinition> {
   const { data } = await apiClient.post<{ data: SalaryComponentDefinition }>('/payroll/components', input);
   return data.data;

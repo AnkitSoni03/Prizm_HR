@@ -1,6 +1,6 @@
 'use strict';
 
-// Sensible current-law defaults for India's PF/ESI/PT statutory deductions.
+// Sensible current-law defaults for India's PF/ESI/PT/TDS statutory deductions.
 // Stored per-company in payroll_settings.statutory_config (JSONB, editable
 // via Payroll Settings) rather than hardcoded — these rates/ceilings/slabs
 // change periodically, and a settings edit is far cheaper than a redeploy.
@@ -61,12 +61,33 @@ const DEFAULT_STATUTORY_CONFIG = {
       ],
     },
   },
+  // New Tax Regime only (see CLAUDE.md) — no employee investment
+  // declarations (80C/80D/HRA) needed, so this is a plain company-wide
+  // config like pf/esi, not per-employee. slabs are annual taxable-income
+  // brackets; not exposed as editable in the UI (same precedent as PT's
+  // slabs), only enabled/standardDeduction/cessRate/rebate87A are.
+  tds: {
+    enabled: false,
+    standardDeduction: 75000, // annual, salaried
+    cessRate: 4, // % Health & Education Cess, applied on tax after rebate
+    rebate87A: { thresholdTaxableIncome: 700000, maxRebate: 25000 },
+    slabs: [
+      { upTo: 300000, rate: 0 },
+      { upTo: 600000, rate: 5 },
+      { upTo: 900000, rate: 10 },
+      { upTo: 1200000, rate: 15 },
+      { upTo: 1500000, rate: 20 },
+      { upTo: null, rate: 30 },
+    ],
+  },
 };
 
 // Shallow per-section merge — company overrides in statutory_config replace
-// only the keys they set, everything else falls back to the default. Slabs
-// merge one level deeper (per-state) so a company can add/override a single
-// state's table without having to repeat every other state.
+// only the keys they set, everything else falls back to the default. pt.slabs
+// merges one level deeper (per-state) so a company can add/override a single
+// state's table without having to repeat every other state; tds.rebate87A
+// merges one level deeper the same way. tds.slabs is intentionally NOT
+// deep-merged (whole-array override only) — no UI exposes editing it today.
 function resolveStatutoryConfig(companyOverride) {
   const override = companyOverride || {};
   return {
@@ -76,6 +97,14 @@ function resolveStatutoryConfig(companyOverride) {
       ...DEFAULT_STATUTORY_CONFIG.pt,
       ...(override.pt || {}),
       slabs: { ...DEFAULT_STATUTORY_CONFIG.pt.slabs, ...((override.pt && override.pt.slabs) || {}) },
+    },
+    tds: {
+      ...DEFAULT_STATUTORY_CONFIG.tds,
+      ...(override.tds || {}),
+      rebate87A: {
+        ...DEFAULT_STATUTORY_CONFIG.tds.rebate87A,
+        ...((override.tds && override.tds.rebate87A) || {}),
+      },
     },
   };
 }
