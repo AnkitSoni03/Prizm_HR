@@ -15,9 +15,17 @@ module.exports = (sequelize, DataTypes) => {
       employeeId: { type: DataTypes.BIGINT, allowNull: false },
       type: { type: DataTypes.STRING, allowNull: false },
       fileUrl: { type: DataTypes.STRING, allowNull: false },
-      verified: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      status: {
+        type: DataTypes.ENUM('pending', 'verified', 'rejected'),
+        allowNull: false,
+        defaultValue: 'pending',
+      },
+      // Generic "who decided, when" — populated on either verify or reject
+      // (same reused-actor-column precedent as leave_requests.approver_id).
       verifiedBy: { type: DataTypes.BIGINT, allowNull: true },
       verifiedAt: { type: DataTypes.DATE, allowNull: true },
+      // Only set when status is 'rejected'.
+      rejectionReason: { type: DataTypes.TEXT, allowNull: true },
     },
     {
       sequelize,

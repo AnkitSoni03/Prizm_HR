@@ -33,11 +33,14 @@ export interface EmployeeDocument {
   // Content-Disposition: attachment — use this one for a real Save-As
   // (fileDownloadUrl is for inline preview instead).
   fileAttachmentUrl: string | null;
-  verified: boolean;
-  // Who verified it (and when) — null until verified. Same audit shape as
-  // Holiday/CompanyPolicy's creator/updater.
+  status: 'pending' | 'verified' | 'rejected';
+  // Who last decided this (verify OR reject), and when — null until a
+  // decision is made. Same audit shape as Holiday/CompanyPolicy's
+  // creator/updater.
   verifier?: HolidayAuditUser | null;
   verifiedAt: string | null;
+  // Only set when status is 'rejected'.
+  rejectionReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,6 +75,53 @@ export async function uploadMyDocument(
   const { data } = await apiClient.post<{ data: EmployeeDocument }>(
     `/employees/${employeeId}/documents`,
     formData
+  );
+  return data.data;
+}
+
+// Corrects the title/type only — rejected (409) once the document is
+// verified. Left open on a rejected document deliberately, since fixing the
+// label is part of correcting it for re-submission.
+export async function updateMyDocument(employeeId: string, id: string, type: string): Promise<EmployeeDocument> {
+  const { data } = await apiClient.patch<{ data: EmployeeDocument }>(
+    `/employees/${employeeId}/documents/${id}`,
+    { type }
+  );
+  return data.data;
+}
+
+// Same "locked once verified" rule as updateMyDocument.
+export async function deleteMyDocument(employeeId: string, id: string): Promise<void> {
+  await apiClient.delete(`/employees/${employeeId}/documents/${id}`);
+}
+
+export interface DocumentUploadRequest {
+  id: string;
+  employeeId: string;
+  documentType: string;
+  note: string | null;
+  status: 'pending' | 'fulfilled' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// An admin/document-verifier can ask for a specific document by name (e.g.
+// "PAN Card") — this employee gets an in-app notification the moment it's
+// created (see documentUploadRequest.service.js) and sees it here until
+// it's marked done (completeMyDocumentRequest) or cancelled by the requester.
+export async function listMyDocumentRequests(employeeId: string): Promise<DocumentUploadRequest[]> {
+  const { data } = await apiClient.get<{ data: DocumentUploadRequest[] }>(
+    `/employees/${employeeId}/document-requests`
+  );
+  return data.data;
+}
+
+// A simple manual acknowledgment — not tied to any specific upload. The
+// employee uploads the actual file separately through the normal Documents
+// section, then dismisses the reminder here once they've handled it.
+export async function completeMyDocumentRequest(employeeId: string, id: string): Promise<DocumentUploadRequest> {
+  const { data } = await apiClient.patch<{ data: DocumentUploadRequest }>(
+    `/employees/${employeeId}/document-requests/${id}/done`
   );
   return data.data;
 }

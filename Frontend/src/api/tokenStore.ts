@@ -17,6 +17,25 @@ let tokens: Tokens = {
 };
 let authExpiredHandler: (() => void) | null = null;
 
+// Carries a specific "why you were logged out" message (e.g. account/company
+// deactivated mid-session, see client.ts's response interceptor) across the
+// forced redirect to /login, which happens via a plain React state change
+// (ProtectedRoute's <Navigate>), not a full page reload — sessionStorage
+// just makes it resilient to an accidental reload landing exactly in
+// between. Consumed (read once, then cleared) so it never resurfaces on a
+// later, unrelated visit to /login.
+const PENDING_MESSAGE_KEY = 'hrms.pendingSessionMessage';
+
+export function setPendingSessionMessage(message: string): void {
+  sessionStorage.setItem(PENDING_MESSAGE_KEY, message);
+}
+
+export function consumePendingSessionMessage(): string | null {
+  const message = sessionStorage.getItem(PENDING_MESSAGE_KEY);
+  if (message) sessionStorage.removeItem(PENDING_MESSAGE_KEY);
+  return message;
+}
+
 export function getTokens(): Tokens {
   return tokens;
 }

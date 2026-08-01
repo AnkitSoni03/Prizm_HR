@@ -7,6 +7,8 @@ const { runWithTenant } = require('../../config/tenant-context');
 const { syncHrTeamRole } = require('../../utils/hrTeamSync');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { getSignedDownloadUrl } = require('../../utils/gcs');
+const { isCompanyInactive } = require('../../utils/companyStatus');
+const { resolveEscalationContact } = require('../../utils/accountEscalation');
 const {
   signAccessToken,
   generateOpaqueToken,
@@ -243,6 +245,86 @@ async function inviteEmployeeUser({ companyId, employeeId, email, brandId, scope
   return { user, invitation, activationToken: rawToken };
 }
 
+// Reassigns an existing ESS login to a new email — e.g. an employee wants to
+// switch which inbox they use, without losing their identity/history (leave
+// balances, approval history, notifications, etc. are all keyed off
+// employees.id, not the User row, so none of that is touched). The old User
+// row is never deleted (CLAUDE.md: soft deletes only, and audit trails like
+// approval_histories.approver_user_id / notifications.user_id may still
+// reference it) — just unlinked from this employee and deactivated so it can
+// no longer log in, mirroring setEmployeeActiveStatus's cascade. A fresh
+// invited User is then created for the new email, same invite+activate flow
+// as inviteEmployeeUser, so the employee still has to prove they control the
+// new inbox before they can log in with it.
+async function transferEmployeeLogin({ companyId, employeeId, newEmail, brandId, scopedBrandIds }) {
+  const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
+  if (!employee) throw new HttpError(404, 'Employee not found');
+  if (brandId && String(employee.brandId) !== String(brandId)) {
+    throw new HttpError(403, "Employee does not belong to the caller's brand");
+  }
+  // Same defense-in-depth as inviteEmployeeUser: scopedBrandIds is derived
+  // server-side from the caller's own grants, so this still holds even if a
+  // brand-scoped caller omits brandId from the request entirely.
+  if (
+    scopedBrandIds &&
+    !scopedBrandIds.some((scopedBrandId) => String(scopedBrandId) === String(employee.brandId))
+  ) {
+    throw new HttpError(403, "Employee does not belong to the caller's brand");
+  }
+  if (!employee.userId) {
+    throw new HttpError(400, 'This employee has no linked login to transfer — invite one first');
+  }
+
+  const existing = await db.User.findOne({ where: { companyId, email: newEmail } });
+  if (existing) throw new HttpError(409, 'A user with this email already exists for this company');
+
+  // Same tenant-scope-hook dodge as inviteEmployeeUser — see its comment.
+  const role = await runWithTenant({ companyId: null }, () =>
+    db.Role.findOne({ where: { name: 'Employee', isSystem: true } })
+  );
+  if (!role) throw new HttpError(500, 'Employee role is not seeded');
+
+  const oldUserId = employee.userId;
+  const rawToken = generateOpaqueToken();
+
+  const { user, invitation } = await db.sequelize.transaction(async (t) => {
+    const oldUser = await db.User.findByPk(oldUserId, { transaction: t });
+    if (oldUser) {
+      await oldUser.update({ employeeId: null, isActive: false }, { transaction: t });
+      // The old inbox may have been compromised or simply abandoned —
+      // revoke every outstanding session on it, same as resetPassword's
+      // "force logout everywhere" precedent.
+      await db.RefreshToken.update(
+        { revokedAt: new Date() },
+        { where: { userId: oldUser.id, revokedAt: null }, transaction: t }
+      );
+    }
+
+    const createdUser = await db.User.create(
+      { companyId, email: newEmail, employeeId: employee.id, status: 'invited', invitedAt: new Date() },
+      { transaction: t }
+    );
+
+    const createdInvitation = await db.Invitation.create(
+      {
+        companyId,
+        email: newEmail,
+        roleId: role.id,
+        brandId: null,
+        tokenHash: hashToken(rawToken),
+        expiresAt: daysFromNow(INVITATION_TTL_DAYS),
+      },
+      { transaction: t }
+    );
+
+    await employee.update({ userId: createdUser.id }, { transaction: t });
+
+    return { user: createdUser, invitation: createdInvitation };
+  });
+
+  return { user, invitation, activationToken: rawToken };
+}
+
 async function activateAccount({ token, password }) {
   const invitation = await db.Invitation.findOne({ where: { tokenHash: hashToken(token) } });
   if (!invitation) throw new HttpError(400, 'Invalid activation token');
@@ -311,7 +393,30 @@ async function login({ email, password }) {
   // globally — a real deployment should use distinct emails per tenant).
   const user = await db.User.findOne({ where: { email } });
   if (!user || !user.passwordHash) throw new HttpError(401, 'Invalid email or password');
-  if (user.status !== 'active' || !user.isActive) throw new HttpError(403, 'Account is not active');
+
+  // Company-level block takes priority over the user's own status — it's
+  // the more root-cause explanation ("the whole company was deactivated",
+  // not "this one login"), and every one of that company's users hits it
+  // identically regardless of their individual status.
+  if (user.companyId) {
+    const company = await db.Company.findByPk(user.companyId, { attributes: ['status'] });
+    if (company && isCompanyInactive(company.status)) {
+      throw new HttpError(
+        403,
+        "Your company's access has been deactivated by the platform administrator. Please contact the Super Admin to reactivate it.",
+        'COMPANY_DEACTIVATED'
+      );
+    }
+  }
+
+  if (user.status !== 'active' || !user.isActive) {
+    const contact = await resolveEscalationContact(user);
+    throw new HttpError(
+      403,
+      `Your account has been deactivated. Please contact ${contact} to reactivate it.`,
+      'ACCOUNT_DEACTIVATED'
+    );
+  }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) throw new HttpError(401, 'Invalid email or password');
@@ -502,6 +607,7 @@ module.exports = {
   inviteGroupAdmin,
   inviteBrandAdmin,
   inviteEmployeeUser,
+  transferEmployeeLogin,
   activateAccount,
   login,
   refresh,

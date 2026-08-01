@@ -51,6 +51,38 @@ async function upload(req, res, next) {
   }
 }
 
+async function update(req, res, next) {
+  try {
+    const { type } = req.body;
+    if (!type) {
+      return res.status(400).json({ error: 'type is required' });
+    }
+
+    const doc = await service.updateDocument({
+      companyId: req.auth.companyId,
+      employeeId: req.params.employeeId,
+      id: req.params.id,
+      type,
+    });
+    res.json({ data: doc });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function remove(req, res, next) {
+  try {
+    await service.deleteDocument({
+      companyId: req.auth.companyId,
+      employeeId: req.params.employeeId,
+      id: req.params.id,
+    });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function verify(req, res, next) {
   try {
     const doc = await service.verifyDocument({
@@ -65,4 +97,24 @@ async function verify(req, res, next) {
   }
 }
 
-module.exports = { list, get, upload, verify };
+async function reject(req, res, next) {
+  try {
+    const { reason } = req.body;
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'A reason is required to reject a document' });
+    }
+
+    const doc = await service.rejectDocument({
+      companyId: req.auth.companyId,
+      employeeId: req.params.employeeId,
+      id: req.params.id,
+      rejectedByUserId: req.auth.userId,
+      reason: reason.trim(),
+    });
+    res.json({ data: doc });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, get, upload, update, remove, verify, reject };

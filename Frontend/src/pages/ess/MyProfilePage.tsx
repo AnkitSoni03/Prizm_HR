@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import axios from 'axios';
-import { FileText } from 'lucide-react';
+import { Check, FileText, Pencil, Trash2, X } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Table } from '../../components/ui/Table';
 import { Input } from '../../components/ui/Input';
@@ -15,8 +15,13 @@ import {
   getMyProfile,
   listMyDocuments,
   uploadMyDocument,
+  updateMyDocument,
+  deleteMyDocument,
+  listMyDocumentRequests,
+  completeMyDocumentRequest,
   type EmployeeDocument,
   type EmployeeProfile,
+  type DocumentUploadRequest,
 } from '../../api/ess/profile';
 import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
 import { holidayAuditName } from '../../api/companyAdmin/holidays';
@@ -41,6 +46,12 @@ function statusTone(status: EmployeeProfile['status']) {
   return 'neutral' as const;
 }
 
+function docStatusTone(status: EmployeeDocument['status']) {
+  if (status === 'verified') return 'success' as const;
+  if (status === 'rejected') return 'danger' as const;
+  return 'warning' as const;
+}
+
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -56,6 +67,7 @@ export function MyProfilePage() {
   const showToast = useToast();
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
+  const [documentRequests, setDocumentRequests] = useState<DocumentUploadRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
 
@@ -65,15 +77,24 @@ export function MyProfilePage() {
   const [docUploadError, setDocUploadError] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<EmployeeDocument | null>(null);
 
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [editingDocType, setEditingDocType] = useState('');
+  const [isSavingDocType, setIsSavingDocType] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+  const [completingRequestId, setCompletingRequestId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!user?.employeeId) return;
-    Promise.all([getMyProfile(user.employeeId), listMyDocuments(user.employeeId)])
-      .then(([p, docs]) => {
+    Promise.all([getMyProfile(user.employeeId), listMyDocuments(user.employeeId), listMyDocumentRequests(user.employeeId)])
+      .then(([p, docs, requests]) => {
         setProfile(p);
         setDocuments(docs);
+        setDocumentRequests(requests);
       })
       .catch(() => setError('Could not load your profile.'));
   }, [user?.employeeId]);
+
+  const pendingRequests = documentRequests.filter((r) => r.status === 'pending');
 
   if (!user?.employeeId) {
     return (
@@ -119,6 +140,9 @@ export function MyProfilePage() {
     }
   }
 
+  // Independent of any request below — a request is just a reminder note;
+  // the actual file always goes through this same form regardless of
+  // whether it's fulfilling a request or not.
   async function handleUploadDocument(event: FormEvent) {
     event.preventDefault();
     if (!user?.employeeId || !docType || !docFile) return;
@@ -134,6 +158,55 @@ export function MyProfilePage() {
       setDocUploadError(extractError(err, 'Could not upload this document. Please try again.'));
     } finally {
       setIsUploadingDoc(false);
+    }
+  }
+
+  async function handleDoneRequest(request: DocumentUploadRequest) {
+    if (!user?.employeeId) return;
+    setCompletingRequestId(request.id);
+    try {
+      await completeMyDocumentRequest(user.employeeId, request.id);
+      setDocumentRequests((prev) => prev.filter((r) => r.id !== request.id));
+    } catch {
+      showToast('Could not dismiss this request. Please try again.');
+    } finally {
+      setCompletingRequestId(null);
+    }
+  }
+
+  function handleStartEditDoc(doc: EmployeeDocument) {
+    setEditingDocId(doc.id);
+    setEditingDocType(doc.type);
+  }
+
+  async function handleSaveDocType(doc: EmployeeDocument) {
+    if (!user?.employeeId) return;
+    if (!editingDocType.trim() || editingDocType === doc.type) {
+      setEditingDocId(null);
+      return;
+    }
+    setIsSavingDocType(true);
+    try {
+      const updated = await updateMyDocument(user.employeeId, doc.id, editingDocType.trim());
+      setDocuments((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      setEditingDocId(null);
+    } catch {
+      showToast('Could not update this document. Please try again.');
+    } finally {
+      setIsSavingDocType(false);
+    }
+  }
+
+  async function handleDeleteDoc(doc: EmployeeDocument) {
+    if (!user?.employeeId) return;
+    setDeletingDocId(doc.id);
+    try {
+      await deleteMyDocument(user.employeeId, doc.id);
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+    } catch {
+      showToast('Could not delete this document. Please try again.');
+    } finally {
+      setDeletingDocId(null);
     }
   }
 
@@ -173,6 +246,33 @@ export function MyProfilePage() {
         </p>
       </div>
 
+      {pendingRequests.length > 0 && (
+        <div className="rounded-xl border border-warning/30 bg-warning/5 p-5">
+          <h3 className="mb-3 text-sm font-semibold text-ink">Documents Requested</h3>
+          <div className="space-y-2">
+            {pendingRequests.map((request) => (
+              <div
+                key={request.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-2.5"
+              >
+                <div>
+                  <p className="text-sm font-medium text-ink">{request.documentType}</p>
+                  {request.note && <p className="text-xs text-ink-muted">{request.note}</p>}
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => handleDoneRequest(request)}
+                  isLoading={completingRequestId === request.id}
+                >
+                  Done
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div>
         <h3 className="mb-3 text-sm font-semibold text-ink">My Documents</h3>
         <Table
@@ -180,7 +280,44 @@ export function MyProfilePage() {
           rowKey={(d) => d.id}
           emptyMessage="No documents on file yet."
           columns={[
-            { key: 'type', header: 'Type', render: (d) => d.type },
+            {
+              key: 'type',
+              header: 'Type',
+              render: (d) =>
+                editingDocId === d.id ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      autoFocus
+                      value={editingDocType}
+                      onChange={(event) => setEditingDocType(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') handleSaveDocType(d);
+                        if (event.key === 'Escape') setEditingDocId(null);
+                      }}
+                      className="w-32 rounded-lg border border-border px-2 py-1 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveDocType(d)}
+                      disabled={isSavingDocType}
+                      aria-label="Save"
+                      className="shrink-0 rounded-md p-1 text-ink-muted hover:bg-page hover:text-success disabled:opacity-50"
+                    >
+                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingDocId(null)}
+                      aria-label="Cancel"
+                      className="shrink-0 rounded-md p-1 text-ink-muted hover:bg-page hover:text-ink"
+                    >
+                      <X className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  </div>
+                ) : (
+                  d.type
+                ),
+            },
             {
               key: 'file',
               header: 'File',
@@ -198,22 +335,24 @@ export function MyProfilePage() {
                 ),
             },
             {
-              key: 'verified',
-              header: 'Verified',
+              key: 'status',
+              header: 'Status',
               render: (d) => (
-                <Badge
-                  tone={d.verified ? 'success' : 'neutral'}
-                  title={d.verified ? `Verified by ${holidayAuditName(d.verifier) ?? 'someone no longer in the system'}` : undefined}
-                >
-                  {d.verified ? 'Verified' : 'Pending'}
-                </Badge>
+                <div>
+                  <Badge tone={docStatusTone(d.status)}>
+                    {d.status === 'verified' ? 'Verified' : d.status === 'rejected' ? 'Rejected' : 'Pending'}
+                  </Badge>
+                  {d.status === 'rejected' && d.rejectionReason && (
+                    <p className="mt-0.5 max-w-xs text-xs text-danger">{d.rejectionReason}</p>
+                  )}
+                </div>
               ),
             },
             {
-              key: 'verifiedBy',
-              header: 'Verified By',
+              key: 'decidedBy',
+              header: 'Decided By',
               render: (d) =>
-                d.verified ? (
+                d.status !== 'pending' ? (
                   <span className="text-ink-muted">
                     {holidayAuditName(d.verifier) ?? '—'}
                     {d.verifiedAt && (
@@ -223,6 +362,34 @@ export function MyProfilePage() {
                 ) : (
                   <span className="text-ink-muted">—</span>
                 ),
+            },
+            {
+              key: 'actions',
+              header: '',
+              render: (d) =>
+                canUploadDocs && d.status !== 'verified' && editingDocId !== d.id ? (
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleStartEditDoc(d)}
+                      aria-label={`Edit ${d.type}`}
+                      title="Edit title"
+                      className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
+                    >
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDoc(d)}
+                      disabled={deletingDocId === d.id}
+                      aria-label={`Delete ${d.type}`}
+                      title="Delete"
+                      className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                    </button>
+                  </div>
+                ) : null,
             },
           ]}
         />
@@ -247,7 +414,7 @@ export function MyProfilePage() {
             </div>
             <p className="text-xs text-ink-muted">
               Once uploaded, it'll show as "Pending" until an admin or a document verifier reviews it — you'll get
-              a notification when it's verified.
+              a notification either way. You can edit the title or delete it any time before it's verified.
             </p>
             <div className="flex justify-end">
               <Button type="submit" variant="secondary" isLoading={isUploadingDoc} disabled={!docType || !docFile}>

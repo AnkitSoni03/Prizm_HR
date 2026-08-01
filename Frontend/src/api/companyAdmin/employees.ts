@@ -70,6 +70,15 @@ export async function deleteEmployee(id: string): Promise<void> {
   await apiClient.delete(`/employees/${id}`);
 }
 
+// Soft on/off toggle — never deletes the employee. Also flips the linked ESS
+// login's own isActive server-side, if one exists, so deactivating blocks
+// check-in/leave/etc. access immediately and reactivating (e.g. a rejoin)
+// restores it without a fresh invite.
+export async function setEmployeeActive(id: string, isActive: boolean): Promise<Employee> {
+  const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}/active`, { isActive });
+  return data.data;
+}
+
 // Replaces this employee's assigned "powers" wholesale with the given set
 // (empty array = revoke all) — see api/powers.ts for the catalog.
 export async function assignEmployeePowers(id: string, powerKeys: string[]): Promise<Employee> {
@@ -107,6 +116,23 @@ export async function inviteEmployeeUser(
   const { data } = await apiClient.post<InviteResult>('/auth/signup-invite-employee', {
     employeeId,
     email,
+    brandId,
+  });
+  return data;
+}
+
+// Reassigns an already-linked ESS login to a new email — the old login is
+// deactivated and unlinked (never deleted), and a fresh invite goes out for
+// the new email, same activation-link flow as inviteEmployeeUser. Used when
+// an employee wants to switch which inbox they use for ESS access.
+export async function transferEmployeeLogin(
+  employeeId: string,
+  newEmail: string,
+  brandId?: string
+): Promise<InviteResult> {
+  const { data } = await apiClient.post<InviteResult>('/auth/transfer-employee-login', {
+    employeeId,
+    newEmail,
     brandId,
   });
   return data;

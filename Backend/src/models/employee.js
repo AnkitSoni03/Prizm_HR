@@ -18,6 +18,7 @@ module.exports = (sequelize, DataTypes) => {
       Employee.belongsTo(models.User, { foreignKey: 'userId', as: 'loginUser' });
       Employee.hasOne(models.User, { foreignKey: 'employeeId', as: 'userAccount' });
       Employee.hasMany(models.EmployeeDocument, { foreignKey: 'employeeId', as: 'documents' });
+      Employee.hasMany(models.DocumentUploadRequest, { foreignKey: 'employeeId', as: 'documentUploadRequests' });
       Employee.hasMany(models.Department, { foreignKey: 'headEmployeeId', as: 'headedDepartments' });
       Employee.hasMany(models.EmployeeShift, { foreignKey: 'employeeId', as: 'employeeShifts' });
       Employee.hasMany(models.EmployeeDevice, { foreignKey: 'employeeId', as: 'devices' });
@@ -69,6 +70,14 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: 'onboarding',
       },
+      // Separate from the HR-lifecycle `status` ENUM above — this is a plain
+      // on/off account toggle (Company Admin/Brand Admin, "employee left,
+      // don't delete their record") that also cascades to the linked User's
+      // own isActive (see employee.service.js::setEmployeeActiveStatus), so
+      // deactivating immediately blocks their ESS login. Never touched by
+      // the generic updateEmployee path — only the dedicated
+      // PATCH /employees/:id/active endpoint writes it.
+      isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     },
     {
       sequelize,

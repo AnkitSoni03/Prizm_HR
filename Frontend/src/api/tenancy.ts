@@ -99,6 +99,11 @@ export interface Employee {
   // just falls back to the 'default' PT slab.
   workState: string | null;
   status: 'onboarding' | 'active' | 'on_notice' | 'exited' | 'archived';
+  // On/off account toggle, separate from the HR-lifecycle `status` above —
+  // "employee left, don't delete their record" (see
+  // employee.service.js::setEmployeeActiveStatus). Cascades to the linked
+  // ESS login's own isActive when toggled.
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
   // Optional, admin-assigned dedicated Role holding this employee's
@@ -111,6 +116,10 @@ export interface Employee {
   // employee.service.js::withPhotoUrl. Null when no photo has been uploaded
   // (the common case; always optional).
   photoDownloadUrl?: string | null;
+  // The ESS login currently linked to this employee (userId), only present
+  // when eager-loaded by GET /employees/:id — lets EmployeeDetailModal.tsx
+  // show which email they log in with and offer to transfer it.
+  loginUser?: { id: string; email: string; isActive: boolean; status: string } | null;
 }
 
 export interface Plan {

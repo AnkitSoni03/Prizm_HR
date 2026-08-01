@@ -169,6 +169,45 @@ async function signupInviteEmployee(req, res, next) {
   }
 }
 
+// Company Admin/HR/Brand Admin-scoped, same permission (user:invite) as
+// signupInviteEmployee — reassigns an already-linked ESS login to a new
+// email rather than creating a fresh one.
+async function transferEmployeeLoginEmail(req, res, next) {
+  try {
+    const { employeeId, newEmail, brandId } = req.body;
+    if (!employeeId || !newEmail) {
+      return res.status(400).json({ error: 'employeeId and newEmail are required' });
+    }
+
+    const companyId = requireCompanyScope({
+      authCompanyId: req.auth.companyId,
+      override: req.body.companyId,
+    });
+
+    const { user, invitation, activationToken } = await authService.transferEmployeeLogin({
+      companyId,
+      employeeId,
+      newEmail,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
+    await trySendActivationEmail({ to: user.email, activationToken });
+
+    const response = {
+      user: { id: user.id, email: user.email, status: user.status },
+      invitation: { id: invitation.id, expiresAt: invitation.expiresAt },
+    };
+
+    if (!isProd()) {
+      response.activationToken = activationToken;
+    }
+
+    res.status(201).json(response);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function activate(req, res, next) {
   try {
     const { token, password } = req.body;
@@ -313,6 +352,7 @@ module.exports = {
   signupInviteGroup,
   signupInviteBrand,
   signupInviteEmployee,
+  transferEmployeeLoginEmail,
   activate,
   login,
   refresh,

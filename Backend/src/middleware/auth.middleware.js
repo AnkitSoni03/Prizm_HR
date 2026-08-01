@@ -2,8 +2,11 @@
 
 const { verifyAccessToken } = require('../utils/tokens');
 const { runWithTenant } = require('../config/tenant-context');
+const { isCompanyInactive } = require('../utils/companyStatus');
+const { resolveEscalationContact } = require('../utils/accountEscalation');
+const db = require('../models');
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
 
@@ -24,6 +27,53 @@ function requireAuth(req, res, next) {
     groupId: payload.groupId ?? null,
     employeeId: payload.employeeId,
   };
+
+  // Re-checked on every request (not just at login/refresh) so a Super
+  // Admin deactivating a company, or an admin deactivating an employee's
+  // login, takes effect immediately rather than waiting up to the access
+  // token's ~15-minute TTL. Looked up outside runWithTenant below — no
+  // tenant context is active yet, so User's tenant-scope hook is a no-op
+  // and this always finds the row regardless of company_id.
+  let user;
+  try {
+    user = await db.User.findByPk(req.auth.userId, {
+      attributes: ['id', 'isActive', 'status'],
+    });
+  } catch (err) {
+    return next(err);
+  }
+  if (!user || !user.isActive || user.status !== 'active') {
+    // req.auth already carries employeeId/companyId/groupId from the JWT —
+    // enough for resolveEscalationContact without a second User lookup.
+    // (resolveEscalationContact reads `.id`, not `.userId` — req.auth uses
+    // the latter to match the rest of this codebase's req.auth shape.)
+    const contact = await resolveEscalationContact({
+      id: req.auth.userId,
+      employeeId: req.auth.employeeId,
+      companyId: req.auth.companyId,
+      groupId: req.auth.groupId,
+    }).catch(() => 'your administrator');
+    return res.status(403).json({
+      error: `Your account has been deactivated. Please contact ${contact} to reactivate it.`,
+      code: 'ACCOUNT_DEACTIVATED',
+    });
+  }
+
+  if (req.auth.companyId) {
+    let company;
+    try {
+      company = await db.Company.findByPk(req.auth.companyId, { attributes: ['id', 'status'] });
+    } catch (err) {
+      return next(err);
+    }
+    if (!company || isCompanyInactive(company.status)) {
+      return res.status(403).json({
+        error:
+          "Your company's access has been deactivated by the platform administrator. Please contact the Super Admin to reactivate it.",
+        code: 'COMPANY_DEACTIVATED',
+      });
+    }
+  }
 
   // Everything downstream (rbac middleware, tenant-scoped model hooks) reads
   // company_id from this async context rather than from req, so it stays

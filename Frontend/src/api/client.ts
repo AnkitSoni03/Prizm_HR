@@ -1,5 +1,11 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
-import { clearTokens, getTokens, notifyAuthExpired, setTokens } from './tokenStore';
+import { clearTokens, getTokens, notifyAuthExpired, setPendingSessionMessage, setTokens } from './tokenStore';
+
+// Set on a 403 by requireAuth (Backend/src/middleware/auth.middleware.js)
+// when the caller's own account, or their whole company, was deactivated
+// mid-session — distinct from an ordinary permission-denied 403 (which
+// should NOT force a logout, just show "you can't do that").
+const DEACTIVATION_ERROR_CODES = new Set(['ACCOUNT_DEACTIVATED', 'COMPANY_DEACTIVATED']);
 
 const AUTH_FREE_PATHS = ['/auth/login', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password'];
 
@@ -69,6 +75,27 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const config = error.config as RetriableConfig | undefined;
+
+    // Mid-session deactivation: unlike an ordinary 401 (expired access
+    // token — recoverable via refresh below) or an ordinary 403
+    // (permission-denied — the caller stays logged in, just can't do that
+    // one thing), this means the session itself is no longer valid and
+    // won't become valid again by refreshing. Force a logout and hand the
+    // specific reason to the login screen. Skipped for /auth/login itself —
+    // that request has no session to log out of, and LoginPage shows the
+    // same message inline via its own catch block instead.
+    if (
+      error.response?.status === 403 &&
+      config &&
+      !isAuthFreePath(config.url) &&
+      DEACTIVATION_ERROR_CODES.has((error.response.data as { code?: string } | undefined)?.code ?? '')
+    ) {
+      const message = (error.response.data as { error?: string } | undefined)?.error;
+      if (message) setPendingSessionMessage(message);
+      clearTokens();
+      notifyAuthExpired();
+      throw error;
+    }
 
     if (error.response?.status !== 401 || !config || config._retried || isAuthFreePath(config.url)) {
       throw error;

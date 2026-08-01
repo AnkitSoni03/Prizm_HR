@@ -55,9 +55,18 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return '/ess/payslips';
   }
 
-  // A document's own owner always has their upload/verified status on their
-  // own My Profile page — no separate "my documents" route exists.
-  if (notification.requestType === 'employee_document' && notification.type === 'document_verified') {
+  // A document's own owner always has their upload/verified/rejected status
+  // on their own My Profile page — no separate "my documents" route exists.
+  if (
+    notification.requestType === 'employee_document' &&
+    (notification.type === 'document_verified' || notification.type === 'document_rejected')
+  ) {
+    return '/ess/profile';
+  }
+
+  // A document *request* is always sent to the target employee, never an
+  // approver — My Profile is also where they see and fulfill it.
+  if (notification.requestType === 'document_upload_request') {
     return '/ess/profile';
   }
 

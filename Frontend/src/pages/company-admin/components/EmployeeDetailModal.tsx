@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import axios from 'axios';
-import { Check, CheckCircle2, Copy, FileText } from 'lucide-react';
+import { Check, CheckCircle2, Copy, FileText, Pencil, Trash2, X } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { Tabs } from '../../../components/ui/Tabs';
+import { RejectReasonModal } from '../../../components/RejectReasonModal';
 import { useAuth } from '../../../context/auth-context';
+import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
 import {
   assignEmployeePowers,
@@ -15,6 +17,8 @@ import {
   updateEmployee,
   transferEmployee,
   inviteEmployeeUser,
+  transferEmployeeLogin,
+  setEmployeeActive,
   uploadEmployeePhoto,
   removeEmployeePhoto,
 } from '../../../api/companyAdmin/employees';
@@ -25,8 +29,15 @@ import { Avatar } from '../../../components/ui/Avatar';
 import {
   listEmployeeDocuments,
   uploadEmployeeDocument,
+  updateEmployeeDocument,
+  deleteEmployeeDocument,
   verifyEmployeeDocument,
+  rejectEmployeeDocument,
+  listDocumentRequests,
+  createDocumentRequest,
+  cancelDocumentRequest,
   type EmployeeDocument,
+  type DocumentUploadRequest,
 } from '../../../api/companyAdmin/employeeDocuments';
 import {
   adjustLeaveBalance,
@@ -80,6 +91,12 @@ function statusTone(status: Employee['status']) {
   return 'neutral';
 }
 
+function docStatusTone(status: EmployeeDocument['status']) {
+  if (status === 'verified') return 'success' as const;
+  if (status === 'rejected') return 'danger' as const;
+  return 'warning' as const;
+}
+
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
     return err.response.data.error;
@@ -99,6 +116,7 @@ export function EmployeeDetailModal({
   initialTab = 'details',
 }: EmployeeDetailModalProps) {
   const { user, hasPermission } = useAuth();
+  const confirm = useConfirm();
   const showToast = useToast();
   const usesBrands = user?.companyUsesBrands ?? true;
   const canUpdate = hasPermission('employee:update');
@@ -139,6 +157,91 @@ export function EmployeeDetailModal({
     ? `${window.location.origin}/activate?token=${encodeURIComponent(essActivationToken)}`
     : null;
 
+  // employee.loginUser is only eager-loaded by GET /employees/:id — the
+  // `employee` prop comes from the list view, which doesn't include it, so
+  // it's fetched here once when this employee actually has a linked login.
+  const [linkedUser, setLinkedUser] = useState<Employee['loginUser']>(undefined);
+  const [isAccountActive, setIsAccountActive] = useState(employee.isActive);
+  const [isTogglingAccount, setIsTogglingAccount] = useState(false);
+
+  const [isTransferFormOpen, setIsTransferFormOpen] = useState(false);
+  const [transferLoginEmail, setTransferLoginEmail] = useState('');
+  const [isTransferringLogin, setIsTransferringLogin] = useState(false);
+  const [transferLoginError, setTransferLoginError] = useState<string | null>(null);
+  const [transferActivationToken, setTransferActivationToken] = useState<string | null>(null);
+  const [isTransferLinkCopied, setIsTransferLinkCopied] = useState(false);
+
+  const transferActivationUrl = transferActivationToken
+    ? `${window.location.origin}/activate?token=${encodeURIComponent(transferActivationToken)}`
+    : null;
+
+  useEffect(() => {
+    if (!canInviteEss || !employee.userId) return;
+    let cancelled = false;
+    getEmployee(employee.id)
+      .then((full) => {
+        if (!cancelled) setLinkedUser(full.loginUser ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canInviteEss, employee.id, employee.userId]);
+
+  // Soft toggle — never deletes the employee. Deactivating also blocks their
+  // ESS login immediately (see employee.service.js::setEmployeeActiveStatus);
+  // reactivating (e.g. a rejoin) restores both in one step.
+  async function handleToggleAccount() {
+    const nextActive = !isAccountActive;
+    const confirmed = await confirm({
+      title: nextActive ? 'Activate employee account' : 'Deactivate employee account',
+      message: nextActive
+        ? `Reactivate ${employee.name ?? employee.employeeCode}'s account? Their ESS login (if any) will regain access immediately.`
+        : `Deactivate ${employee.name ?? employee.employeeCode}'s account? Their ESS login (if any) will immediately lose access. No data is deleted, and this can be reversed any time.`,
+      confirmLabel: nextActive ? 'Activate' : 'Deactivate',
+      variant: nextActive ? 'primary' : 'danger',
+    });
+    if (!confirmed) return;
+    setIsTogglingAccount(true);
+    try {
+      await setEmployeeActive(employee.id, nextActive);
+      setIsAccountActive(nextActive);
+      setLinkedUser((prev) => (prev ? { ...prev, isActive: nextActive } : prev));
+    } catch {
+      showToast("Could not update this employee's account status. Please try again.");
+    } finally {
+      setIsTogglingAccount(false);
+    }
+  }
+
+  async function handleCopyTransferActivationUrl() {
+    if (!transferActivationUrl) return;
+    await navigator.clipboard.writeText(transferActivationUrl);
+    setIsTransferLinkCopied(true);
+    setTimeout(() => setIsTransferLinkCopied(false), 2000);
+  }
+
+  // Doesn't call onUpdated() — same reasoning as handleInviteEss below, so
+  // the success message/activation link stays visible instead of vanishing.
+  async function handleTransferLogin(event: FormEvent) {
+    event.preventDefault();
+    setTransferLoginError(null);
+    setIsTransferringLogin(true);
+    try {
+      const result = await transferEmployeeLogin(employee.id, transferLoginEmail);
+      setTransferActivationToken(result.activationToken ?? null);
+      // The new User row defaults isActive: true — it just hasn't been
+      // activated (status stays 'invited' until the link is used).
+      setLinkedUser({ id: result.user.id, email: result.user.email, isActive: true, status: result.user.status });
+    } catch (err) {
+      setTransferLoginError(extractError(err, 'Could not transfer this login. Please try again.'));
+    } finally {
+      setIsTransferringLogin(false);
+    }
+  }
+
   const [documents, setDocuments] = useState<EmployeeDocument[] | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<EmployeeDocument | null>(null);
@@ -152,6 +255,52 @@ export function EmployeeDetailModal({
       .then(setDocuments)
       .catch(() => setDocsError('Could not load documents.'));
   }, [activeTab, documents, canReadDocs, employee.id]);
+
+  const [documentRequests, setDocumentRequests] = useState<DocumentUploadRequest[] | null>(null);
+  const [requestDocType, setRequestDocType] = useState('');
+  const [requestNote, setRequestNote] = useState('');
+  const [isRequestingDoc, setIsRequestingDoc] = useState(false);
+  const [requestDocError, setRequestDocError] = useState<string | null>(null);
+  const [cancellingRequestId, setCancellingRequestId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'documents' || documentRequests !== null || !canVerifyDocs) return;
+    listDocumentRequests(employee.id)
+      .then(setDocumentRequests)
+      .catch(() => setDocumentRequests([]));
+  }, [activeTab, documentRequests, canVerifyDocs, employee.id]);
+
+  async function handleRequestDocument(event: FormEvent) {
+    event.preventDefault();
+    if (!requestDocType) return;
+    setRequestDocError(null);
+    setIsRequestingDoc(true);
+    try {
+      const request = await createDocumentRequest(employee.id, {
+        documentType: requestDocType,
+        note: requestNote || undefined,
+      });
+      setDocumentRequests((prev) => [request, ...(prev ?? [])]);
+      setRequestDocType('');
+      setRequestNote('');
+    } catch (err) {
+      setRequestDocError(extractError(err, 'Could not send this request. Please try again.'));
+    } finally {
+      setIsRequestingDoc(false);
+    }
+  }
+
+  async function handleCancelRequest(request: DocumentUploadRequest) {
+    setCancellingRequestId(request.id);
+    try {
+      const updated = await cancelDocumentRequest(employee.id, request.id);
+      setDocumentRequests((prev) => (prev ? prev.map((r) => (r.id === updated.id ? updated : r)) : prev));
+    } catch {
+      showToast('Could not cancel this request. Please try again.');
+    } finally {
+      setCancellingRequestId(null);
+    }
+  }
 
   const [leaveBalanceYear, setLeaveBalanceYear] = useState(new Date().getFullYear());
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -360,6 +509,61 @@ export function EmployeeDetailModal({
     }
   }
 
+  const [rejectingDoc, setRejectingDoc] = useState<EmployeeDocument | null>(null);
+
+  async function handleRejectConfirm(reason: string) {
+    if (!rejectingDoc) return;
+    const updated = await rejectEmployeeDocument(employee.id, rejectingDoc.id, reason);
+    setDocuments((prev) => (prev ? prev.map((d) => (d.id === updated.id ? updated : d)) : prev));
+    setRejectingDoc(null);
+  }
+
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [editingDocType, setEditingDocType] = useState('');
+  const [isSavingDocType, setIsSavingDocType] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
+
+  function handleStartEditDoc(doc: EmployeeDocument) {
+    setEditingDocId(doc.id);
+    setEditingDocType(doc.type);
+  }
+
+  async function handleSaveDocType(doc: EmployeeDocument) {
+    if (!editingDocType.trim() || editingDocType === doc.type) {
+      setEditingDocId(null);
+      return;
+    }
+    setIsSavingDocType(true);
+    try {
+      const updated = await updateEmployeeDocument(employee.id, doc.id, editingDocType.trim());
+      setDocuments((prev) => (prev ? prev.map((d) => (d.id === updated.id ? updated : d)) : prev));
+      setEditingDocId(null);
+    } catch {
+      showToast('Could not update this document. Please try again.');
+    } finally {
+      setIsSavingDocType(false);
+    }
+  }
+
+  async function handleDeleteDoc(doc: EmployeeDocument) {
+    const confirmed = await confirm({
+      title: 'Delete document',
+      message: `Delete "${doc.type}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    setDeletingDocId(doc.id);
+    try {
+      await deleteEmployeeDocument(employee.id, doc.id);
+      setDocuments((prev) => (prev ? prev.filter((d) => d.id !== doc.id) : prev));
+    } catch {
+      showToast('Could not delete this document. Please try again.');
+    } finally {
+      setDeletingDocId(null);
+    }
+  }
+
   return (
     <>
       <Modal
@@ -410,6 +614,32 @@ export function EmployeeDetailModal({
             <p>
               <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>
             </p>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-page px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-ink">Account Status</p>
+              <p className="text-xs text-ink-muted">
+                {isAccountActive
+                  ? 'This employee is active. Their ESS login (if any) can log in normally.'
+                  : 'This employee is deactivated. Their ESS login (if any) cannot log in. No data was deleted.'}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge tone={isAccountActive ? 'success' : 'danger'}>
+                {isAccountActive ? 'Active' : 'Inactive'}
+              </Badge>
+              {canUpdate && (
+                <Button
+                  type="button"
+                  variant={isAccountActive ? 'danger' : 'secondary'}
+                  isLoading={isTogglingAccount}
+                  onClick={handleToggleAccount}
+                >
+                  {isAccountActive ? 'Deactivate' : 'Activate'}
+                </Button>
+              )}
+            </div>
           </div>
 
           <form onSubmit={handleSaveDetails} className="space-y-4">
@@ -527,8 +757,91 @@ export function EmployeeDetailModal({
                 Employee Self-Service Access
               </p>
 
-              {employee.userId && !essActivationToken && (
-                <p className="text-sm text-ink-muted">This employee already has a linked login account.</p>
+              {employee.userId && !essActivationToken && !transferActivationToken && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm text-ink-muted">Logs in with</p>
+                      <p className="text-sm font-medium text-ink">
+                        {linkedUser === undefined ? 'Loading…' : (linkedUser?.email ?? '—')}
+                      </p>
+                    </div>
+                    {linkedUser && (
+                      <Badge tone={linkedUser.isActive ? 'success' : 'danger'}>
+                        {linkedUser.isActive ? 'Login Active' : 'Login Inactive'}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {!isTransferFormOpen ? (
+                    <Button type="button" variant="secondary" onClick={() => setIsTransferFormOpen(true)}>
+                      Transfer to another email
+                    </Button>
+                  ) : (
+                    <form onSubmit={handleTransferLogin} className="space-y-3">
+                      <p className="text-sm text-ink-muted">
+                        Moving this employee to a new email deactivates the current login and sends a fresh
+                        activation link to the new address. Nothing else about this employee changes.
+                      </p>
+                      {transferLoginError && <p className="text-sm text-danger">{transferLoginError}</p>}
+                      <Input
+                        id="employee-transfer-login-email"
+                        label="New Email"
+                        type="email"
+                        required
+                        value={transferLoginEmail}
+                        onChange={(event) => setTransferLoginEmail(event.target.value)}
+                        placeholder="new-address@company.com"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" variant="secondary" onClick={() => setIsTransferFormOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button type="submit" isLoading={isTransferringLogin}>
+                          Transfer
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
+
+              {transferActivationToken && (
+                <div className="space-y-3">
+                  <p className="text-sm text-ink-muted">
+                    This login was transferred to <span className="font-medium">{transferLoginEmail}</span>. An
+                    activation invitation was sent.
+                  </p>
+                  {transferActivationUrl && (
+                    <div className="w-full rounded-xl border border-border bg-page p-3 text-left">
+                      <p className="mb-1 text-xs font-medium text-ink-muted">
+                        Activation link (dev only — no email provider configured yet):
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={transferActivationUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block flex-1 break-all text-xs text-primary hover:underline"
+                        >
+                          {transferActivationUrl}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={handleCopyTransferActivationUrl}
+                          aria-label="Copy activation link"
+                          className="shrink-0 rounded-md p-1.5 text-ink-muted hover:bg-card hover:text-ink"
+                        >
+                          {isTransferLinkCopied ? (
+                            <Check className="h-3.5 w-3.5 text-success" strokeWidth={1.75} />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {!employee.userId && !essActivationToken && (
@@ -606,58 +919,203 @@ export function EmployeeDetailModal({
               {documents?.length === 0 && <p className="text-sm text-ink-muted">No documents uploaded yet.</p>}
               {documents && documents.length > 0 && (
                 <div className="space-y-2">
-                  {documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between rounded-xl border border-border px-4 py-2.5"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <FileText className="h-4 w-4 text-ink-muted" strokeWidth={1.75} />
-                        <div>
-                          <p className="text-sm font-medium text-ink">{doc.type}</p>
-                          {doc.fileDownloadUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => setPreviewDoc(doc)}
-                              className="text-xs text-primary hover:underline"
+                  {documents.map((doc) => {
+                    const isEditing = editingDocId === doc.id;
+                    const canChange = canUploadDocs && doc.status !== 'verified';
+                    const decidedLabel =
+                      doc.status === 'verified' ? 'Verified' : doc.status === 'rejected' ? 'Rejected' : null;
+                    return (
+                      <div key={doc.id} className="rounded-xl border border-border px-4 py-2.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex flex-1 items-center gap-2.5">
+                            <FileText className="h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
+                            <div className="min-w-0 flex-1">
+                              {isEditing ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    autoFocus
+                                    value={editingDocType}
+                                    onChange={(event) => setEditingDocType(event.target.value)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') handleSaveDocType(doc);
+                                      if (event.key === 'Escape') setEditingDocId(null);
+                                    }}
+                                    className="w-full rounded-lg border border-border px-2 py-1 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveDocType(doc)}
+                                    disabled={isSavingDocType}
+                                    aria-label="Save"
+                                    className="shrink-0 rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-success disabled:opacity-50"
+                                  >
+                                    <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingDocId(null)}
+                                    aria-label="Cancel"
+                                    className="shrink-0 rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
+                                  >
+                                    <X className="h-3.5 w-3.5" strokeWidth={2} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <p className="text-sm font-medium text-ink">{doc.type}</p>
+                              )}
+                              {doc.fileDownloadUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewDoc(doc)}
+                                  className="text-xs text-primary hover:underline"
+                                >
+                                  View file
+                                </button>
+                              ) : (
+                                <span className="text-xs text-ink-muted">File unavailable</span>
+                              )}
+                              {decidedLabel && (
+                                <p className="mt-0.5 text-xs text-ink-muted">
+                                  {decidedLabel} by {holidayAuditName(doc.verifier) ?? 'someone no longer in the system'}
+                                  {doc.verifiedAt ? ` on ${formatDisplayDateTime(doc.verifiedAt)}` : ''}
+                                </p>
+                              )}
+                              {doc.status === 'rejected' && doc.rejectionReason && (
+                                <p className="mt-0.5 text-xs text-danger">Reason: {doc.rejectionReason}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Badge
+                              tone={docStatusTone(doc.status)}
+                              title={doc.status === 'rejected' ? doc.rejectionReason ?? undefined : undefined}
                             >
-                              View file
-                            </button>
-                          ) : (
-                            <span className="text-xs text-ink-muted">File unavailable</span>
-                          )}
-                          {doc.verified && (
-                            <p className="mt-0.5 text-xs text-ink-muted">
-                              Verified by {holidayAuditName(doc.verifier) ?? 'someone no longer in the system'}
-                              {doc.verifiedAt ? ` on ${formatDisplayDateTime(doc.verifiedAt)}` : ''}
-                            </p>
-                          )}
+                              {doc.status === 'verified' ? 'Verified' : doc.status === 'rejected' ? 'Rejected' : 'Pending'}
+                            </Badge>
+                            {canVerifyDocs && doc.status !== 'verified' && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleVerify(doc)}
+                                  aria-label={`Verify ${doc.type}`}
+                                  title="Verify"
+                                  className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-success"
+                                >
+                                  <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRejectingDoc(doc)}
+                                  aria-label={`Reject ${doc.type}`}
+                                  title="Reject"
+                                  className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger"
+                                >
+                                  <X className="h-4 w-4" strokeWidth={1.75} />
+                                </button>
+                              </>
+                            )}
+                            {canChange && !isEditing && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditDoc(doc)}
+                                aria-label={`Edit ${doc.type}`}
+                                title="Edit title"
+                                className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
+                              >
+                                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              </button>
+                            )}
+                            {canChange && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDoc(doc)}
+                                disabled={deletingDocId === doc.id}
+                                aria-label={`Delete ${doc.type}`}
+                                title="Delete"
+                                className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          tone={doc.verified ? 'success' : 'warning'}
-                          title={
-                            doc.verified
-                              ? `Verified by ${holidayAuditName(doc.verifier) ?? 'someone no longer in the system'}`
-                              : undefined
-                          }
-                        >
-                          {doc.verified ? 'Verified' : 'Unverified'}
-                        </Badge>
-                        {canVerifyDocs && !doc.verified && (
-                          <button
-                            type="button"
-                            onClick={() => handleVerify(doc)}
-                            aria-label={`Verify ${doc.type}`}
-                            className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-success"
+                    );
+                  })}
+                </div>
+              )}
+
+              {canVerifyDocs && (
+                <div className="space-y-3 border-t border-border pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                    Requested Documents
+                  </p>
+                  {documentRequests && documentRequests.filter((r) => r.status === 'pending').length > 0 && (
+                    <div className="space-y-2">
+                      {documentRequests
+                        .filter((r) => r.status === 'pending')
+                        .map((request) => (
+                          <div
+                            key={request.id}
+                            className="flex items-center justify-between rounded-xl border border-border px-4 py-2.5"
                           >
-                            <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} />
-                          </button>
-                        )}
-                      </div>
+                            <div>
+                              <p className="text-sm font-medium text-ink">{request.documentType}</p>
+                              {request.note && <p className="text-xs text-ink-muted">{request.note}</p>}
+                              <p className="text-xs text-ink-muted">
+                                Requested by {holidayAuditName(request.requestedBy) ?? 'someone no longer in the system'}
+                                {' · '}
+                                {formatDisplayDateTime(request.createdAt)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge tone="warning">Pending</Badge>
+                              <button
+                                type="button"
+                                onClick={() => handleCancelRequest(request)}
+                                disabled={cancellingRequestId === request.id}
+                                className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                                aria-label={`Cancel request for ${request.documentType}`}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                     </div>
-                  ))}
+                  )}
+                  {documentRequests && documentRequests.filter((r) => r.status === 'pending').length === 0 && (
+                    <p className="text-sm text-ink-muted">No pending document requests.</p>
+                  )}
+
+                  <form onSubmit={handleRequestDocument} className="space-y-4">
+                    {requestDocError && <p className="text-sm text-danger">{requestDocError}</p>}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Input
+                        id="request-doc-type"
+                        label="Document to request"
+                        required
+                        value={requestDocType}
+                        onChange={(event) => setRequestDocType(event.target.value)}
+                        placeholder="e.g. Aadhaar Card"
+                      />
+                      <Input
+                        id="request-doc-note"
+                        label="Note (optional)"
+                        value={requestNote}
+                        onChange={(event) => setRequestNote(event.target.value)}
+                        placeholder="e.g. Please re-upload, previous copy was blurry"
+                      />
+                    </div>
+                    <p className="text-xs text-ink-muted">
+                      The employee gets a notification right away asking them to upload this document.
+                    </p>
+                    <div className="flex justify-end">
+                      <Button type="submit" variant="secondary" isLoading={isRequestingDoc} disabled={!requestDocType}>
+                        Request Document
+                      </Button>
+                    </div>
+                  </form>
                 </div>
               )}
 
@@ -787,6 +1245,13 @@ export function EmployeeDetailModal({
           previewUrl={previewDoc.fileDownloadUrl}
           downloadUrl={previewDoc.fileAttachmentUrl}
           onClose={() => setPreviewDoc(null)}
+        />
+      )}
+      {rejectingDoc && (
+        <RejectReasonModal
+          title={`Reject ${rejectingDoc.type}`}
+          onClose={() => setRejectingDoc(null)}
+          onConfirm={handleRejectConfirm}
         />
       )}
     </>

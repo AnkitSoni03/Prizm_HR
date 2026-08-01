@@ -1,16 +1,17 @@
 'use strict';
 
 const { Router } = require('express');
-const controller = require('./employeeDocument.controller');
+const controller = require('./documentUploadRequest.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission } = require('../../middleware/rbac.middleware');
-const { upload } = require('../../middleware/upload.middleware');
 
 const router = Router({ mergeParams: true });
 router.use(requireAuth);
 
+// Same shape as employeeDocument.routes.js's requireDocumentReadAccess —
 // employee_document:read (any) OR employee_document:read_own limited to the
-// caller's own linked employee record.
+// caller's own linked employee record, so an Employee sees their own
+// pending requests on My Profile without needing a broader grant.
 async function requireDocumentReadAccess(req, res, next) {
   try {
     if (await userHasPermission(req.auth, 'employee_document:read')) return next();
@@ -30,9 +31,11 @@ async function requireDocumentReadAccess(req, res, next) {
   }
 }
 
+// Same shape as employeeDocument.routes.js's requireDocumentUploadAccess —
 // employee_document:upload (any) OR employee_document:upload_own limited to
-// the caller's own linked employee record — self-service document upload.
-async function requireDocumentUploadAccess(req, res, next) {
+// the caller's own linked employee record, so an Employee can mark their
+// own request "Done" without needing a broader grant.
+async function requireOwnCompleteAccess(req, res, next) {
   try {
     if (await userHasPermission(req.auth, 'employee_document:upload')) return next();
 
@@ -52,15 +55,12 @@ async function requireDocumentUploadAccess(req, res, next) {
 }
 
 router.get('/', requireDocumentReadAccess, controller.list);
-router.get('/:id', requireDocumentReadAccess, controller.get);
-router.post('/', requireDocumentUploadAccess, upload.single('file'), controller.upload);
-// Correcting the title or removing a document is the same grant as
-// uploading one in the first place (admin employee_document:upload, or the
-// employee's own upload_own) — the service layer is what actually blocks
-// either once the document is verified.
-router.patch('/:id', requireDocumentUploadAccess, controller.update);
-router.delete('/:id', requireDocumentUploadAccess, controller.remove);
-router.patch('/:id/verify', requirePermission('employee_document:verify'), controller.verify);
-router.patch('/:id/reject', requirePermission('employee_document:verify'), controller.reject);
+// Creating/cancelling a request is gated on employee_document:verify — the
+// same permission an admin (or an Employee holding the "Document
+// Verification" power) already needs to review documents, per the explicit
+// ask that request-creation follow that same grant.
+router.post('/', requirePermission('employee_document:verify'), controller.create);
+router.patch('/:id/cancel', requirePermission('employee_document:verify'), controller.cancel);
+router.patch('/:id/done', requireOwnCompleteAccess, controller.complete);
 
 module.exports = router;

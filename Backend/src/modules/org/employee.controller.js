@@ -153,6 +153,25 @@ async function remove(req, res, next) {
   }
 }
 
+async function setActive(req, res, next) {
+  try {
+    const { isActive } = req.body;
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ error: 'isActive (boolean) is required' });
+    }
+
+    const employee = await service.setEmployeeActiveStatus({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      isActive,
+    });
+    res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function assignPowers(req, res, next) {
   try {
     const employee = await service.assignEmployeePowers({
@@ -251,6 +270,7 @@ module.exports = {
   update,
   transfer,
   remove,
+  setActive,
   assignPowers,
   uploadPhoto,
   removePhoto,

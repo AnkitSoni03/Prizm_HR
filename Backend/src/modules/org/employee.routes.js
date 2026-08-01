@@ -6,6 +6,7 @@ const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission } = require('../../middleware/rbac.middleware');
 const { upload } = require('../../middleware/upload.middleware');
 const employeeDocumentRoutes = require('./employeeDocument.routes');
+const documentUploadRequestRoutes = require('./documentUploadRequest.routes');
 
 const router = Router();
 router.use(requireAuth);
@@ -43,10 +44,14 @@ router.patch('/:id', requirePermission('employee:update'), controller.update);
 // user's explicit "all admins have right to assign that power".
 router.put('/:id/powers', requirePermission('employee:update'), controller.assignPowers);
 router.patch('/:id/transfer', requirePermission('employee:transfer'), controller.transfer);
+// Gated by the same employee:update permission as the generic PATCH — no
+// separate gate permission, matching the powers/photo precedent above.
+router.patch('/:id/active', requirePermission('employee:update'), controller.setActive);
 router.post('/:id/photo', requirePermission('employee:update'), upload.single('photo'), controller.uploadPhoto);
 router.delete('/:id/photo', requirePermission('employee:update'), controller.removePhoto);
 router.delete('/:id', requirePermission('employee:delete'), controller.remove);
 
 router.use('/:employeeId/documents', employeeDocumentRoutes);
+router.use('/:employeeId/document-requests', documentUploadRequestRoutes);
 
 module.exports = router;

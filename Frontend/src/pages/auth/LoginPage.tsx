@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { AlertCircle, CheckCircle2, Loader2, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { getDefaultRoute } from '../../routes/roleRedirect';
 import { PasswordInput } from '../../components/ui/PasswordInput';
+import { consumePendingSessionMessage } from '../../api/tokenStore';
 
 interface LocationState {
   from?: { pathname: string };
@@ -19,7 +21,12 @@ export function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // Lazily seeded (not a useEffect) so a pending message from a forced
+  // logout mid-session (account/company deactivated — see api/client.ts's
+  // response interceptor) shows up on the very first render. consumePendingSessionMessage
+  // clears it immediately, so it never resurfaces on a later, unrelated
+  // visit to this page (including a re-mount after a failed login attempt).
+  const [error, setError] = useState<string | null>(() => consumePendingSessionMessage());
 
   // Only auto-redirect when we landed here because ProtectedRoute bounced an
   // unauthenticated visitor (locationState.from is set for that round-trip
@@ -42,8 +49,16 @@ export function LoginPage() {
       const profile = await login(email, password);
       const from = locationState?.from?.pathname ?? getDefaultRoute(profile.roles);
       navigate(from, { replace: true });
-    } catch {
-      setError('Invalid email or password. Please try again.');
+    } catch (err) {
+      // A deactivated account/company gets a specific, actionable message
+      // from the backend (who to contact) — surfaced verbatim. Any other
+      // failure (wrong password, unknown email) stays generic, same as
+      // before, so a bad guess can't be used to enumerate valid emails.
+      const deactivationMessage =
+        axios.isAxiosError(err) && err.response?.status === 403 && typeof err.response.data?.error === 'string'
+          ? err.response.data.error
+          : null;
+      setError(deactivationMessage ?? 'Invalid email or password. Please try again.');
     }
   }
 

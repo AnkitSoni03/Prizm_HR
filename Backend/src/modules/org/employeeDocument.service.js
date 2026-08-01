@@ -14,8 +14,9 @@ async function assertEmployeeInCompany({ companyId, employeeId }) {
   return employee;
 }
 
-// Who verified a document (and when) — same audit shape as
-// holiday.service.js/companyPolicy.service.js's creator/updater includes.
+// Who last decided this document (verified OR rejected), and when — same
+// audit shape as holiday.service.js/companyPolicy.service.js's
+// creator/updater includes.
 const VERIFIER_INCLUDE = [
   {
     model: db.User,
@@ -80,7 +81,7 @@ async function uploadDocument({ companyId, employeeId, type, buffer, originalNam
   });
   await uploadBuffer({ buffer, destination, contentType: mimeType });
 
-  const doc = await db.EmployeeDocument.create({ employeeId, type, fileUrl: destination, verified: false });
+  const doc = await db.EmployeeDocument.create({ employeeId, type, fileUrl: destination, status: 'pending' });
 
   // Lets whoever can act on it (Company Admin/HR Manager/Brand Admin, or an
   // Employee holding the "Document Verification" power) know there's a new
@@ -102,9 +103,39 @@ async function uploadDocument({ companyId, employeeId, type, buffer, originalNam
   return withDownloadUrl(doc);
 }
 
+// The title/type is correctable any time before verification — a typo or
+// wrong label shouldn't force a full delete-and-reupload. Locked (409) once
+// verified, same "no more changes once approved" rule as delete below.
+// Left open for a 'rejected' document deliberately: rejection means
+// "correct this," and re-labeling is part of that correction.
+async function updateDocument({ companyId, employeeId, id, type }) {
+  const doc = await getDocument({ companyId, employeeId, id });
+  if (doc.status === 'verified') {
+    throw new HttpError(409, 'A verified document cannot be changed');
+  }
+  await doc.update({ type });
+  await doc.reload({ include: VERIFIER_INCLUDE });
+  return withDownloadUrl(doc);
+}
+
+// Soft-delete only (paranoid) — same "no more changes once verified" rule
+// as updateDocument.
+async function deleteDocument({ companyId, employeeId, id }) {
+  const doc = await getDocument({ companyId, employeeId, id });
+  if (doc.status === 'verified') {
+    throw new HttpError(409, 'A verified document cannot be deleted');
+  }
+  await doc.destroy();
+}
+
 async function verifyDocument({ companyId, employeeId, id, verifiedByUserId }) {
   const doc = await getDocument({ companyId, employeeId, id });
-  await doc.update({ verified: true, verifiedBy: verifiedByUserId || null, verifiedAt: new Date() });
+  await doc.update({
+    status: 'verified',
+    verifiedBy: verifiedByUserId || null,
+    verifiedAt: new Date(),
+    rejectionReason: null,
+  });
   await doc.reload({ include: VERIFIER_INCLUDE });
 
   const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['userId'] });
@@ -121,4 +152,45 @@ async function verifyDocument({ companyId, employeeId, id, verifiedByUserId }) {
   return withDownloadUrl(doc);
 }
 
-module.exports = { listDocuments, getDocument, uploadDocument, verifyDocument, withDownloadUrl };
+// Mirrors verifyDocument but records a mandatory reason (validated at the
+// controller) instead — same "reason required" convention as
+// leaveRequest.service.js::rejectLeaveRequest, just without a dedicated
+// approval_histories entry (employee_document review never got that audit
+// trail even for verify, so reject stays consistent with it).
+async function rejectDocument({ companyId, employeeId, id, rejectedByUserId, reason }) {
+  const doc = await getDocument({ companyId, employeeId, id });
+  if (doc.status === 'verified') {
+    throw new HttpError(409, 'Cannot reject an already verified document');
+  }
+  await doc.update({
+    status: 'rejected',
+    verifiedBy: rejectedByUserId || null,
+    verifiedAt: new Date(),
+    rejectionReason: reason,
+  });
+  await doc.reload({ include: VERIFIER_INCLUDE });
+
+  const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['userId'] });
+  await notifyUser({
+    companyId,
+    userId: employee?.userId,
+    type: 'document_rejected',
+    requestType: 'employee_document',
+    requestId: doc.id,
+    title: 'Document rejected',
+    body: reason,
+  });
+
+  return withDownloadUrl(doc);
+}
+
+module.exports = {
+  listDocuments,
+  getDocument,
+  uploadDocument,
+  updateDocument,
+  deleteDocument,
+  verifyDocument,
+  rejectDocument,
+  withDownloadUrl,
+};

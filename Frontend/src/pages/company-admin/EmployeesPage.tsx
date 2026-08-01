@@ -187,6 +187,15 @@ export function EmployeesPage() {
                 header: 'Status',
                 render: (employee) => <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>,
               },
+              {
+                key: 'account',
+                header: 'Account',
+                render: (employee) => (
+                  <Badge tone={employee.isActive ? 'success' : 'danger'}>
+                    {employee.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                ),
+              },
             ]}
           />
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />

@@ -34,6 +34,12 @@ router.post(
   requirePermission('user:invite'),
   controller.signupInviteBrand
 );
+router.post(
+  '/transfer-employee-login',
+  requireAuth,
+  requirePermission('user:invite'),
+  controller.transferEmployeeLoginEmail
+);
 router.post('/activate', controller.activate);
 router.post('/login', controller.login);
 router.post('/refresh', controller.refresh);

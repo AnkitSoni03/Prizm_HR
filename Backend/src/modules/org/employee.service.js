@@ -81,6 +81,10 @@ async function getEmployeeForRead(id) {
         attributes: ['id'],
         include: [{ model: db.Permission, as: 'permissions', attributes: ['code'] }],
       },
+      // Lets EmployeeDetailModal.tsx show which email an employee currently
+      // logs in with, and whether that login is active — needed for the
+      // "transfer to another email" flow.
+      { model: db.User, as: 'loginUser', attributes: ['id', 'email', 'isActive', 'status'] },
     ],
   });
   if (!employee) throw new HttpError(404, 'Employee not found');
@@ -249,6 +253,25 @@ async function deleteEmployee({ companyId, id, scopedBrandIds }) {
   await employee.destroy();
 }
 
+// Soft on/off toggle for an employee leaving/rejoining — never deletes the
+// Employee row (CLAUDE.md: soft deletes only, and this isn't even a delete).
+// Cascades to the linked ESS login (if any) in lockstep: deactivating an
+// employee should immediately block their check-in/leave/etc. access, and
+// reactivating (e.g. a rejoin) should restore it without a fresh invite.
+// Gated by the same employee:update permission as the rest of this file's
+// mutations — Company Admin/HR Manager/Brand Admin all already hold it.
+async function setEmployeeActiveStatus({ companyId, id, scopedBrandIds, isActive }) {
+  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+  await employee.update({ isActive });
+
+  if (employee.userId) {
+    const user = await db.User.findByPk(employee.userId);
+    if (user) await user.update({ isActive });
+  }
+
+  return getEmployeeForRead(employee.id);
+}
+
 // Hand-picked, fully optional extra capabilities for one specific employee,
 // independent of whatever base role (Employee, HR Team, ...) they hold —
 // see powerCatalog.js. Implemented as a dedicated per-employee custom Role
@@ -377,6 +400,7 @@ module.exports = {
   updateEmployee,
   transferEmployee,
   deleteEmployee,
+  setEmployeeActiveStatus,
   assignEmployeePowers,
   uploadEmployeePhoto,
   removeEmployeePhoto,
