@@ -6,7 +6,7 @@ export interface Attendance {
   date: string;
   checkIn: string | null;
   checkOut: string | null;
-  source: 'qr' | 'od' | null;
+  source: 'qr' | 'od' | 'office_kiosk' | 'face' | null;
   status: 'present' | 'absent' | 'half_day' | 'leave' | 'holiday' | 'weekoff' | 'on_duty';
   overtimeMinutes: number;
 }

@@ -7,7 +7,6 @@ import {
   FileText,
   LayoutDashboard,
   MonitorSmartphone,
-  QrCode,
   RefreshCw,
   Send,
   Settings,
@@ -71,7 +70,6 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
 
 export const ESS_NAV: NavItem[] = [
   { label: 'Dashboard', path: '/ess', icon: LayoutDashboard },
-  { label: 'Office Check-In', path: '/ess/office-checkin', icon: QrCode, permission: 'attendance:mark' },
   { label: 'My Attendance', path: '/ess/attendance', icon: CalendarCheck },
   { label: 'Leave Balance', path: '/ess/leave-balance', icon: Wallet },
   { label: 'My Leave', path: '/ess/leave', icon: CalendarClock },

@@ -21,20 +21,20 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
   }
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-4 shadow-xs transition-colors duration-200 md:px-6">
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card/95 px-3 shadow-xs backdrop-blur transition-colors duration-200 sm:h-16 sm:px-4 md:px-6">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <button
           type="button"
           onClick={onOpenMobileMenu}
           aria-label="Open menu"
-          className="rounded-lg p-2 text-ink-muted transition-colors hover:bg-page hover:text-ink md:hidden"
+          className="shrink-0 rounded-lg p-2 text-ink-muted transition-colors active:scale-95 hover:bg-page hover:text-ink md:hidden"
         >
           <Menu className="h-5 w-5" strokeWidth={1.75} />
         </button>
-        <h1 className="text-base font-semibold tracking-tight text-ink">{title}</h1>
+        <h1 className="truncate text-sm font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
       </div>
 
-      <div className="flex items-center gap-2 md:gap-4">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2 md:gap-4">
         <NotificationBell />
 
         <button

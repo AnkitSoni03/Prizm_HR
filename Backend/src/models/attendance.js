@@ -6,8 +6,6 @@ module.exports = (sequelize, DataTypes) => {
   class Attendance extends Model {
     static associate(models) {
       Attendance.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
-      Attendance.belongsTo(models.EmployeeDevice, { foreignKey: 'deviceId', as: 'device' });
-      Attendance.belongsTo(models.QrAttendanceTerminal, { foreignKey: 'terminalId', as: 'terminal' });
       Attendance.belongsTo(models.User, { foreignKey: 'kioskUserId', as: 'kioskUser' });
       Attendance.hasMany(models.AttendanceRegularization, { foreignKey: 'attendanceId', as: 'regularizations' });
     }
@@ -19,10 +17,11 @@ module.exports = (sequelize, DataTypes) => {
       date: { type: DataTypes.DATEONLY, allowNull: false },
       checkIn: { type: DataTypes.DATE, allowNull: true },
       checkOut: { type: DataTypes.DATE, allowNull: true },
-      source: { type: DataTypes.ENUM('qr', 'od', 'office_kiosk'), allowNull: true },
-      deviceId: { type: DataTypes.BIGINT, allowNull: true },
-      terminalId: { type: DataTypes.BIGINT, allowNull: true },
-      qrTokenJti: { type: DataTypes.STRING, allowNull: true },
+      // 'qr'/'office_kiosk' are historical values only — both check-in
+      // mechanisms that wrote them have been retired in favor of face
+      // recognition; existing rows keep displaying correctly, nothing new
+      // is ever created with those values again.
+      source: { type: DataTypes.ENUM('qr', 'od', 'office_kiosk', 'face'), allowNull: true },
       kioskUserId: { type: DataTypes.BIGINT, allowNull: true },
       videoObjectPathCheckin: { type: DataTypes.STRING, allowNull: true },
       videoObjectPathCheckout: { type: DataTypes.STRING, allowNull: true },

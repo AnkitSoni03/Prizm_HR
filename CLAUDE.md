@@ -49,11 +49,18 @@ Super Admin → Group → Company → [Brand] → (Roster mandatory) → Departm
 4. **Scope-aware access:** same role sees different data at tenant / company /
    brand level via `user_roles.company_id` / `brand_id`.
 5. **Audit everything sensitive** → `audit_logs`.
-6. **Attendance is QR-only.** No biometric/GPS/free-text punch. Flow:
-   WebAuthn passkey check on device → scan rotating signed QR (JWT/HMAC,
-   5–10s rotation) → backend validates signature + Redis replay check
-   (`SET jti EX rotation_seconds NX`) → terminal company/brand match → write
-   `attendance` row. Any failure → regularisation request, not a fallback punch.
+6. **Attendance is face-recognition-only, kiosk-side.** No QR/WebAuthn/phone-based
+   flow, no GPS/free-text punch (superseded 2026-08-03 — see Progress log). Flow:
+   employee self-registers 3 angle face embeddings once (ESS Settings → Face ID,
+   `face-api.js` client-side); at the kiosk (a logged-in Scanner-role `User`, its own
+   camera — admin-provisioned via email/password Scanner accounts), the employee taps
+   Check-In or Check-Out, completes a random on-screen liveness challenge (blink /
+   head-turn, checked via face-api.js landmark tracking across a short frame burst —
+   this does **not** defeat a determined pre-recorded-video attack, an accepted known
+   limitation), the kiosk extracts a 128-d descriptor client-side, and the backend
+   1:N-matches it against a Redis-cached per-company embedding set (`config/redis.js`)
+   before writing the `attendance` row via `applyAttendancePunch(..., source: 'face')`.
+   Any failure → regularisation request, not a fallback punch.
 7. **Roster > default shift.** `shift_rosters` (per employee per date) takes
    priority over `employee_shifts` when present.
 8. **Company vs admin are separate records.** Onboarding a company creates a
@@ -114,6 +121,9 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   roster-mandatory gate; WebAuthn itself needs a real authenticator/browser to fully exercise.
   Terminals authenticate their own `POST /attendance/terminals/:terminalCode/rotate` call via an
   `X-Terminal-Secret` header (not a user JWT — terminals aren't logged-in users).
+  **⚠️ Superseded 2026-08-03**: this entire QR-terminal + WebAuthn mechanism (and the
+  later office-kiosk QR+WebAuthn flow below) has been deleted and replaced by
+  face recognition — see the dated entry near the end of this log.
 - ✅ shift_rosters CRUD live, and the roster-mandatory check in
   `employee.service.js::createEmployee` is wired up (`db.ShiftRoster.count({ where: { brandId }})`).
   **Deviation from PHASE3_MODELS.md**: `shift_rosters.employee_id` is nullable, not required as
@@ -361,6 +371,15 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   `src/modules/attendance/`: `attendance.service.js`, `employeeDevice.service.js`,
   `qrTerminal.service.js` — the QR replay-guard and WebAuthn challenge storage in the check-in/
   check-out/device-registration path, nothing else.
+  **⚠️ Stale even before the 2026-08-03 face-recognition change**: a later, undocumented
+  office-kiosk feature (2026-07-27) added a 4th Redis-using file
+  (`officeKiosk.service.js`) that this count never accounted for. Post-2026-08-03, both
+  `employeeDevice.service.js` and `qrTerminal.service.js` are deleted entirely (WebAuthn/QR
+  terminal retired) and `officeKiosk.service.js` no longer touches Redis either (its
+  office-token/SSE-ticket logic was removed along with the QR/phone check-in step) — the
+  accurate current file list is `attendance.service.js` doesn't even use Redis directly
+  anymore either; see the dated entry near the end of this log for the real, current list
+  (`faceCache.js`, `faceAttendance.service.js`).
 - ✅ Brand Admin employee ESS invite (2026-07-11): Brand Admin's Employees page gained a detail
   modal (`src/pages/brand-admin/components/EmployeeDetailModal.tsx`) with the same "Employee
   Self-Service Access" invite capability as Company Admin's `EmployeeDetailModal.tsx` — deliberately
@@ -952,6 +971,79 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     other-income declarations, arrears relief (§89), multiple-employer/previous-employer income
     aggregation, Form 16/Form 24Q filing exports, an editable TDS slab table in the UI (code-default
     only, same precedent as PT's slabs). All flagged as follow-ups, not gaps introduced silently.
+- ✅ Face-recognition kiosk attendance replaces QR + WebAuthn (2026-08-03): the QR-terminal
+  (secretKey-based) flow and the undocumented office-kiosk QR+phone+WebAuthn flow (built
+  2026-07-27, never logged here before now — see the superseded notes earlier in this log)
+  are both fully deleted. A kiosk (Scanner-role `User`, admin-provisioned email/password
+  account — unchanged) now identifies employees directly via its own camera, no employee
+  phone/QR/WebAuthn step at all. Uses `face-api.js` (pure JS/TensorFlow.js, no Python
+  service) — chosen specifically to stay inside this project's Node/Express-only stack
+  rather than adding a second language/runtime.
+  - **Employee self-registration**: ESS Settings gained a "Face ID" tab
+    (`components/RegisterFaceCard.tsx`, replacing the deleted `DeviceRegistrationCard.tsx`)
+    — captures 3 angle photos (front/left/right) via `getUserMedia`, extracts 128-d
+    descriptors client-side with face-api.js, checks the 3 angles are mutually consistent
+    (Euclidean distance) before submitting to `POST /attendance/face-profile`. New table
+    `employee_face_profiles` (`company_id`, `employee_id`, one JSONB embedding column per
+    angle, partial unique index on `employee_id WHERE status='active'` — same pattern as
+    `employee_salary_structures`'s active-row index).
+  - **Kiosk check-in/out**: `pages/kiosk/KioskPage.tsx` fully rewritten — live camera
+    preview + Check-In/Check-Out buttons (no more QR display or SSE video-trigger). On tap,
+    picks a random liveness challenge (blink / turn-left / turn-right), samples face
+    landmarks across a ~2.5s frame burst (eye-aspect-ratio for blink, a coarse jaw/nose
+    geometric proxy for yaw), extracts a final descriptor, and calls
+    `POST /attendance/face-checkin` with the embedding + numeric liveness frames — the
+    backend re-validates liveness from the raw numbers itself
+    (`faceAttendance.service.js::validateLiveness`), never trusting a client-asserted
+    "challenge passed" boolean. An audit capture clip still uploads immediately after a
+    successful match (reusing the existing GCS pipeline, `officeKiosk.service.js::uploadFaceCapture`,
+    renamed from `uploadOfficeVideo`) — no SSE/pub-sub needed anymore since the kiosk
+    already has the `attendance.id` straight from the check-in response, unlike the old
+    flow which needed a remote push to learn it.
+  - **Matching**: `faceAttendance.service.js::checkInWithFace` 1:N-matches the kiosk's
+    captured embedding against a Redis-cached, per-company set of registered employee
+    embeddings (`faceCache.js`, reusing the existing `config/redis.js`/`memoryRedis.js`
+    abstraction — `REDIS_URL=memory` for local dev, real Upstash in production, zero code
+    branching either way) via nearest-neighbor Euclidean distance, with both a distance
+    threshold and an ambiguity margin (rejects if the runner-up candidate is nearly as
+    close as the best match, rather than guessing between similar-looking people).
+  - **The one function every check-in mechanism has always shared,
+    `attendance.service.js::applyAttendancePunch`, is completely untouched** beyond taking
+    a new `source: 'face'` value — payroll (`payrollRun.service.js`), comp-off
+    auto-detection, leave, and regularizations all still read only `status`+`date` off the
+    `attendance` table and are provably unaffected by this change.
+  - **Deleted entirely** (no fallback kept, per explicit decision): `qrTerminal.*`,
+    `employeeDevice.*`, `utils/qrToken.js`, `utils/webauthn.js`, `utils/officeToken.js`,
+    `config/redisSubscriber.js`, `jobs/pendingAttendanceExpiry.job.js`, the
+    `qr_attendance_terminals`/`employee_devices`/`pending_attendances` tables, and
+    `attendance.device_id`/`terminal_id`/`qr_token_jti` columns (lossy for historical
+    rows' forensic device/terminal linkage — `videoObjectPathCheckin/Checkout` remains the
+    retained audit trail). `pending_attendances` specifically isn't replaced by a trimmed
+    version: it existed only to bridge the old flow's two-network-round-trip gap (QR scan
+    by phone, time passes, WebAuthn confirm); the new flow is one continuous client-side
+    operation ending in exactly one request that fully succeeds or fully fails, so there's
+    no "started but never finished" state left to persist.
+  - **RBAC**: new codes `face_profile:register`/`face_profile:read_own` (Employee),
+    `attendance:face_verify` (Scanner) — seeded in
+    `20260803110000-seed-face-recognition-permissions.js`, which also hard-deletes the
+    `role_permissions` rows for the now-dead `attendance:kiosk_token`,
+    `attendance:kiosk_video`, `employee_device:register/revoke`, `qr_terminal:create/read`,
+    and `attendance:mark` codes (their routes are all gone) — same
+    hard-delete-the-join-row-only reasoning as `employee.service.js::assignEmployeePowers`'s
+    established precedent, so a future re-grant of the same code composite PK is never
+    silently blocked. The `permissions` rows themselves are left in place, dormant.
+  - **Current accurate Redis-usage file list** (correcting the stale 2026-07-11 count
+    above): exactly one file, `src/modules/attendance/faceCache.js` — nothing else in the
+    codebase touches `config/redis` (`faceAttendance.service.js` calls into `faceCache.js`
+    rather than importing Redis directly).
+  - Not built (deliberately, per explicit scope discussion): dedicated presentation-attack
+    (screen/photo texture) detection or a commercial liveness SDK — this build's liveness
+    check (random blink/turn challenge + frame-to-frame motion variance) stops a printed
+    photo or a photo shown on a second screen, but does **not** stop a pre-recorded video
+    of the actual person performing the exact requested challenge. This is a known,
+    explicitly discussed and accepted limitation, not an oversight — closing it would need
+    a dedicated anti-spoofing model or a commercial liveness API, out of scope for this
+    pass.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

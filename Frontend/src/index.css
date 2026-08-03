@@ -78,6 +78,16 @@
     0 16px 36px -8px rgb(0 0 0 / 0.55), 0 6px 12px -4px rgb(0 0 0 / 0.35);
 }
 
+/* Slightly denser type scale on phones — every text-*/spacing utility here
+   is rem-based, so this one root override compounds through the whole UI
+   (paddings, icon sizes, headings) instead of hand-tuning each component
+   for mobile separately. */
+@media (max-width: 640px) {
+  html {
+    font-size: 15px;
+  }
+}
+
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
 
@@ -113,10 +123,35 @@
 
   html {
     font-family: var(--font-sans);
+    -webkit-tap-highlight-color: transparent;
+    /* Guards against any stray element (e.g. an absolutely-positioned
+       handle/tooltip that pokes a couple px past its parent) bleeding into a
+       page-level horizontal scrollbar — which, since 100vh doesn't account
+       for it, then eats into vertical space and forces a spurious vertical
+       scrollbar on pages with no real overflow. */
+    overflow-x: hidden;
   }
 
   body {
     @apply bg-page text-ink antialiased transition-colors duration-200;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ink-muted);
   }
 
   h1,

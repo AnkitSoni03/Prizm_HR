@@ -10,7 +10,8 @@ export interface AppNotification {
     | 'payroll_run'
     | 'document_verified'
     | 'document_rejected'
-    | 'document_upload_request';
+    | 'document_upload_request'
+    | 'holiday_reminder';
   requestType:
     | 'leave_request'
     | 'od_request'

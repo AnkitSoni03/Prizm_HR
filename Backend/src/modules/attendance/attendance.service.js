@@ -3,19 +3,10 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const redis = require('../../config/redis');
 const { getSignedDownloadUrl } = require('../../utils/gcs');
-const { generateAssertionOptions, verifyDeviceAssertion } = require('../../utils/webauthn');
-const { validateAndConsumeQrToken } = require('./qrTerminal.service');
 const { getActiveRosterEntry } = require('./shiftRoster.service');
 const { getActiveEmployeeShift } = require('./employeeShift.service');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
-
-const ASSERTION_CHALLENGE_TTL_SECONDS = 120;
-
-function assertionChallengeKey(employeeId) {
-  return `webauthn:assert-challenge:${employeeId}`;
-}
 
 // Local-time YYYY-MM-DD — deliberately not toISOString() (UTC), since the
 // whole point of the night-shift business-date logic below is to reason in
@@ -65,63 +56,13 @@ async function detectCompOffSafely({ employeeId, attendanceId, dateStr }) {
   }
 }
 
-async function getAssertionOptions({ employeeId }) {
-  const devices = await db.EmployeeDevice.findAll({ where: { employeeId, status: 'active' } });
-  if (devices.length === 0) {
-    throw new HttpError(400, 'No registered device for this employee — device registration is required before check-in');
-  }
-
-  const options = await generateAssertionOptions({ allowCredentialIds: devices.map((d) => d.credentialId) });
-  await redis.set(assertionChallengeKey(employeeId), options.challenge, 'EX', ASSERTION_CHALLENGE_TTL_SECONDS);
-  return options;
-}
-
-// Shared by the old terminal+qrToken checkIn() and the new office-kiosk
-// flow (officeKiosk.service.js) — verifies the WebAuthn assertion and the
-// strictly-increasing signature counter, but deliberately does NOT persist
-// the new counter (device.update) itself: the old flow only persists it
-// after its own terminal/company/brand checks pass, so a caller with
-// further gating to do after verification must call device.update itself,
-// exactly where it used to happen, to keep that flow's behavior unchanged.
-async function verifyEmployeeBiometric({ employeeId, webauthnAssertion }) {
-  const expectedChallenge = await redis.get(assertionChallengeKey(employeeId));
-  if (!expectedChallenge) {
-    throw new HttpError(400, 'No pending WebAuthn challenge — call the assertion-options endpoint first');
-  }
-
-  const device = await db.EmployeeDevice.findOne({
-    where: { employeeId, credentialId: webauthnAssertion.id, status: 'active' },
-  });
-  if (!device) throw new HttpError(401, 'Unrecognized or revoked device');
-
-  const { verified, newCounter } = await verifyDeviceAssertion({
-    response: webauthnAssertion,
-    expectedChallenge,
-    credentialId: device.credentialId,
-    publicKey: device.publicKey,
-  });
-  if (!verified) throw new HttpError(401, 'WebAuthn assertion verification failed');
-
-  // Signature counter must strictly increase on every use — a cloned
-  // authenticator replaying an old assertion (or a genuine clone in the
-  // wild) reports a counter that has already been seen or gone backwards.
-  if (newCounter <= Number(device.signatureCounter)) {
-    throw new HttpError(401, 'Signature counter did not advance — possible cloned or replayed authenticator');
-  }
-
-  await redis.del(assertionChallengeKey(employeeId));
-
-  return { device, newCounter };
-}
-
-// Shared "actually write the punch" step, used by both the old terminal
-// flow and the new office-kiosk flow — they diverge only in how the punch
-// gets authorized, not in what happens once it's authorized. Wrapped in a
-// transaction with a Postgres advisory lock on the employee id so a
-// double-tap/retry landing on two different API instances can't create two
-// records — a protection the old flow never had, added here for both flows
-// with no change to the successful-path output.
-async function applyAttendancePunch({ employeeId, now, source, deviceId, terminalId = null, qrTokenJti = null, kioskUserId = null }) {
+// The one function every check-in mechanism (old QR-terminal, old
+// office-kiosk WebAuthn, and now face recognition) shares — they diverge
+// only in how the punch gets authorized, not in what happens once it's
+// authorized. Wrapped in a transaction with a Postgres advisory lock on the
+// employee id so a double-tap/retry landing on two different API instances
+// can't create two records.
+async function applyAttendancePunch({ employeeId, now, source, kioskUserId = null }) {
   return db.sequelize.transaction(async (t) => {
     await db.sequelize.query('SELECT pg_advisory_xact_lock(:employeeId)', {
       replacements: { employeeId },
@@ -147,7 +88,7 @@ async function applyAttendancePunch({ employeeId, now, source, deviceId, termina
 
     if (!attendance) {
       attendance = await db.Attendance.create(
-        { employeeId, date: businessDate, checkIn: now, source, deviceId, terminalId, qrTokenJti, kioskUserId, status: 'present' },
+        { employeeId, date: businessDate, checkIn: now, source, kioskUserId, status: 'present' },
         { transaction: t }
       );
       await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
@@ -156,7 +97,7 @@ async function applyAttendancePunch({ employeeId, now, source, deviceId, termina
 
     if (!attendance.checkIn) {
       await attendance.update(
-        { checkIn: now, source, deviceId, terminalId, qrTokenJti, kioskUserId, status: 'present' },
+        { checkIn: now, source, kioskUserId, status: 'present' },
         { transaction: t }
       );
       await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
@@ -174,42 +115,6 @@ async function applyAttendancePunch({ employeeId, now, source, deviceId, termina
     }
 
     throw new HttpError(409, 'Already checked in and out for this date');
-  });
-}
-
-// PHASE3_MODELS.md step 4, in order. Any failure throws and nothing is
-// written — the employee has to file an attendance_regularization instead;
-// there is intentionally no fallback punch path.
-async function checkIn({ companyId, employeeId, qrToken, webauthnAssertion }) {
-  if (!employeeId) throw new HttpError(400, 'No employee record linked to this user');
-
-  const { terminal, jti } = await validateAndConsumeQrToken(qrToken);
-
-  const { device, newCounter } = await verifyEmployeeBiometric({ employeeId, webauthnAssertion });
-
-  const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
-  if (!employee) throw new HttpError(401, 'Employee not found for this company');
-  if (terminal.companyId !== companyId) {
-    throw new HttpError(403, "Terminal does not belong to the employee's company");
-  }
-  // A brand-scoped terminal (terminal.brandId set) only serves that brand's
-  // employees. A company-level terminal (terminal.brandId null) serves every
-  // employee in the company regardless of brand — this is what lets a
-  // brand-optional company (or a brand-mode company's shared/common areas)
-  // run QR attendance without a per-brand terminal.
-  if (terminal.brandId !== null && String(terminal.brandId) !== String(employee.brandId)) {
-    throw new HttpError(403, "Terminal does not belong to the employee's brand");
-  }
-
-  await device.update({ lastUsedAt: new Date(), signatureCounter: newCounter });
-
-  return applyAttendancePunch({
-    employeeId,
-    now: new Date(),
-    source: 'qr',
-    deviceId: device.id,
-    terminalId: terminal.id,
-    qrTokenJti: jti,
   });
 }
 
@@ -266,12 +171,9 @@ async function getAttendanceVideoUrl({ companyId, id, scopedEmployeeId, type }) 
 }
 
 module.exports = {
-  getAssertionOptions,
-  checkIn,
   listAttendance,
   getAttendanceForRead,
   getAttendanceVideoUrl,
   resolveShiftForDate,
-  verifyEmployeeBiometric,
   applyAttendancePunch,
 };

@@ -24,25 +24,16 @@ const uploadVideo = multer({
 });
 
 const router = Router();
-
-// SSE stream itself is ticket-authenticated, not JWT — EventSource can't
-// send an Authorization header. Every other route here is a normal
-// authenticated request.
-router.get('/office-video-stream', controller.videoStream);
-
 router.use(requireAuth);
 
-router.get('/office-token', requirePermission('attendance:kiosk_token'), controller.issueOfficeToken);
-router.post('/office-video-stream/ticket', requirePermission('attendance:kiosk_video'), controller.issueSseTicket);
+// A kiosk that can face-verify can also upload its own capture clip — no
+// separate permission needed, it's the same trust boundary.
 router.post(
-  '/office-video/:attendanceId',
-  requirePermission('attendance:kiosk_video'),
+  '/face-capture/:attendanceId',
+  requirePermission('attendance:face_verify'),
   uploadVideo.single('video'),
-  controller.uploadVideo
+  controller.uploadFaceCapture
 );
-
-router.post('/verify-office-qr', requirePermission('attendance:mark'), controller.verifyOfficeQr);
-router.post('/verify-office-biometric', requirePermission('attendance:mark'), controller.verifyOfficeBiometric);
 
 router.post('/scanner-accounts', requirePermission('scanner_account:create'), controller.createScannerAccount);
 router.get('/scanner-accounts', requirePermission('scanner_account:create'), controller.listScannerAccounts);

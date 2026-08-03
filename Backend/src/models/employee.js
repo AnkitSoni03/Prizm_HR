@@ -21,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
       Employee.hasMany(models.DocumentUploadRequest, { foreignKey: 'employeeId', as: 'documentUploadRequests' });
       Employee.hasMany(models.Department, { foreignKey: 'headEmployeeId', as: 'headedDepartments' });
       Employee.hasMany(models.EmployeeShift, { foreignKey: 'employeeId', as: 'employeeShifts' });
-      Employee.hasMany(models.EmployeeDevice, { foreignKey: 'employeeId', as: 'devices' });
+      Employee.hasOne(models.EmployeeFaceProfile, { foreignKey: 'employeeId', as: 'faceProfile' });
       Employee.hasMany(models.ShiftRoster, { foreignKey: 'employeeId', as: 'rosterEntries' });
       Employee.hasMany(models.ShiftRoster, { foreignKey: 'publishedBy', as: 'publishedRosters' });
       Employee.hasMany(models.Attendance, { foreignKey: 'employeeId', as: 'attendanceRecords' });

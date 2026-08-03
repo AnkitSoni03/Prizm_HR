@@ -46,6 +46,16 @@ const APPROVAL_TABS: Record<string, string> = {
 };
 
 function resolveTargetPath(notification: AppNotification, portal: string): string | null {
+  // Holidays have no admin-facing "pending" counterpart (they're not a
+  // request/approval flow) — every portal that has its own Holidays page
+  // reads the same list, so just route to whichever one the recipient has.
+  if (notification.type === 'holiday_reminder') {
+    if (portal === '/company-admin') return '/company-admin/holidays';
+    if (portal === '/brand-admin') return '/brand-admin/holidays';
+    if (portal === '/ess') return '/ess/holidays';
+    return null;
+  }
+
   if (!notification.requestType) return null;
 
   // Payroll notifications (payslip processed / marked paid) always belong
@@ -211,7 +221,7 @@ export function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg animate-[modal-in_150ms_cubic-bezier(0.16,1,0.3,1)]">
+        <div className="absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-card shadow-lg animate-[modal-in_150ms_cubic-bezier(0.16,1,0.3,1)] sm:w-80">
           <div className="flex items-center justify-between border-b border-border px-3.5 py-2.5">
             <span className="text-sm font-semibold text-ink">Notifications</span>
             {unreadCount > 0 && (

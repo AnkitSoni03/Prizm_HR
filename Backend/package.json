@@ -14,7 +14,6 @@
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",
     "@react-pdf/renderer": "^4.5.1",
-    "@simplewebauthn/server": "^13.3.2",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

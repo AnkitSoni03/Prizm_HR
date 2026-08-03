@@ -6,7 +6,7 @@ export interface AttendanceRecord {
   checkIn: string | null;
   checkOut: string | null;
   status: 'present' | 'absent' | 'half_day' | 'leave' | 'holiday' | 'weekoff' | 'on_duty';
-  source: 'qr' | 'od' | 'office_kiosk' | null;
+  source: 'qr' | 'od' | 'office_kiosk' | 'face' | null;
   videoObjectPathCheckin: string | null;
   videoObjectPathCheckout: string | null;
   employee?: { id: string; employeeCode: string; name: string | null; brandId: string | null };

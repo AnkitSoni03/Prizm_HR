@@ -3,37 +3,6 @@
 const service = require('./attendance.service');
 const { parsePagination } = require('../../utils/pagination');
 
-async function assertionOptions(req, res, next) {
-  try {
-    if (!req.auth.employeeId) {
-      return res.status(400).json({ error: 'No employee record linked to this user' });
-    }
-    const options = await service.getAssertionOptions({ employeeId: req.auth.employeeId });
-    res.json({ data: options });
-  } catch (err) {
-    next(err);
-  }
-}
-
-async function checkIn(req, res, next) {
-  try {
-    const { qrToken, webauthnAssertion } = req.body;
-    if (!qrToken || !webauthnAssertion) {
-      return res.status(400).json({ error: 'qrToken and webauthnAssertion are required' });
-    }
-
-    const result = await service.checkIn({
-      companyId: req.auth.companyId,
-      employeeId: req.auth.employeeId,
-      qrToken,
-      webauthnAssertion,
-    });
-    res.json({ data: result });
-  } catch (err) {
-    next(err);
-  }
-}
-
 async function list(req, res, next) {
   try {
     const { limit, offset } = parsePagination(req.query);
@@ -79,4 +48,4 @@ async function videoUrl(req, res, next) {
   }
 }
 
-module.exports = { assertionOptions, checkIn, list, get, videoUrl };
+module.exports = { list, get, videoUrl };

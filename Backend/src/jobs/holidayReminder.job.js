@@ -1,0 +1,62 @@
+'use strict';
+
+const { Op } = require('sequelize');
+const db = require('../models');
+const { dateOnly, addDays } = require('../utils/dateRange');
+const { notifyUser } = require('../utils/notifications');
+
+// Repeatable job, scheduled daily from src/server.js. Holidays only ever
+// store a DATEONLY (no time-of-day), so "reminder within 24 hours" is
+// interpreted the same way the rest of this codebase treats date-only
+// fields: the holiday falls on tomorrow's local date.
+//
+// Runs unscoped (no tenant context exists outside an HTTP request — see
+// tenant-scope.js) across every company, then groups matches by
+// company/brand to resolve which employees to notify, same shape as
+// workingDays.js's isHoliday: a brand-specific holiday only notifies that
+// brand's employees, a company-wide holiday (brand_id NULL) notifies every
+// employee in the company.
+async function sendHolidayReminders({ asOf = new Date() } = {}) {
+  const tomorrow = addDays(dateOnly(asOf), 1);
+
+  const holidays = await db.Holiday.findAll({
+    where: { date: tomorrow, reminderSentAt: null },
+  });
+
+  let notified = 0;
+
+  for (const holiday of holidays) {
+    try {
+      const employees = await db.Employee.findAll({
+        where: {
+          companyId: holiday.companyId,
+          ...(holiday.brandId ? { brandId: holiday.brandId } : {}),
+          isActive: true,
+          userId: { [Op.not]: null },
+        },
+        attributes: ['id', 'userId'],
+      });
+
+      for (const employee of employees) {
+        await notifyUser({
+          companyId: holiday.companyId,
+          userId: employee.userId,
+          type: 'holiday_reminder',
+          requestType: null,
+          requestId: holiday.id,
+          title: `Holiday tomorrow: ${holiday.name}`,
+          body: `${holiday.name} is a ${holiday.type === 'optional' ? 'optional ' : ''}holiday on ${holiday.date}. Plan ahead!`,
+        });
+        notified += 1;
+      }
+
+      await holiday.update({ reminderSentAt: new Date() });
+    } catch (err) {
+      console.error(`holiday-reminder job failed for holiday ${holiday.id}:`, err);
+    }
+  }
+
+  return { holidays: holidays.length, notified };
+}
+
+module.exports = { sendHolidayReminders };

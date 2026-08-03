@@ -52,7 +52,6 @@ import { ShiftsRostersPage as BrandShiftsRostersPage } from '../pages/brand-admi
 import { ApprovalsPage as BrandApprovalsPage } from '../pages/brand-admin/ApprovalsPage';
 import { SettingsPage as BrandAdminSettingsPage } from '../pages/brand-admin/SettingsPage';
 import { EssDashboard } from '../pages/ess/EssDashboard';
-import { OfficeCheckInPage } from '../pages/ess/OfficeCheckInPage';
 import { MyAttendancePage } from '../pages/ess/MyAttendancePage';
 import { LeaveBalancePage } from '../pages/ess/LeaveBalancePage';
 import { MyLeavePage } from '../pages/ess/MyLeavePage';
@@ -430,17 +429,6 @@ export function AppRoutes() {
           <ProtectedRoute>
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Dashboard">
               <EssDashboard />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/ess/office-checkin"
-        element={
-          <ProtectedRoute permission="attendance:mark">
-            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Office Check-In">
-              <OfficeCheckInPage />
             </Layout>
           </ProtectedRoute>
         }

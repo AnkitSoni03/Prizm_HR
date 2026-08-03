@@ -12,15 +12,15 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ name, subtitle }: DashboardHeaderProps) {
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight text-ink sm:text-2xl">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5 sm:mb-6 sm:gap-3">
+      <div className="min-w-0">
+        <h2 className="truncate text-lg font-semibold tracking-tight text-ink sm:text-2xl">
           Welcome back, <span className="text-primary">{name}</span>!
         </h2>
-        <p className="mt-1 text-sm text-ink-muted">{subtitle}</p>
+        <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">{subtitle}</p>
       </div>
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-ink-muted shadow-xs">
-        <CalendarDays className="h-4 w-4" strokeWidth={1.75} />
+      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-ink-muted shadow-xs sm:gap-2 sm:px-3 sm:py-2 sm:text-sm">
+        <CalendarDays className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
         {TODAY_LABEL}
       </div>
     </div>

@@ -10,7 +10,6 @@ module.exports = (sequelize, DataTypes) => {
       Brand.hasMany(models.Employee, { foreignKey: 'brandId', as: 'employees' });
       Brand.hasMany(models.UserRole, { foreignKey: 'brandId', as: 'userRoles' });
       Brand.hasMany(models.Invitation, { foreignKey: 'brandId', as: 'invitations' });
-      Brand.hasMany(models.QrAttendanceTerminal, { foreignKey: 'brandId', as: 'qrTerminals' });
       Brand.hasMany(models.ShiftRoster, { foreignKey: 'brandId', as: 'rosterEntries' });
     }
   }

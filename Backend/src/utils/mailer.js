@@ -55,9 +55,9 @@ async function sendMail({ to, subject, html, text }) {
   });
 }
 
-// WEBAUTHN_ORIGIN already holds the frontend's own origin (see
-// src/utils/webauthn.js) — reused here rather than adding a second env var
-// that could drift out of sync with it.
+// WEBAUTHN_ORIGIN holds the frontend's own origin (name is a historical
+// leftover from the now-removed WebAuthn flow — kept as-is rather than
+// renaming a live deployment env var for this).
 function buildActivationUrl(activationToken) {
   const origin = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173';
   return `${origin}/activate?token=${encodeURIComponent(activationToken)}`;

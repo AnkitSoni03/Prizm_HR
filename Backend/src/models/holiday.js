@@ -30,6 +30,12 @@ module.exports = (sequelize, DataTypes) => {
       // but simply doesn't render these fields.
       createdBy: { type: DataTypes.BIGINT, allowNull: true },
       updatedBy: { type: DataTypes.BIGINT, allowNull: true },
+      // Set once holidayReminder.job.js has notified this holiday's
+      // employees — guards against re-notifying every day the daily cron
+      // runs before the holiday's own date arrives (each row is a single
+      // dated occurrence, never recurring, so "sent once" means sent for
+      // good).
+      reminderSentAt: { type: DataTypes.DATE, allowNull: true },
     },
     {
       sequelize,

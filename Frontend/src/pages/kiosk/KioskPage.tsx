@@ -1,26 +1,86 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import { Lock } from 'lucide-react';
+import axios from 'axios';
+import { Lock, LogIn, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { PasswordInput } from '../../components/ui/PasswordInput';
-import { issueOfficeToken, issueSseTicket, uploadOfficeVideo, videoStreamUrl } from '../../api/kiosk';
+import { detectFaceOptions, eyeAspectRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
+import { faceCheckIn, uploadFaceCapture, type LivenessChallenge, type LivenessFrame } from '../../api/kiosk';
 
-const TOKEN_POLL_INTERVAL_MS = 12000;
-const RECORDING_DURATION_MS = 4000;
-const STREAM_RECONNECT_DELAY_MS = 3000;
+const CHALLENGES: { key: LivenessChallenge; instruction: string }[] = [
+  { key: 'blink', instruction: 'Please blink' },
+  { key: 'turn_left', instruction: 'Please turn your head left' },
+  { key: 'turn_right', instruction: 'Please turn your head right' },
+];
 
-type CaptureState =
-  | { phase: 'idle' }
-  | { phase: 'countdown'; recordId: string; action: string; secondsLeft: number }
-  | { phase: 'recording'; recordId: string; action: string }
-  | { phase: 'uploading' }
-  | { phase: 'done' };
+// The person has up to 10s to actually perform the challenge — sampling
+// stops the instant it's detected (usually well before that), so a quick
+// blink/turn doesn't force anyone to sit through the full window. If
+// nothing is detected by the deadline, capture is abandoned with a timeout
+// message rather than sending a burst to the backend that we already know
+// didn't satisfy the challenge.
+const MAX_CAPTURE_MS = 10000;
+const SAMPLE_INTERVAL_MS = 120;
+const CAMERA_WARMUP_MS = 150;
+
+// Mirrors faceAttendance.service.js::validateLiveness's own thresholds —
+// this client-side copy is only used to decide *when to stop sampling
+// early*; the backend re-validates the same thing from the raw numbers
+// independently and is the actual authority (never trusts a client-side
+// "passed" claim).
+const MIN_FRAMES = 8;
+const MIN_BURST_MS = 1200;
+const BLINK_EAR_THRESHOLD = 0.22;
+const YAW_DELTA_THRESHOLD = 12;
+
+function isChallengeSatisfied(challenge: LivenessChallenge, frames: LivenessFrame[]): boolean {
+  if (frames.length < MIN_FRAMES) return false;
+  if (frames[frames.length - 1].t - frames[0].t < MIN_BURST_MS) return false;
+
+  if (challenge === 'blink') {
+    const ears = frames.map((f) => f.ear);
+    const dipped = ears.some((e) => e < BLINK_EAR_THRESHOLD);
+    const recovered = ears[ears.length - 1] >= BLINK_EAR_THRESHOLD;
+    return dipped && recovered;
+  }
+
+  const yaws = frames.map((f) => f.yaw);
+  const baseline = yaws[0];
+  const extremum = challenge === 'turn_left' ? Math.min(...yaws) : Math.max(...yaws);
+  return Math.abs(extremum - baseline) >= YAW_DELTA_THRESHOLD;
+}
+
+type KioskState =
+  | {
+      phase: 'capturing';
+      action: 'checkin' | 'checkout';
+      challenge: LivenessChallenge;
+      instruction: string;
+      secondsLeft: number;
+    }
+  | { phase: 'ready' }
+  | { phase: 'matching'; action: 'checkin' | 'checkout' }
+  | { phase: 'success'; message: string }
+  | { phase: 'error'; message: string };
+
+function extractError(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
+    return err.response.data.error;
+  }
+  return fallback;
+}
 
 // Fullscreen, no Layout/Sidebar/Topbar chrome — a physical kiosk device logs
-// in once as a dedicated Scanner account and is meant to stay on this
-// screen indefinitely. Deliberately outside ProtectedRoute's normal portal
-// shell (see AppRoutes.tsx) since a kiosk has no use for navigation, a
-// notification bell, or any of the rest of the app chrome.
+// in once as a dedicated Scanner account and is meant to stay on this screen
+// indefinitely. Deliberately outside ProtectedRoute's normal portal shell
+// (see AppRoutes.tsx) since a kiosk has no use for navigation, a
+// notification bell, or any of the rest of the app chrome. Face recognition
+// happens directly on this device's own camera — no employee phone, QR
+// code, or WebAuthn passkey involved at all.
+//
+// The camera is only ever open for the duration of one capture burst: it
+// opens the instant Check In/Check Out is tapped and is stopped again as
+// soon as the descriptor + liveness frames are captured, before the
+// network round-trip even starts — it never sits on in the background.
 export function KioskPage() {
   const { user, isAuthenticated, login } = useAuth();
 
@@ -29,14 +89,23 @@ export function KioskPage() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const [officeToken, setOfficeToken] = useState<string | null>(null);
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [capture, setCapture] = useState<CaptureState>({ phase: 'idle' });
+  const [modelsReady, setModelsReady] = useState(false);
+  const [state, setState] = useState<KioskState>({ phase: 'ready' });
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    loadFaceApiModels()
+      .then(() => setModelsReady(true))
+      .catch(() => setState({ phase: 'error', message: 'Could not load face recognition models.' }));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   async function handleLogin(event: React.FormEvent) {
     event.preventDefault();
@@ -51,135 +120,126 @@ export function KioskPage() {
     }
   }
 
-  // Rotating QR token — polled on an interval rather than tied to the
-  // token's own TTL, same pattern as NotificationBell.tsx's unread-count
-  // poll (no websocket/push infra for anything except the video trigger).
-  useEffect(() => {
-    if (!isAuthenticated) return;
+  function stopCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }
 
-    let cancelled = false;
-    async function poll() {
-      try {
-        const { officeToken: token } = await issueOfficeToken();
-        if (!cancelled) {
-          setOfficeToken(token);
-          setTokenError(null);
-        }
-      } catch {
-        if (!cancelled) setTokenError('Could not refresh the QR code. Retrying…');
+  const runCapture = useCallback(async (action: 'checkin' | 'checkout') => {
+    const challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
+    setState({
+      phase: 'capturing',
+      action,
+      challenge: challenge.key,
+      instruction: challenge.instruction,
+      secondsLeft: Math.ceil(MAX_CAPTURE_MS / 1000),
+    });
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    } catch {
+      setState({ phase: 'error', message: 'Could not access the camera.' });
+      setTimeout(() => setState({ phase: 'ready' }), 3000);
+      return;
+    }
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play().catch(() => {});
+    }
+    // Brief settle so the sensor has a real frame before sampling starts.
+    await new Promise((resolve) => setTimeout(resolve, CAMERA_WARMUP_MS));
+
+    const frames: LivenessFrame[] = [];
+    const startedAt = Date.now();
+    const chunks: BlobPart[] = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    const stopped = new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve();
+    });
+    recorder.start();
+
+    // Landmarks only while watching for the action — the recognition
+    // descriptor is the expensive step, computed once at the end, not on
+    // every sampled frame. Stops the instant the challenge is satisfied
+    // (usually well under 10s); only runs the full window if the person
+    // never performs it.
+    let satisfied = false;
+    while (Date.now() - startedAt < MAX_CAPTURE_MS) {
+      if (!videoRef.current) break;
+      const elapsed = Date.now() - startedAt;
+      const result = await faceapi.detectSingleFace(videoRef.current, detectFaceOptions()).withFaceLandmarks();
+      if (result) {
+        const leftEar = eyeAspectRatio(result.landmarks.getLeftEye());
+        const rightEar = eyeAspectRatio(result.landmarks.getRightEye());
+        frames.push({ t: elapsed, ear: (leftEar + rightEar) / 2, yaw: estimateYaw(result.landmarks) });
       }
+      setState((prev) =>
+        prev.phase === 'capturing'
+          ? { ...prev, secondsLeft: Math.max(0, Math.ceil((MAX_CAPTURE_MS - elapsed) / 1000)) }
+          : prev
+      );
+      if (isChallengeSatisfied(challenge.key, frames)) {
+        satisfied = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SAMPLE_INTERVAL_MS));
     }
 
-    poll();
-    const interval = setInterval(poll, TOKEN_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [isAuthenticated]);
-
-  const recordAndUpload = useCallback(async (recordId: string, action: string) => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
-
-      setCapture({ phase: 'recording', recordId, action });
-
-      const chunks: BlobPart[] = [];
-      const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-
-      const stopped = new Promise<void>((resolve) => {
-        recorder.onstop = () => resolve();
-      });
-      recorder.start();
-      setTimeout(() => recorder.stop(), RECORDING_DURATION_MS);
+    if (!satisfied) {
+      recorder.stop();
       await stopped;
+      stopCamera();
+      setState({ phase: 'error', message: 'No action detected within 10 seconds. Please try again.' });
+      setTimeout(() => setState({ phase: 'ready' }), 3000);
+      return;
+    }
 
-      stream.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+    let descriptor: Float32Array | null = null;
+    if (videoRef.current) {
+      const finalResult = await faceapi
+        .detectSingleFace(videoRef.current, detectFaceOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      descriptor = finalResult?.descriptor ?? null;
+    }
 
-      setCapture({ phase: 'uploading' });
+    recorder.stop();
+    await stopped;
+
+    // Camera is no longer needed once the descriptor + liveness frames are
+    // captured — turn it off now, before the network round-trip, not after.
+    stopCamera();
+
+    if (!descriptor) {
+      setState({ phase: 'error', message: 'Could not detect a face. Please try again.' });
+      setTimeout(() => setState({ phase: 'ready' }), 3000);
+      return;
+    }
+
+    setState({ phase: 'matching', action });
+    try {
+      const result = await faceCheckIn(action, Array.from(descriptor), { challenge: challenge.key, frames });
+      setState({
+        phase: 'success',
+        message: `Welcome, ${result.employee.name} — ${result.action === 'check_in' ? 'Checked In' : 'Checked Out'}`,
+      });
+
       const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-      await uploadOfficeVideo(recordId, action === 'checkout' ? 'checkout' : 'checkin', blob);
-
-      setCapture({ phase: 'done' });
-      setTimeout(() => setCapture({ phase: 'idle' }), 3000);
+      uploadFaceCapture(result.attendance.id, action, blob).catch((err) =>
+        console.error('Face capture upload failed:', err)
+      );
     } catch (err) {
-      console.error('Kiosk video capture failed:', err);
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      setCapture({ phase: 'idle' });
+      setState({ phase: 'error', message: extractError(err, 'Face not recognized. Please try again.') });
+    } finally {
+      setTimeout(() => setState({ phase: 'ready' }), 3000);
     }
   }, []);
-
-  const handleTrigger = useCallback(
-    (recordId: string, action: string) => {
-      let secondsLeft = 5;
-      setCapture({ phase: 'countdown', recordId, action, secondsLeft });
-      const tick = setInterval(() => {
-        secondsLeft -= 1;
-        if (secondsLeft <= 0) {
-          clearInterval(tick);
-          recordAndUpload(recordId, action);
-        } else {
-          setCapture({ phase: 'countdown', recordId, action, secondsLeft });
-        }
-      }, 1000);
-    },
-    [recordAndUpload]
-  );
-
-  // SSE connection to receive "someone just checked in/out at this kiosk"
-  // pushes (Redis pub/sub on the backend, see officeKiosk.controller.js's
-  // videoStream). The ticket is single-use, so a dropped connection can't
-  // rely on EventSource's own built-in reconnect (it would replay the same,
-  // now-consumed, ticket) — reconnection is done manually with a fresh
-  // ticket each time.
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-
-    async function connect() {
-      try {
-        const ticket = await issueSseTicket();
-        if (cancelled) return;
-
-        const es = new EventSource(videoStreamUrl(ticket));
-        eventSourceRef.current = es;
-
-        es.onmessage = (event) => {
-          try {
-            const { recordId, action } = JSON.parse(event.data) as { recordId: string; action: string };
-            handleTrigger(recordId, action);
-          } catch (err) {
-            console.error('Malformed video-trigger message:', err);
-          }
-        };
-
-        es.onerror = () => {
-          es.close();
-          if (!cancelled) {
-            reconnectTimerRef.current = setTimeout(connect, STREAM_RECONNECT_DELAY_MS);
-          }
-        };
-      } catch {
-        if (!cancelled) {
-          reconnectTimerRef.current = setTimeout(connect, STREAM_RECONNECT_DELAY_MS);
-        }
-      }
-    }
-
-    connect();
-    return () => {
-      cancelled = true;
-      eventSourceRef.current?.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-    };
-  }, [isAuthenticated, handleTrigger]);
 
   if (!isAuthenticated) {
     return (
@@ -222,49 +282,68 @@ export function KioskPage() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-sidebar px-4 text-center">
       <div>
         <p className="text-lg font-semibold text-white">{user?.email}</p>
-        <p className="text-sm text-white/60">Scan to check in or out</p>
+        <p className="text-sm text-white/60">Choose Check In or Check Out, then look at the camera</p>
       </div>
 
-      <div className="rounded-2xl bg-white p-6 shadow-xl">
-        {capture.phase === 'idle' &&
-          (officeToken ? (
-            <QRCodeSVG value={officeToken} size={280} />
-          ) : (
-            <div className="flex h-[280px] w-[280px] items-center justify-center text-sm text-ink-muted">
-              Loading QR…
-            </div>
-          ))}
+      <div className="relative flex h-[360px] w-[480px] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-xl">
+        <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
 
-        {capture.phase === 'countdown' && (
-          <div className="flex h-[280px] w-[280px] flex-col items-center justify-center gap-2">
-            <span className="text-6xl font-bold text-primary">{capture.secondsLeft}</span>
-            <span className="text-sm text-ink-muted">Get ready…</span>
+        {state.phase === 'ready' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-white">
+            {modelsReady ? 'Camera is off — choose an option below' : 'Loading face recognition…'}
           </div>
         )}
 
-        {capture.phase === 'recording' && (
-          <div className="relative flex h-[280px] w-[280px] items-center justify-center overflow-hidden rounded-xl bg-black">
-            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
-            <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-danger px-2 py-0.5 text-xs font-semibold text-white">
-              ● REC
+        {state.phase === 'capturing' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
+            <span className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-white">
+              {state.instruction}
             </span>
+            <span className="text-xs text-white/80">{state.secondsLeft}s left</span>
           </div>
         )}
 
-        {capture.phase === 'uploading' && (
-          <div className="flex h-[280px] w-[280px] items-center justify-center text-sm text-ink-muted">
-            Saving…
+        {state.phase === 'matching' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-sm font-semibold text-white">
+            Verifying…
           </div>
         )}
 
-        {capture.phase === 'done' && (
-          <div className="flex h-[280px] w-[280px] items-center justify-center text-sm font-semibold text-success">
-            Done ✓
+        {state.phase === 'success' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-success/90 px-6 text-center text-lg font-semibold text-white">
+            {state.message}
+          </div>
+        )}
+
+        {state.phase === 'error' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-danger/90 px-6 text-center text-sm font-semibold text-white">
+            {state.message}
           </div>
         )}
       </div>
 
-      {tokenError && <p className="text-sm text-warning">{tokenError}</p>}
+      {state.phase === 'ready' && (
+        <div className="flex gap-4">
+          <button
+            type="button"
+            onClick={() => runCapture('checkin')}
+            disabled={!modelsReady}
+            className="flex items-center gap-2 rounded-xl bg-success px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+          >
+            <LogIn className="h-4 w-4" strokeWidth={2} />
+            Check In
+          </button>
+          <button
+            type="button"
+            onClick={() => runCapture('checkout')}
+            disabled={!modelsReady}
+            className="flex items-center gap-2 rounded-xl bg-danger px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+          >
+            <LogOut className="h-4 w-4" strokeWidth={2} />
+            Check Out
+          </button>
+        </div>
+      )}
     </div>
   );
 }
