@@ -308,15 +308,8 @@ export function MyAttendancePage() {
       )}
 
       {modalDate && (
-        <Modal title="Request an attendance correction" onClose={() => setModalDate(null)}>
+        <Modal title={`Request a correction for ${formatDisplayDate(modalDate)}`} onClose={() => setModalDate(null)}>
           <div className="space-y-4">
-            <Input
-              id="regularization-date"
-              type="date"
-              label="Date"
-              value={modalDate}
-              onChange={(event) => setModalDate(event.target.value)}
-            />
             <Select
               id="regularization-status"
               label="What should this day be marked as?"
