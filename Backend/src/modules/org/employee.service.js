@@ -248,9 +248,116 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
   return withPhotoUrl(employee);
 }
 
-async function deleteEmployee({ companyId, id, scopedBrandIds }) {
+// Permanently, irreversibly deletes an Employee and everything that belongs
+// to them — a deliberate, explicitly-requested one-off exception to
+// CLAUDE.md's "soft deletes only, never hard-delete" rule (not a pattern to
+// copy elsewhere without the same explicit ask).
+//
+// Most of the cascade is handled by Postgres itself, not this function: the
+// employee_id FK on attendance, attendance_regularizations, od_requests,
+// leave_requests, leave_balances, comp_off_credits, employee_documents,
+// document_upload_requests, employee_face_profiles, employee_shifts,
+// employee_salary_structures (and its components), payslips (and its
+// components), and payroll_adjustments are all ON DELETE CASCADE — one
+// `DELETE FROM employees` removes every one of those rows in a single
+// statement (see the migrations for each table). Everything that only
+// *references* this employee from the outside is ON DELETE SET NULL and
+// equally automatic: direct reports' manager_id, a department's
+// head_employee_id, other employees' approver_id on requests they decided,
+// this employee's own roster slot (shift_rosters.employee_id — it becomes an
+// "unassigned slot" rather than disappearing, same as before any employee is
+// assigned to it), and their login's employees.user_id / users.employee_id.
+//
+// What's left for this function to do by hand:
+//   1. GCS objects — Postgres knows nothing about the bucket, so photo,
+//      documents, attendance videos, and face-profile photos are collected
+//      before the DB delete and removed from the bucket after it commits.
+//   2. approval_histories rows for this employee's own requests — requestId
+//      is a polymorphic pointer (requestType + requestId), not a real FK, so
+//      there's no automatic cascade to clean up after the request rows go.
+//   3. The linked ESS login itself is deliberately soft-deleted + deactivated
+//      rather than hard-deleted: approval_histories.actor_user_id is
+//      NOT NULL/RESTRICT, so hard-deleting a User who ever approved someone
+//      else's request would abort the whole transaction. Session/access rows
+//      that are exclusively this user's own (UserRole, RefreshToken,
+//      PasswordReset, Notification) are hard-deleted — nothing else
+//      references those.
+async function deleteEmployeePermanently({ companyId, id, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
-  await employee.destroy();
+
+  // paranoid: false — a soft-deleted row is still physically present and
+  // will still be swept up by the DB cascade below, so its GCS object (or
+  // approval-history trail) must be collected too, not skipped.
+  const [documents, attendanceRows, faceProfile, leaveRequests, odRequests, regularizations, compOffCredits] =
+    await Promise.all([
+      db.EmployeeDocument.findAll({ where: { employeeId: id }, paranoid: false }),
+      db.Attendance.findAll({ where: { employeeId: id }, paranoid: false }),
+      db.EmployeeFaceProfile.findOne({ where: { employeeId: id }, paranoid: false }),
+      db.LeaveRequest.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
+      db.OdRequest.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
+      db.AttendanceRegularization.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
+      db.CompOffCredit.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
+    ]);
+
+  const gcsPaths = [];
+  if (employee.photoUrl) gcsPaths.push(employee.photoUrl);
+  for (const doc of documents) if (doc.fileUrl) gcsPaths.push(doc.fileUrl);
+  for (const row of attendanceRows) {
+    if (row.videoObjectPathCheckin) gcsPaths.push(row.videoObjectPathCheckin);
+    if (row.videoObjectPathCheckout) gcsPaths.push(row.videoObjectPathCheckout);
+  }
+  if (faceProfile) {
+    for (const p of [faceProfile.photoObjectPathFront, faceProfile.photoObjectPathLeft, faceProfile.photoObjectPathRight]) {
+      if (p) gcsPaths.push(p);
+    }
+  }
+
+  const { userId, customRoleId } = employee;
+
+  await db.sequelize.transaction(async (t) => {
+    await db.ApprovalHistory.destroy({
+      where: {
+        companyId,
+        [Op.or]: [
+          { requestType: 'leave_request', requestId: { [Op.in]: leaveRequests.map((r) => r.id) } },
+          { requestType: 'od_request', requestId: { [Op.in]: odRequests.map((r) => r.id) } },
+          { requestType: 'attendance_regularization', requestId: { [Op.in]: regularizations.map((r) => r.id) } },
+          { requestType: 'comp_off_credit', requestId: { [Op.in]: compOffCredits.map((r) => r.id) } },
+        ],
+      },
+      force: true,
+      transaction: t,
+    });
+
+    if (userId) {
+      await db.Notification.destroy({ where: { userId }, force: true, transaction: t });
+      await db.UserRole.destroy({ where: { userId }, force: true, transaction: t });
+      await db.RefreshToken.destroy({ where: { userId }, force: true, transaction: t });
+      await db.PasswordReset.destroy({ where: { userId }, force: true, transaction: t });
+      const user = await db.User.findByPk(userId, { transaction: t });
+      if (user) {
+        await user.update({ isActive: false }, { transaction: t });
+        await user.destroy({ transaction: t });
+      }
+    }
+
+    // The per-employee "Custom Powers" role (see assignEmployeePowers) is
+    // exclusively this employee's — safe to remove outright rather than
+    // leave it behind as dead, unassignable clutter.
+    if (customRoleId) {
+      await db.Role.destroy({ where: { id: customRoleId }, force: true, transaction: t });
+    }
+
+    await employee.destroy({ force: true, transaction: t });
+  });
+
+  for (const objectPath of gcsPaths) {
+    try {
+      await deleteObject(objectPath);
+    } catch (err) {
+      console.error('Could not delete GCS object during employee permanent delete:', objectPath, err);
+    }
+  }
 }
 
 // Soft on/off toggle for an employee leaving/rejoining — never deletes the
@@ -399,7 +506,7 @@ module.exports = {
   createEmployee,
   updateEmployee,
   transferEmployee,
-  deleteEmployee,
+  deleteEmployeePermanently,
   setEmployeeActiveStatus,
   assignEmployeePowers,
   uploadEmployeePhoto,

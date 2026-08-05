@@ -4,7 +4,7 @@ import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { useAuth } from '../context/auth-context';
 import { listHolidays, type Holiday } from '../api/companyAdmin/holidays';
-import { formatDisplayDate } from '../utils/dateDisplay';
+import { formatDisplayDateRange } from '../utils/dateDisplay';
 
 function tomorrowStr(): string {
   const d = new Date();
@@ -68,8 +68,7 @@ export function HolidayReminderModal() {
         <div>
           <p className="text-lg font-semibold text-ink">{holiday.name}</p>
           <p className="mt-1 text-sm text-ink-muted">
-            {formatDisplayDate(holiday.date)} is {holiday.type === 'optional' ? 'an optional' : 'a'} holiday — enjoy
-            your day off!
+            {formatDisplayDateRange(holiday.date, holiday.endDate)} — enjoy your day off!
           </p>
         </div>
         <Button type="button" onClick={handleDismiss} className="w-full">

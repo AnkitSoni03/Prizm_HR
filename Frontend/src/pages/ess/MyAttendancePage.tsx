@@ -8,6 +8,8 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
+import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { useAuth } from '../../context/auth-context';
 import {
   createRegularization,
   listMyAttendance,
@@ -15,6 +17,7 @@ import {
   type Attendance,
   type AttendanceRegularization,
 } from '../../api/ess/attendance';
+import { getMyProfile } from '../../api/ess/profile';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 type Tab = 'history' | 'requests';
@@ -48,10 +51,20 @@ function formatDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function defaultFrom(): string {
+function currentMonth(): string {
   const d = new Date();
-  d.setDate(d.getDate() - 29);
-  return formatDate(d);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// First/last calendar day of the selected "YYYY-MM" month, clipped to
+// today if the month hasn't finished yet.
+function monthRange(month: string): { from: string; to: string } {
+  const [year, mon] = month.split('-').map(Number);
+  const from = `${month}-01`;
+  const lastDay = new Date(year, mon, 0).getDate();
+  const to = formatDate(new Date(year, mon - 1, lastDay));
+  const today = formatDate(new Date());
+  return { from, to: to > today ? today : to };
 }
 
 function formatTime(value: string | null): string {
@@ -81,9 +94,32 @@ export function MyAttendancePage() {
   const requestedTab = searchParams.get('tab');
   const initialTab: Tab = requestedTab === 'requests' ? 'requests' : 'history';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [from, setFrom] = useState(defaultFrom());
-  const [to, setTo] = useState(formatDate(new Date()));
+  // Preselected to the current month on open; '' means "no month filter"
+  // — the full-history view, reachable via the "Full history" button.
+  const [month, setMonth] = useState(currentMonth());
   const [offset, setOffset] = useState(0);
+
+  const { user } = useAuth();
+  const [joiningDate, setJoiningDate] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!user?.employeeId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setProfileLoaded(true);
+      return;
+    }
+    getMyProfile(user.employeeId)
+      .then((profile) => setJoiningDate(profile.dateOfJoining))
+      .catch(() => setJoiningDate(null))
+      .finally(() => setProfileLoaded(true));
+  }, [user?.employeeId]);
+
+  // Default view is the whole employment span, joining date to today — a
+  // month filter only narrows it. A month before the employee ever joined
+  // has no data to show, full stop.
+  const isBeforeJoining = month !== '' && !!joiningDate && month < joiningDate.slice(0, 7);
+  const range = month === '' ? { from: joiningDate ?? formatDate(new Date()), to: formatDate(new Date()) } : monthRange(month);
 
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [requests, setRequests] = useState<AttendanceRegularization[]>([]);
@@ -102,9 +138,15 @@ export function MyAttendancePage() {
     setError(null);
     try {
       if (activeTab === 'history') {
-        const result = await listMyAttendance({ from, to, limit: LIMIT, offset });
+        if (!profileLoaded) return;
+        if (isBeforeJoining) {
+          setAttendance([]);
+          return;
+        }
+        // Backend fills every day in [from, to] with holiday/weekoff/leave/
+        // absent as needed and returns the whole range unpaginated.
+        const result = await listMyAttendance({ from: range.from, to: range.to });
         setAttendance(result.data);
-        setTotal(result.pagination.total);
       } else {
         const result = await listMyRegularizations({ limit: LIMIT, offset });
         setRequests(result.data);
@@ -121,7 +163,7 @@ export function MyAttendancePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, from, to, offset]);
+  }, [activeTab, month, joiningDate, profileLoaded, offset]);
 
   function switchTab(tab: Tab) {
     setActiveTab(tab);
@@ -167,75 +209,80 @@ export function MyAttendancePage() {
       </div>
 
       {activeTab === 'history' && (
-        <div className="mb-3 flex flex-wrap gap-3">
-          <div className="w-full sm:w-40">
+        <div className="mb-3 flex flex-wrap items-end gap-3">
+          <div className="w-full sm:w-48">
             <Input
-              id="attendance-from"
-              type="date"
-              label="From"
-              value={from}
+              id="attendance-month"
+              type="month"
+              label="Month"
+              min={joiningDate ? joiningDate.slice(0, 7) : undefined}
+              max={currentMonth()}
+              value={month}
               onChange={(event) => {
                 setOffset(0);
-                setFrom(event.target.value);
+                // Belt-and-braces: the max attribute stops the picker UI,
+                // but a typed/pasted value could still slip past it.
+                setMonth(event.target.value > currentMonth() ? currentMonth() : event.target.value);
               }}
             />
           </div>
-          <div className="w-full sm:w-40">
-            <Input
-              id="attendance-to"
-              type="date"
-              label="To"
-              value={to}
-              onChange={(event) => {
-                setOffset(0);
-                setTo(event.target.value);
-              }}
-            />
-          </div>
+          {month !== '' && (
+            <Button variant="secondary" onClick={() => setMonth('')}>
+              Full history
+            </Button>
+          )}
         </div>
       )}
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
-      {activeTab === 'history' && (
-        <>
-          <Table
-            isLoading={isLoading}
-            rows={attendance}
-            rowKey={(r) => r.id}
-            emptyMessage="No attendance records in this range."
-            columns={[
-              { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.date) },
-              { key: 'checkIn', header: 'Check In', render: (r) => formatTime(r.checkIn) },
-              { key: 'checkOut', header: 'Check Out', render: (r) => formatTime(r.checkOut) },
-              {
-                key: 'workingHours',
-                header: 'Working Hrs',
-                render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (r) => <Badge tone={STATUS_TONE[r.status] ?? 'neutral'}>{r.status.replace('_', ' ')}</Badge>,
-              },
-              {
-                key: 'actions',
-                header: '',
-                className: 'w-40 text-right',
-                render: (r) => (
-                  <button
-                    type="button"
-                    onClick={() => openModal(r.date)}
-                    className="text-xs font-medium text-primary hover:underline"
-                  >
-                    Request correction
-                  </button>
-                ),
-              },
-            ]}
-          />
-          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
-        </>
+      {activeTab === 'history' && isBeforeJoining && (
+        <EmptyStateCard
+          title="No attendance to show"
+          description={`Your joining date is ${formatDisplayDate(joiningDate)}.`}
+        />
+      )}
+
+      {activeTab === 'history' && !isBeforeJoining && (
+        <Table
+          isLoading={isLoading}
+          rows={attendance}
+          rowKey={(r) => r.id}
+          emptyMessage="No attendance records in this range."
+          columns={[
+            { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.date) },
+            { key: 'checkIn', header: 'Check In', render: (r) => formatTime(r.checkIn) },
+            { key: 'checkOut', header: 'Check Out', render: (r) => formatTime(r.checkOut) },
+            {
+              key: 'workingHours',
+              header: 'Working Hrs',
+              render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
+            },
+            {
+              key: 'status',
+              header: 'Status',
+              render: (r) => (
+                <Badge tone={STATUS_TONE[r.status] ?? 'neutral'}>
+                  {r.status === 'leave' && r.leaveTypeName ? r.leaveTypeName : r.status.replace('_', ' ')}
+                </Badge>
+              ),
+            },
+            {
+              key: 'actions',
+              header: '',
+              className: 'w-40 text-right',
+              render: (r) => (
+                <button
+                  type="button"
+                  onClick={() => openModal(r.date)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Request correction
+                </button>
+              ),
+            },
+          ]}
+        />
       )}
 
       {activeTab === 'requests' && (

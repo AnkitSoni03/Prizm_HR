@@ -6,9 +6,11 @@ const { dateOnly, addDays } = require('../utils/dateRange');
 const { notifyUser } = require('../utils/notifications');
 
 // Repeatable job, scheduled daily from src/server.js. Holidays only ever
-// store a DATEONLY (no time-of-day), so "reminder within 24 hours" is
+// store DATEONLY fields (no time-of-day), so "reminder within 24 hours" is
 // interpreted the same way the rest of this codebase treats date-only
-// fields: the holiday falls on tomorrow's local date.
+// fields: the holiday *starts* on tomorrow's local date. A multi-day holiday
+// only fires this once, the day before its first day — not once per day in
+// the range.
 //
 // Runs unscoped (no tenant context exists outside an HTTP request — see
 // tenant-scope.js) across every company, then groups matches by
@@ -45,7 +47,10 @@ async function sendHolidayReminders({ asOf = new Date() } = {}) {
           requestType: null,
           requestId: holiday.id,
           title: `Holiday tomorrow: ${holiday.name}`,
-          body: `${holiday.name} is a ${holiday.type === 'optional' ? 'optional ' : ''}holiday on ${holiday.date}. Plan ahead!`,
+          body:
+            holiday.endDate !== holiday.date
+              ? `${holiday.name} is a holiday from ${holiday.date} to ${holiday.endDate}. Plan ahead!`
+              : `${holiday.name} is a holiday on ${holiday.date}. Plan ahead!`,
         });
         notified += 1;
       }

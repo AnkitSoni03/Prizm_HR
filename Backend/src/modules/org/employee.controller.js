@@ -142,7 +142,7 @@ async function transfer(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    await service.deleteEmployee({
+    await service.deleteEmployeePermanently({
       companyId: req.auth.companyId,
       id: req.params.id,
       scopedBrandIds: req.auth.scopedBrandIds,

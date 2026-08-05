@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
-import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createHoliday, updateHoliday, type Holiday } from '../../../api/companyAdmin/holidays';
 
@@ -14,8 +13,8 @@ interface HolidayFormModalProps {
 export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModalProps) {
   const isEdit = !!holiday;
   const [date, setDate] = useState(holiday?.date ?? '');
+  const [toDate, setToDate] = useState(holiday?.endDate ?? holiday?.date ?? '');
   const [name, setName] = useState(holiday?.name ?? '');
-  const [type, setType] = useState<'public' | 'optional'>(holiday?.type ?? 'public');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,9 +24,9 @@ export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModal
     setIsSubmitting(true);
     try {
       if (isEdit) {
-        await updateHoliday(holiday.id, { date, name, type });
+        await updateHoliday(holiday.id, { date, toDate: toDate || date, name });
       } else {
-        await createHoliday({ date, name, type });
+        await createHoliday({ date, toDate: toDate || undefined, name });
       }
       onSaved();
       onClose();
@@ -41,14 +40,33 @@ export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModal
     <Modal title={isEdit ? 'Edit Holiday' : 'Add Holiday'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <p className="text-sm text-danger">{error}</p>}
-        <Input
-          id="holiday-date"
-          label="Date"
-          type="date"
-          required
-          value={date}
-          onChange={(event) => setDate(event.target.value)}
-        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input
+            id="holiday-date"
+            label="From Date"
+            type="date"
+            required
+            value={date}
+            onChange={(event) => {
+              setDate(event.target.value);
+              // Keep the range valid if "From" is moved past the current "To".
+              if (toDate && toDate < event.target.value) setToDate(event.target.value);
+            }}
+          />
+          <Input
+            id="holiday-to-date"
+            label="To Date"
+            type="date"
+            required
+            min={date || undefined}
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+          />
+        </div>
+        <p className="-mt-2 text-xs text-ink-muted">
+          Same date for both for a single-day holiday, or set a later "To Date" for a multi-day
+          holiday (e.g. a 3-day festival).
+        </p>
         <Input
           id="holiday-name"
           label="Name"
@@ -56,16 +74,6 @@ export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModal
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Independence Day"
-        />
-        <Select
-          id="holiday-type"
-          label="Type"
-          value={type}
-          onChange={(event) => setType(event.target.value as 'public' | 'optional')}
-          options={[
-            { value: 'public', label: 'Public' },
-            { value: 'optional', label: 'Optional' },
-          ]}
         />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>

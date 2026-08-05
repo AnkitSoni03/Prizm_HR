@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { ScanFace } from 'lucide-react';
+import { ScanFace, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { detectFaceOptions, faceapi, loadFaceApiModels } from '../lib/faceapi';
 import { getMyFaceProfileStatus, registerFaceProfile, type FaceProfileStatus } from '../api/ess/faceProfile';
@@ -10,6 +10,14 @@ const ANGLES: { key: Angle; label: string; instruction: string }[] = [
   { key: 'front', label: 'Front', instruction: 'Look straight at the camera' },
   { key: 'left', label: 'Left', instruction: 'Turn your head slightly left' },
   { key: 'right', label: 'Right', instruction: 'Turn your head slightly right' },
+];
+
+const CAPTURE_GUIDELINES = [
+  'Find a well-lit spot — face a light source, avoid strong light or windows behind you.',
+  'Remove sunglasses, a mask, or anything covering your face. A cap is fine if your face is clear.',
+  'Make sure only your face is in frame — no one else standing behind or beside you.',
+  'Keep a neutral, relaxed expression with both eyes open, and hold still for a second when capturing.',
+  'For each angle, follow the on-screen instruction (straight, slight left, slight right) before tapping it.',
 ];
 
 const MIN_DETECTION_SCORE = 0.8;
@@ -177,17 +185,31 @@ export function RegisterFaceCard() {
         </div>
       )}
       {success && (
-        <div className="mt-4 rounded-xl border border-success/20 bg-success/5 px-3 py-2.5 text-sm text-success">
-          Face registered successfully.
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-success/20 bg-success/5 px-3 py-2.5 text-sm text-success">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} />
+          <span>
+            Face registered successfully. Please reach out to your HR or admin team to get set up
+            on the face recognition device (kiosk) so you can start checking in and out.
+          </span>
         </div>
       )}
 
       {!cameraReady && (
-        <div className="mt-4 flex justify-end">
-          <Button onClick={startCamera} disabled={!modelsReady}>
-            {modelsReady ? 'Start camera' : 'Loading models…'}
-          </Button>
-        </div>
+        <>
+          <div className="mt-4 rounded-xl border border-border bg-page px-3 py-3 text-sm text-ink-muted">
+            <p className="font-medium text-ink">Before you start, for best results:</p>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4">
+              {CAPTURE_GUIDELINES.map((tip) => (
+                <li key={tip}>{tip}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button onClick={startCamera} disabled={!modelsReady}>
+              {modelsReady ? 'Start camera' : 'Loading models…'}
+            </Button>
+          </div>
+        </>
       )}
 
       {cameraReady && (

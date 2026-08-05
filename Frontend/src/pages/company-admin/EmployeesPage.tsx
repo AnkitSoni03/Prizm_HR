@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Users } from 'lucide-react';
+import { Pencil, Plus, Users } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
@@ -158,10 +158,15 @@ export function EmployeesPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedEmployee(employee)}
-                    className="flex items-center gap-2.5 font-medium text-ink hover:text-primary hover:underline"
+                    title="Click to view or edit"
+                    className="group flex items-center gap-2.5 font-medium text-ink hover:text-primary hover:underline"
                   >
                     <Avatar src={employee.photoDownloadUrl} size="sm" />
                     {employee.name ?? '—'}
+                    <Pencil
+                      className="h-3.5 w-3.5 shrink-0 text-ink-muted group-hover:text-primary"
+                      strokeWidth={1.75}
+                    />
                   </button>
                 ),
               },

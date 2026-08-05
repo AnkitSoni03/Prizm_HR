@@ -21,15 +21,18 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { brandId, date, name, type } = req.body;
+    const { brandId, date, toDate, name, type } = req.body;
     if (!date || !name) {
       return res.status(400).json({ error: 'date and name are required' });
     }
 
+    // toDate is optional — omit it for a plain single-day holiday, the
+    // resulting row's endDate just defaults to date itself.
     const holiday = await service.createHoliday({
       companyId: req.auth.companyId,
       brandId,
       date,
+      toDate,
       name,
       type,
       createdBy: req.auth.userId,

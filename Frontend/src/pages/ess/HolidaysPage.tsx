@@ -1,23 +1,19 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
-import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { ColorTag, AccentTag } from '../../components/ColorTag';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { deleteHoliday, holidayAuditName, listHolidays, type Holiday } from '../../api/companyAdmin/holidays';
 import { HolidayFormModal } from '../company-admin/components/HolidayFormModal';
-import { formatDisplayDate } from '../../utils/dateDisplay';
+import { countDaysInclusive, formatDisplayDateRange } from '../../utils/dateDisplay';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
-
-function weekday(dateStr: string): string {
-  return new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long' });
-}
 
 // Every employee can view this page (holiday:read). An HR-department
 // employee additionally holds holiday:create/update/delete (auto-granted —
@@ -78,7 +74,10 @@ export function HolidaysPage() {
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <p className="text-sm text-ink-muted">Your company's yearly holiday calendar.</p>
+        <p className="flex items-center gap-2 text-sm text-ink-muted">
+          <CalendarClock className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
+          Your company's yearly holiday calendar.
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-32">
             <Select
@@ -114,13 +113,19 @@ export function HolidaysPage() {
           rows={holidays}
           rowKey={(holiday) => holiday.id}
           columns={[
-            { key: 'date', header: 'Date', render: (h) => formatDisplayDate(h.date) },
-            { key: 'day', header: 'Day', render: (h) => weekday(h.date) },
-            { key: 'name', header: 'Name', render: (h) => <span className="font-medium text-ink">{h.name}</span> },
             {
-              key: 'type',
-              header: 'Type',
-              render: (h) => <Badge tone={h.type === 'public' ? 'success' : 'neutral'}>{h.type}</Badge>,
+              key: 'name',
+              header: 'Name',
+              render: (h) => <ColorTag>{h.name}</ColorTag>,
+            },
+            { key: 'date', header: 'Date', render: (h) => formatDisplayDateRange(h.date, h.endDate) },
+            {
+              key: 'day',
+              header: 'Days',
+              render: (h) => {
+                const count = countDaysInclusive(h.date, h.endDate);
+                return <AccentTag>{count} Day{count === 1 ? '' : 's'}</AccentTag>;
+              },
             },
             ...(canManage
               ? [

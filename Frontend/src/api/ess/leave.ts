@@ -37,6 +37,9 @@ export interface Holiday {
   id: string;
   brandId: string | null;
   date: string;
+  // Inclusive end of the holiday's date range — equal to `date` for a
+  // plain single-day holiday.
+  endDate: string;
   name: string;
   type: 'public' | 'optional';
 }

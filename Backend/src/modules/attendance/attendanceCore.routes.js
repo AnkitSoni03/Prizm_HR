@@ -3,7 +3,7 @@
 const { Router } = require('express');
 const controller = require('./attendance.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
-const { userHasPermission } = require('../../middleware/rbac.middleware');
+const { userHasPermission, requirePermission } = require('../../middleware/rbac.middleware');
 
 const router = Router();
 router.use(requireAuth);
@@ -25,6 +25,13 @@ async function requireReadAccess(req, res, next) {
 }
 
 router.get('/', requireReadAccess, controller.list);
+// Uses the safer requirePermission (req.auth.scopedBrandIds) rather than
+// requireReadAccess above — that one grants attendance:read_own callers
+// (plain Employees) through with attendanceEmployeeScope, which the
+// roster/bulk-status admin endpoints below have no concept of and would
+// wrongly treat as "unrestricted company-wide" if reused here.
+router.get('/roster', requirePermission('attendance:read'), controller.roster);
+router.patch('/bulk-status', requirePermission('attendance:update'), controller.bulkUpdateStatus);
 router.get('/:id', requireReadAccess, controller.get);
 router.get('/:id/video-url', requireReadAccess, controller.videoUrl);
 

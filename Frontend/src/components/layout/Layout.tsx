@@ -3,6 +3,7 @@ import type { NavItem } from '../../routes/navConfig';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { HolidayReminderModal } from '../HolidayReminderModal';
+import { FaceIdReminderModal } from '../FaceIdReminderModal';
 
 interface LayoutProps {
   navItems: NavItem[];
@@ -27,6 +28,7 @@ export function Layout({ navItems, portalLabel, title, children }: LayoutProps) 
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-8">{children}</main>
       </div>
       <HolidayReminderModal />
+      <FaceIdReminderModal />
     </div>
   );
 }

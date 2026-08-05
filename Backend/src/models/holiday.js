@@ -18,6 +18,10 @@ module.exports = (sequelize, DataTypes) => {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
       brandId: { type: DataTypes.BIGINT, allowNull: true },
       date: { type: DataTypes.DATEONLY, allowNull: false },
+      // Inclusive end of the holiday's date range — equal to `date` for a
+      // plain single-day holiday (the common case). One row now represents
+      // one holiday *event*, however many days long, not one row per day.
+      endDate: { type: DataTypes.DATEONLY, allowNull: false },
       name: { type: DataTypes.STRING, allowNull: false },
       type: {
         type: DataTypes.ENUM('public', 'optional'),

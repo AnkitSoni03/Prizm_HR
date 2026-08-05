@@ -79,7 +79,13 @@ async function getLeaveRequestForDecision({ companyId, id }) {
 // migration comment) — since a single row can only link to one credit,
 // comp-off requests are constrained to a single day here; taking multiple
 // comp-off days means submitting multiple 1-day requests.
-async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate, toDate, reason }) {
+// `notify` defaults true for the normal employee-submits-a-request flow;
+// attendance.service.js::bulkSetAttendanceStatus passes false for both this
+// and approveLeaveRequest below (it creates-and-immediately-approves in one
+// admin action, so a "pending request" notification to the manager would be
+// stale/confusing by the time anyone saw it — the admin path sends its own
+// single "who changed it" notification instead).
+async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate, toDate, reason, notify = true }) {
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
 
@@ -160,12 +166,25 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
     throw err;
   }
 
-  const employeeLabel = employee.name || employee.employeeCode;
-  if (employee.managerId) {
-    const manager = await db.Employee.findByPk(employee.managerId, { attributes: ['userId'] });
-    await notifyUser({
+  if (notify) {
+    const employeeLabel = employee.name || employee.employeeCode;
+    if (employee.managerId) {
+      const manager = await db.Employee.findByPk(employee.managerId, { attributes: ['userId'] });
+      await notifyUser({
+        companyId,
+        userId: manager?.userId,
+        type: 'approval_pending',
+        requestType: 'leave_request',
+        requestId: request.id,
+        title: `New leave request from ${employeeLabel}`,
+        body: `${fromDate} → ${toDate}`,
+      });
+    }
+    await notifyApprovers({
       companyId,
-      userId: manager?.userId,
+      brandId: employee.brandId,
+      code: 'leave_request:approve',
+      excludeUserId: employee.userId,
       type: 'approval_pending',
       requestType: 'leave_request',
       requestId: request.id,
@@ -173,17 +192,6 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
       body: `${fromDate} → ${toDate}`,
     });
   }
-  await notifyApprovers({
-    companyId,
-    brandId: employee.brandId,
-    code: 'leave_request:approve',
-    excludeUserId: employee.userId,
-    type: 'approval_pending',
-    requestType: 'leave_request',
-    requestId: request.id,
-    title: `New leave request from ${employeeLabel}`,
-    body: `${fromDate} → ${toDate}`,
-  });
 
   return request;
 }
@@ -194,7 +202,7 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
 // never counted in `days` (see createLeaveRequest), so it must not be
 // overwritten with a 'leave' status either. Mirrors
 // od_request.service.js::approveOdRequest's findOrCreate-per-date pattern.
-async function approveLeaveRequest({ companyId, id, approverId, approverUserId }) {
+async function approveLeaveRequest({ companyId, id, approverId, approverUserId, notify = true }) {
   const request = await getLeaveRequestForDecision({ companyId, id });
   if (request.status !== 'pending') throw new HttpError(409, 'Leave request already decided');
 
@@ -254,15 +262,17 @@ async function approveLeaveRequest({ companyId, id, approverId, approverUserId }
     }
   });
 
-  await notifyUser({
-    companyId,
-    userId: request.employee.userId,
-    type: 'approval_decision',
-    requestType: 'leave_request',
-    requestId: request.id,
-    title: 'Your leave request was approved',
-    body: `${request.fromDate} → ${request.toDate}`,
-  });
+  if (notify) {
+    await notifyUser({
+      companyId,
+      userId: request.employee.userId,
+      type: 'approval_decision',
+      requestType: 'leave_request',
+      requestId: request.id,
+      title: 'Your leave request was approved',
+      body: `${request.fromDate} → ${request.toDate}`,
+    });
+  }
 
   return request;
 }

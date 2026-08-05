@@ -19,6 +19,7 @@ import {
   inviteEmployeeUser,
   transferEmployeeLogin,
   setEmployeeActive,
+  deleteEmployee,
   uploadEmployeePhoto,
   removeEmployeePhoto,
 } from '../../../api/companyAdmin/employees';
@@ -121,6 +122,7 @@ export function EmployeeDetailModal({
   const usesBrands = user?.companyUsesBrands ?? true;
   const canUpdate = hasPermission('employee:update');
   const canTransfer = hasPermission('employee:transfer');
+  const canDelete = hasPermission('employee:delete');
   const canReadDocs = hasPermission('employee_document:read');
   const canUploadDocs = hasPermission('employee_document:upload');
   const canVerifyDocs = hasPermission('employee_document:verify');
@@ -213,6 +215,32 @@ export function EmployeeDetailModal({
       showToast("Could not update this employee's account status. Please try again.");
     } finally {
       setIsTogglingAccount(false);
+    }
+  }
+
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Irreversible — unlike handleToggleAccount above (a reversible on/off
+  // switch), this actually erases the Employee row and every record tied to
+  // it (attendance, leave/OD/regularization/comp-off, documents, payroll,
+  // face profile) plus their attendance videos on cloud storage. See
+  // employee.service.js::deleteEmployee for exactly what gets removed.
+  async function handleDeletePermanently() {
+    const confirmed = await confirm({
+      title: 'Delete employee permanently',
+      message: `Permanently delete ${employee.name ?? employee.employeeCode}? This erases their attendance history (including recorded attendance videos on the cloud), leave/OD/regularization/comp-off records, documents, and payroll data. This cannot be undone.`,
+      confirmLabel: 'Delete Permanently',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    setIsDeleting(true);
+    try {
+      await deleteEmployee(employee.id);
+      onUpdated();
+    } catch (err) {
+      showToast(extractError(err, 'Could not delete this employee. Please try again.'));
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -904,6 +932,31 @@ export function EmployeeDetailModal({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {canDelete && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-danger">Danger Zone</p>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">Delete Permanently</p>
+                  <p className="text-xs text-ink-muted">
+                    Erases this employee and all their records — attendance (including cloud
+                    videos), leave/OD/regularization/comp-off, documents, and payroll. Cannot be
+                    undone.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="danger"
+                  isLoading={isDeleting}
+                  onClick={handleDeletePermanently}
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+                  Delete Permanently
+                </Button>
+              </div>
             </div>
           )}
         </div>

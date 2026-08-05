@@ -11,7 +11,14 @@ export interface Holiday {
   companyId: string;
   brandId: string | null;
   date: string;
+  // Inclusive end of the holiday's date range — equal to `date` for a
+  // plain single-day holiday.
+  endDate: string;
   name: string;
+  // Still present on the API response (every holiday defaults to 'public'
+  // server-side) but no longer surfaced anywhere in the UI — every holiday
+  // is a day off for everyone, so the public/optional distinction wasn't
+  // meaningful in practice.
   type: 'public' | 'optional';
   // Only meaningful on the Company Admin/HR-facing page — the ESS "Yearly
   // Holidays" page reads the same rows but doesn't render these.
@@ -33,18 +40,18 @@ export async function listHolidays(
   return data;
 }
 
-export async function createHoliday(input: {
-  date: string;
-  name: string;
-  type: 'public' | 'optional';
-}): Promise<Holiday> {
+// toDate is optional — when set (and later than date), the holiday's
+// endDate covers that whole range as a single row, so a multi-day
+// festival/shutdown shows up on every one of its days for employees under
+// one entry, not a plain one-day holiday repeated.
+export async function createHoliday(input: { date: string; toDate?: string; name: string }): Promise<Holiday> {
   const { data } = await apiClient.post<{ data: Holiday }>('/leave/holidays', input);
   return data.data;
 }
 
 export async function updateHoliday(
   id: string,
-  input: { date?: string; name?: string; type?: 'public' | 'optional' }
+  input: { date?: string; toDate?: string; name?: string }
 ): Promise<Holiday> {
   const { data } = await apiClient.patch<{ data: Holiday }>(`/leave/holidays/${id}`, input);
   return data.data;

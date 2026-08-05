@@ -9,6 +9,9 @@ export interface Attendance {
   source: 'qr' | 'od' | 'office_kiosk' | 'face' | null;
   status: 'present' | 'absent' | 'half_day' | 'leave' | 'holiday' | 'weekoff' | 'on_duty';
   overtimeMinutes: number;
+  // Only set (by the History endpoint) when status is 'leave' — the
+  // specific leave type name (e.g. "Annual Leave") covering that date.
+  leaveTypeName?: string | null;
 }
 
 export interface AttendanceRegularization {

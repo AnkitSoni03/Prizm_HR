@@ -45,18 +45,22 @@ async function getCompanyById({ id, callerCompanyId, callerGroupId }) {
   return company;
 }
 
-// HR can always add more via leave_type:create — these 5 just mean a fresh
+// HR can always add more via leave_type:create — these just mean a fresh
 // company's HR Team/Company Admin has something to assign a Leave Balance
 // against immediately instead of hand-creating them first (see the
 // Employee Leave Balance tab in EmployeeDetailModal.tsx). Existing
-// companies got the same 5 backfilled by
-// 20260712090200-seed-default-leave-types-for-existing-companies.js.
+// companies got the same 5 paid types backfilled by
+// 20260712090200-seed-default-leave-types-for-existing-companies.js, and the
+// 2 unpaid ones by
+// 20260806090000-seed-unpaid-leave-types-for-existing-companies.js.
 const DEFAULT_LEAVE_TYPES = [
-  { code: 'ANNUAL', name: 'Annual Leave' },
-  { code: 'SHORT', name: 'Short Leave' },
-  { code: 'SPECIAL', name: 'Special Leave' },
-  { code: 'MATERNITY', name: 'Maternity Leave' },
-  { code: 'PATERNITY', name: 'Paternity Leave' },
+  { code: 'ANNUAL', name: 'Annual Leave', isPaid: true },
+  { code: 'SHORT', name: 'Short Leave', isPaid: true },
+  { code: 'SPECIAL', name: 'Special Leave', isPaid: true },
+  { code: 'MATERNITY', name: 'Maternity Leave', isPaid: true },
+  { code: 'PATERNITY', name: 'Paternity Leave', isPaid: true },
+  { code: 'UNPAID', name: 'Unpaid Leave', isPaid: false },
+  { code: 'UNPAID_HALF', name: 'Unpaid Half Day', isPaid: false },
 ];
 
 async function createCompany({ groupId, name, legalName, gstNumber, planId, usesBrands, createdBy }) {
@@ -78,7 +82,7 @@ async function createCompany({ groupId, name, legalName, gstNumber, planId, uses
       companyId: company.id,
       code: leaveType.code,
       name: leaveType.name,
-      isPaid: true,
+      isPaid: leaveType.isPaid,
       carryForward: false,
     }))
   );

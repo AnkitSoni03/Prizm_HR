@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { ColorTag, AccentTag } from '../../components/ColorTag';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { deleteHoliday, holidayAuditName, listHolidays, type Holiday } from '../../api/companyAdmin/holidays';
 import { HolidayFormModal } from './components/HolidayFormModal';
-import { formatDisplayDate } from '../../utils/dateDisplay';
+import { countDaysInclusive, formatDisplayDateRange } from '../../utils/dateDisplay';
 
 export function HolidaysPage() {
   const { hasPermission } = useAuth();
@@ -61,8 +61,10 @@ export function HolidaysPage() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <p className="text-sm text-ink-muted">
-          These holidays are also shown to every employee on their "Yearly Holidays" page.
+        <p className="flex items-center gap-2 text-sm text-ink-muted">
+          <CalendarClock className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
+          {holidays.length > 0 ? `${holidays.length} holiday${holidays.length === 1 ? '' : 's'} — ` : ''}
+          also shown to every employee on their "Yearly Holidays" page.
         </p>
         {canCreate && (
           <Button onClick={() => setEditingHoliday('new')}>
@@ -88,12 +90,19 @@ export function HolidaysPage() {
           rows={holidays}
           rowKey={(holiday) => holiday.id}
           columns={[
-            { key: 'date', header: 'Date', render: (h) => formatDisplayDate(h.date) },
-            { key: 'name', header: 'Name', render: (h) => <span className="font-medium text-ink">{h.name}</span> },
             {
-              key: 'type',
-              header: 'Type',
-              render: (h) => <Badge tone={h.type === 'public' ? 'success' : 'neutral'}>{h.type}</Badge>,
+              key: 'name',
+              header: 'Name',
+              render: (h) => <ColorTag>{h.name}</ColorTag>,
+            },
+            { key: 'date', header: 'Date', render: (h) => formatDisplayDateRange(h.date, h.endDate) },
+            {
+              key: 'day',
+              header: 'Days',
+              render: (h) => {
+                const count = countDaysInclusive(h.date, h.endDate);
+                return <AccentTag>{count} Day{count === 1 ? '' : 's'}</AccentTag>;
+              },
             },
             {
               key: 'record',

@@ -7,13 +7,16 @@ function dayOfWeek(dateStr) {
   return new Date(`${dateStr}T00:00:00`).getDay();
 }
 
-// A company/brand holiday for this date — brand-specific rows and
-// company-wide rows (brand_id NULL) both apply.
+// A company/brand holiday covering this date — brand-specific rows and
+// company-wide rows (brand_id NULL) both apply. A holiday is a date range
+// (date..endDate, inclusive — a single-day holiday just has date === endDate),
+// so this checks containment, not an exact match.
 async function isHoliday({ companyId, brandId, dateStr }) {
   const holiday = await db.Holiday.findOne({
     where: {
       companyId,
-      date: dateStr,
+      date: { [Op.lte]: dateStr },
+      endDate: { [Op.gte]: dateStr },
       [Op.or]: [{ brandId: null }, ...(brandId ? [{ brandId }] : [])],
     },
   });
