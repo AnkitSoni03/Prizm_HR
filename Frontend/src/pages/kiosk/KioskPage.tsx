@@ -4,7 +4,14 @@ import { Lock, LogIn, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { PasswordInput } from '../../components/ui/PasswordInput';
 import { detectFaceOptions, eyeAspectRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
-import { faceCheckIn, uploadFaceCapture, type LivenessChallenge, type LivenessFrame } from '../../api/kiosk';
+import {
+  faceCheckIn,
+  uploadFaceCapture,
+  uploadFaceFlagCapture,
+  type FrameBbox,
+  type LivenessChallenge,
+  type LivenessFrame,
+} from '../../api/kiosk';
 
 const CHALLENGES: { key: LivenessChallenge; instruction: string }[] = [
   { key: 'blink', instruction: 'Please blink' },
@@ -62,11 +69,19 @@ type KioskState =
   | { phase: 'success'; message: string }
   | { phase: 'error'; message: string };
 
-function extractError(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
-    return err.response.data.error;
+// code/flagId are only ever present on a blocked anti-spoof rejection (see
+// Backend/src/app.js's error handler + faceAttendance.service.js) — every
+// other rejection (unknown face, liveness challenge failed) has neither.
+function extractErrorDetails(err: unknown, fallback: string): { message: string; code?: string; flagId?: string } {
+  if (axios.isAxiosError(err) && err.response?.data) {
+    const data = err.response.data as { error?: string; code?: string; flagId?: string };
+    return {
+      message: typeof data.error === 'string' ? data.error : fallback,
+      code: data.code,
+      flagId: data.flagId,
+    };
   }
-  return fallback;
+  return { message: fallback };
 }
 
 // Fullscreen, no Layout/Sidebar/Topbar chrome — a physical kiosk device logs
@@ -201,12 +216,36 @@ export function KioskPage() {
     }
 
     let descriptor: Float32Array | null = null;
+    // Captured from the same video element, at the same instant as the
+    // descriptor, so the anti-spoof/screen-artifact check on the backend
+    // (antiSpoof.service.js, screenArtifact.service.js) looks at the exact
+    // frame the recognition match was made from.
+    let frameImage: string | undefined;
+    let frameBbox: FrameBbox | undefined;
     if (videoRef.current) {
       const finalResult = await faceapi
         .detectSingleFace(videoRef.current, detectFaceOptions())
         .withFaceLandmarks()
         .withFaceDescriptor();
       descriptor = finalResult?.descriptor ?? null;
+
+      if (finalResult) {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          frameImage = canvas.toDataURL('image/jpeg', 0.85);
+          const box = finalResult.detection.box;
+          frameBbox = {
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          };
+        }
+      }
     }
 
     recorder.stop();
@@ -224,7 +263,13 @@ export function KioskPage() {
 
     setState({ phase: 'matching', action });
     try {
-      const result = await faceCheckIn(action, Array.from(descriptor), { challenge: challenge.key, frames });
+      const result = await faceCheckIn(
+        action,
+        Array.from(descriptor),
+        { challenge: challenge.key, frames },
+        frameImage,
+        frameBbox
+      );
       setState({
         phase: 'success',
         message: `Welcome, ${result.employee.name} — ${result.action === 'check_in' ? 'Checked In' : 'Checked Out'}`,
@@ -235,7 +280,18 @@ export function KioskPage() {
         console.error('Face capture upload failed:', err)
       );
     } catch (err) {
-      setState({ phase: 'error', message: extractError(err, 'Face not recognized. Please try again.') });
+      const { message, code, flagId } = extractErrorDetails(err, 'Face not recognized. Please try again.');
+      setState({ phase: 'error', message });
+
+      // Blocked anti-spoof attempt — preserve the capture clip against the
+      // flag record so an admin can review it on the Fraud Attempts page,
+      // same as a normal successful check-in always preserves its clip.
+      if (code === 'SPOOF_DETECTED' && flagId) {
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+        uploadFaceFlagCapture(flagId, blob).catch((uploadErr) =>
+          console.error('Fraud attempt capture upload failed:', uploadErr)
+        );
+      }
     } finally {
       setTimeout(() => setState({ phase: 'ready' }), 3000);
     }

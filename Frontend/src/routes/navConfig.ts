@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Send,
   Settings,
+  ShieldAlert,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -41,6 +42,7 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Shifts & Rosters', path: '/company-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Approvals', path: '/company-admin/approvals', icon: ClipboardCheck },
   { label: 'Attendance Records', path: '/company-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
+  { label: 'Fraud Attempts', path: '/company-admin/fraud-attempts', icon: ShieldAlert, permission: 'attendance:read' },
   { label: 'Kiosk Accounts', path: '/company-admin/scanner-accounts', icon: MonitorSmartphone, permission: 'scanner_account:create' },
   { label: 'Holidays', path: '/company-admin/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/company-admin/policies', icon: FileText },

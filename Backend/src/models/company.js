@@ -36,6 +36,11 @@ module.exports = (sequelize, DataTypes) => {
       planId: { type: DataTypes.BIGINT, allowNull: true },
       createdBy: { type: DataTypes.BIGINT, allowNull: true },
       usesBrands: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // Shadow-mode-first switch for the face anti-spoof model — see
+      // migration 20260807090000 and faceAttendance.service.js. Off by
+      // default so a company can validate against real employees on the
+      // Fraud Attempts review page before it starts blocking check-ins.
+      faceAntispoofEnforced: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       sequelize,

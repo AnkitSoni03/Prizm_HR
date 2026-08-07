@@ -24,6 +24,7 @@ import {
   AttendanceRecordsPage as CompanyAdminAttendanceRecordsPage,
   AttendanceRecordsPage as BrandAdminAttendanceRecordsPage,
 } from '../pages/company-admin/AttendanceRecordsPage';
+import { FraudAttemptsPage } from '../pages/company-admin/FraudAttemptsPage';
 import {
   HolidaysPage as CompanyAdminHolidaysPage,
   HolidaysPage as BrandAdminHolidaysPage,
@@ -198,6 +199,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Attendance Records">
               <CompanyAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/fraud-attempts"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Fraud Attempts">
+              <FraudAttemptsPage />
             </Layout>
           </ProtectedRoute>
         }

@@ -6,6 +6,8 @@ const { euclideanDistance, assertValidEmbedding } = require('./faceProfile.servi
 const { loadCompanyFaceProfiles } = require('./faceCache');
 const { resolveKioskScope } = require('./officeKiosk.service');
 const { applyAttendancePunch } = require('./attendance.service');
+const { runAntiSpoofCheck } = require('./antiSpoof.service');
+const { detectScreenArtifacts } = require('./screenArtifact.service');
 
 // Distance ceiling to accept a match, and a minimum gap the runner-up
 // candidate must trail by — rejects both "nobody's close enough" and
@@ -15,10 +17,20 @@ const AMBIGUITY_MARGIN = 0.07;
 
 const MIN_FRAMES = 8;
 const MIN_BURST_MS = 1200;
-const MAX_BURST_MS = 6000;
+// KioskPage.tsx gives the employee up to 10s to perform the challenge
+// (MAX_CAPTURE_MS there) — this used to be 6000, silently rejecting anyone
+// who took more than 6s to react even though the UI showed a 10s countdown.
+// 11000 gives a small buffer over the frontend's own 10000 ceiling for
+// sampling-loop/network timing slop.
+const MAX_BURST_MS = 11000;
 const BLINK_EAR_THRESHOLD = 0.22;
 const YAW_DELTA_THRESHOLD = 12;
 const MIN_MOTION_STDDEV = 0.01; // near-zero variance across the burst means a frozen photo, not a live face
+
+// Conservative — this heuristic is uncalibrated (no labelled sample set in
+// this environment), so it's deliberately set high enough to only flag
+// clear cases rather than generate noise. See screenArtifact.service.js.
+const SCREEN_ARTIFACT_SUSPICION_THRESHOLD = 0.6;
 
 function stddev(values) {
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
@@ -83,7 +95,76 @@ function matchFaceEmbedding(candidates, embedding) {
   return best;
 }
 
-async function checkInWithFace({ companyId, kioskUserId, action, embedding, liveness }) {
+function createFlag(fields) {
+  return db.FaceVerificationFlag.create(fields);
+}
+
+// Runs the anti-spoof model (hard signal) and, only if that passes, the
+// screen-artifact heuristic (soft signal) against the kiosk's captured
+// frame. Never throws for a processing failure (corrupt frame, decode
+// error) — that's treated as "inconclusive", logged, and the punch is
+// allowed to proceed on the strength of the existing motion-liveness check
+// alone, same as before this feature existed. It DOES throw (with a
+// flagId attached) when the model itself confidently says spoof and
+// enforcement is on for this company — see the call site below.
+async function runSpoofDefense({ companyId, kioskUserId, action, employeeId, frameImage, frameBbox, enforced }) {
+  if (!frameImage || !frameBbox) return { flaggedButAllowed: null };
+
+  let antiSpoof;
+  try {
+    antiSpoof = await runAntiSpoofCheck(frameImage, frameBbox);
+  } catch (err) {
+    console.error('anti-spoof check failed (treated as inconclusive):', err);
+    return { flaggedButAllowed: null };
+  }
+
+  if (!antiSpoof.isReal) {
+    const flag = await createFlag({
+      companyId,
+      kioskUserId,
+      action,
+      employeeId,
+      reason: 'anti_spoof_model',
+      blocked: enforced,
+      realLogit: antiSpoof.realLogit,
+      spoofLogit: antiSpoof.spoofLogit,
+      antiSpoofConfidence: antiSpoof.confidence,
+    });
+
+    if (enforced) {
+      const err = new HttpError(
+        403,
+        'Liveness check failed — this looks like a photo, video, or screen, not a live person. Please contact HR.',
+        'SPOOF_DETECTED'
+      );
+      err.flagId = flag.id;
+      throw err;
+    }
+    return { flaggedButAllowed: flag };
+  }
+
+  try {
+    const screenArtifact = await detectScreenArtifacts(frameImage, frameBbox);
+    if (screenArtifact.suspicionScore >= SCREEN_ARTIFACT_SUSPICION_THRESHOLD) {
+      const flag = await createFlag({
+        companyId,
+        kioskUserId,
+        action,
+        employeeId,
+        reason: 'screen_artifact',
+        blocked: false,
+        screenArtifactScore: screenArtifact.suspicionScore,
+      });
+      return { flaggedButAllowed: flag };
+    }
+  } catch (err) {
+    console.error('screen-artifact check failed (non-blocking, ignored):', err);
+  }
+
+  return { flaggedButAllowed: null };
+}
+
+async function checkInWithFace({ companyId, kioskUserId, action, embedding, liveness, frameImage, frameBbox }) {
   if (action !== 'checkin' && action !== 'checkout') {
     throw new HttpError(400, "action must be 'checkin' or 'checkout'");
   }
@@ -97,12 +178,32 @@ async function checkInWithFace({ companyId, kioskUserId, action, embedding, live
   const match = matchFaceEmbedding(candidates, embedding);
   if (!match) throw new HttpError(401, 'Face not recognized. Please try again or contact HR.');
 
+  // Only relevant once we know *who* the frame is claiming to be — this is
+  // specifically the "a real registered employee's photo/video/screen
+  // fools the embedding match" attack, not the "unknown face" case above.
+  const company = await db.Company.findByPk(companyId, { attributes: ['id', 'faceAntispoofEnforced'] });
+  const { flaggedButAllowed } = await runSpoofDefense({
+    companyId,
+    kioskUserId,
+    action,
+    employeeId: match.employeeId,
+    frameImage,
+    frameBbox,
+    enforced: Boolean(company?.faceAntispoofEnforced),
+  });
+
   const result = await applyAttendancePunch({
     employeeId: match.employeeId,
     now: new Date(),
     source: 'face',
     kioskUserId,
   });
+
+  if (flaggedButAllowed) {
+    flaggedButAllowed.update({ attendanceId: result.attendance.id }).catch((err) =>
+      console.error('face flag attendance_id backfill failed:', err)
+    );
+  }
 
   // Best-effort, fire-and-forget — never blocks the punch response.
   db.EmployeeFaceProfile.update({ lastMatchedAt: new Date() }, { where: { employeeId: match.employeeId } }).catch(
