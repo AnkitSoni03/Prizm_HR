@@ -4,10 +4,12 @@ const crypto = require('crypto');
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { syncHrTeamRole } = require('../../utils/hrTeamSync');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { POWER_KEYS, permissionCodesForKeys } = require('../../config/powerCatalog');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
+const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
+const { getActiveEmployeeShift } = require('../attendance/employeeShift.service');
+const { dateOnly } = require('../../utils/dateRange');
 
 // photoUrl stores an internal GCS object path (private bucket), same
 // convention as company_policies.file_url — never handed to the frontend
@@ -65,6 +67,16 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
 // has no brand:read/department:read/designation:read of its own (unlike
 // Company Admin, which resolves those names client-side from separate list
 // endpoints), so the ESS "My Profile" page needs them pre-joined here.
+//
+// Also resolves today's shift the same way attendance actually does (CLAUDE.md
+// rule 7, shiftRoster.service.js::getActiveRosterEntry / employeeShift.
+// service.js::getActiveEmployeeShift): defaultShift is the employee's
+// standing employee_shifts assignment, todayRoster is a published
+// shift_rosters override for today if one exists. Both are surfaced
+// separately (not collapsed into one "current shift") so My Profile can show
+// *why* today's shift is what it is — e.g. "default: Morning, but today's
+// roster puts you on Evening". No new permission needed: this rides the
+// existing employee:read / employee:read_own gate on GET /employees/:id.
 async function getEmployeeForRead(id) {
   const employee = await db.Employee.findOne({
     where: { id },
@@ -88,7 +100,33 @@ async function getEmployeeForRead(id) {
     ],
   });
   if (!employee) throw new HttpError(404, 'Employee not found');
-  return withPhotoUrl(employee);
+
+  const today = dateOnly(new Date());
+  const [roster, defaultAssignment] = await Promise.all([
+    getActiveRosterEntry({ employeeId: id, rosterDate: today }),
+    getActiveEmployeeShift({ employeeId: id, date: today }),
+  ]);
+
+  function shiftSummary(shift) {
+    if (!shift) return null;
+    return {
+      id: shift.id,
+      name: shift.name,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      isNightShift: shift.isNightShift,
+      weeklyOffDays: shift.weeklyOffDays,
+    };
+  }
+
+  const withPhoto = await withPhotoUrl(employee);
+  return {
+    ...withPhoto,
+    defaultShift: shiftSummary(defaultAssignment?.shift ?? null),
+    todayRoster: roster
+      ? { id: roster.id, rosterDate: roster.rosterDate, shift: shiftSummary(roster.shift) }
+      : null,
+  };
 }
 
 // Mutations don't benefit from the tenant-scope hook (it only covers
@@ -147,11 +185,19 @@ async function createEmployee({
   // this check requires the brand to have at least one of. Brand-optional
   // companies (uses_brands = false) apply the same rule one level up: the
   // Company itself needs >=1 company-level (brand_id null) roster.
+  // status: 'published' — a draft roster is not yet authoritative
+  // (getActiveRosterEntry ignores drafts), so counting drafts here would let
+  // this gate pass with no schedule that will actually resolve on day one.
   const rosterCount = brandId
-    ? await db.ShiftRoster.count({ where: { brandId } })
-    : await db.ShiftRoster.count({ where: { companyId, brandId: null } });
+    ? await db.ShiftRoster.count({ where: { brandId, status: 'published' } })
+    : await db.ShiftRoster.count({ where: { companyId, brandId: null, status: 'published' } });
   if (rosterCount === 0) {
-    throw new HttpError(422, brandId ? 'Brand has no roster; cannot add employees yet' : 'Company has no roster; cannot add employees yet');
+    throw new HttpError(
+      422,
+      brandId
+        ? 'Brand has no published roster; cannot add employees yet'
+        : 'Company has no published roster; cannot add employees yet'
+    );
   }
 
   try {
@@ -232,18 +278,6 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
   }
 
   await employee.update(patch);
-
-  // Best-effort, logged-not-thrown (same convention as comp-off
-  // auto-detection in attendance.service.js) — only relevant when
-  // departmentId actually changed, and only matters if this employee has an
-  // ESS login already (syncHrTeamRole no-ops otherwise).
-  if (patch.departmentId !== undefined) {
-    try {
-      await syncHrTeamRole({ employeeId: employee.id });
-    } catch (err) {
-      console.error('HR Team role sync failed:', err);
-    }
-  }
 
   return withPhotoUrl(employee);
 }
@@ -380,7 +414,7 @@ async function setEmployeeActiveStatus({ companyId, id, scopedBrandIds, isActive
 }
 
 // Hand-picked, fully optional extra capabilities for one specific employee,
-// independent of whatever base role (Employee, HR Team, ...) they hold —
+// independent of whatever base role (Employee, ...) they hold —
 // see powerCatalog.js. Implemented as a dedicated per-employee custom Role
 // (companyId-scoped, isSystem: false — the same extension point the Role
 // model already supports but no other code exercises today) rather than a

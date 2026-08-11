@@ -24,6 +24,10 @@ import {
   AttendanceRecordsPage as CompanyAdminAttendanceRecordsPage,
   AttendanceRecordsPage as BrandAdminAttendanceRecordsPage,
 } from '../pages/company-admin/AttendanceRecordsPage';
+import {
+  AttendanceBoardPage as CompanyAdminAttendanceBoardPage,
+  AttendanceBoardPage as BrandAdminAttendanceBoardPage,
+} from '../pages/company-admin/AttendanceBoardPage';
 import { FraudAttemptsPage } from '../pages/company-admin/FraudAttemptsPage';
 import {
   HolidaysPage as CompanyAdminHolidaysPage,
@@ -199,6 +203,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Attendance Records">
               <CompanyAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/attendance-board"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Attendance Board">
+              <CompanyAdminAttendanceBoardPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -386,6 +401,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Attendance Records">
               <BrandAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/attendance-board"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Attendance Board">
+              <BrandAdminAttendanceBoardPage />
             </Layout>
           </ProtectedRoute>
         }

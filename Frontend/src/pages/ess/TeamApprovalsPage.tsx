@@ -130,7 +130,7 @@ export function TeamApprovalsPage() {
   const requestedTab = searchParams.get('tab');
   const initialTab: Tab = requestedTab === 'od' ? 'od' : 'leave';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [statusFilter, setStatusFilter] = useState('pending');
+  const [statusFilter, setStatusFilter] = useState('');
   const [offset, setOffset] = useState(0);
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
@@ -179,7 +179,7 @@ export function TeamApprovalsPage() {
 
   function switchTab(tab: Tab) {
     setActiveTab(tab);
-    setStatusFilter('pending');
+    setStatusFilter('');
     setOffset(0);
   }
 
@@ -229,6 +229,7 @@ export function TeamApprovalsPage() {
             setOffset(0);
             setStatusFilter(event.target.value);
           }}
+          placeholder="All statuses"
           options={STATUS_OPTIONS}
         />
       </div>

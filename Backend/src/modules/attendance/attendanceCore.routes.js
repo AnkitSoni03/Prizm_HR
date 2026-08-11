@@ -31,6 +31,8 @@ router.get('/', requireReadAccess, controller.list);
 // roster/bulk-status admin endpoints below have no concept of and would
 // wrongly treat as "unrestricted company-wide" if reused here.
 router.get('/roster', requirePermission('attendance:read'), controller.roster);
+router.get('/board', requirePermission('attendance:read'), controller.board);
+router.get('/board/export', requirePermission('attendance:read'), controller.exportBoard);
 router.patch('/bulk-status', requirePermission('attendance:update'), controller.bulkUpdateStatus);
 router.get('/:id', requireReadAccess, controller.get);
 router.get('/:id/video-url', requireReadAccess, controller.videoUrl);

@@ -51,7 +51,8 @@ async function listHolidays({ limit, offset, brandId, from, to }) {
 }
 
 // scopedBrandIds mirrors rbac.middleware.js's requirePermission output: null
-// means a company-wide grant (Company Admin/HR Team), an array means the
+// means a company-wide grant (Company Admin, or an employee granted the
+// equivalent company-wide Power), an array means the
 // caller only holds brand-scoped grants (Brand Admin) — in which case they
 // may only touch a holiday whose own brandId is one of theirs. A company-
 // wide holiday (brandId null) is deliberately out of reach for a

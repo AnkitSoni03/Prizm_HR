@@ -6,7 +6,7 @@ import {
   FileCheck2,
   FileText,
   LayoutDashboard,
-  MonitorSmartphone,
+  LayoutGrid,
   RefreshCw,
   Send,
   Settings,
@@ -23,8 +23,9 @@ export interface NavItem {
   disabled?: boolean;
   // When set, the item is hidden entirely (not just permission-gated inside
   // the page) unless the caller holds this permission — e.g. "Provide
-  // Leaves" only matters to the subset of Employees who are also HR Team
-  // (see hrTeamSync.js), so it shouldn't clutter every employee's sidebar.
+  // Leaves" only matters to the subset of Employees granted the
+  // "Assign Leaves" Power (see powerCatalog.js), so it shouldn't clutter
+  // every employee's sidebar.
   permission?: string;
 }
 
@@ -42,8 +43,8 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Shifts & Rosters', path: '/company-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Approvals', path: '/company-admin/approvals', icon: ClipboardCheck },
   { label: 'Attendance Records', path: '/company-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
+  { label: 'Attendance Board', path: '/company-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Fraud Attempts', path: '/company-admin/fraud-attempts', icon: ShieldAlert, permission: 'attendance:read' },
-  { label: 'Kiosk Accounts', path: '/company-admin/scanner-accounts', icon: MonitorSmartphone, permission: 'scanner_account:create' },
   { label: 'Holidays', path: '/company-admin/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/company-admin/policies', icon: FileText },
   { label: 'Provide Leaves', path: '/company-admin/provide-leaves', icon: Wallet, permission: 'leave_balance:adjust' },
@@ -64,7 +65,7 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Shifts & Rosters', path: '/brand-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Approvals', path: '/brand-admin/approvals', icon: ClipboardCheck },
   { label: 'Attendance Records', path: '/brand-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
-  { label: 'Kiosk Accounts', path: '/brand-admin/scanner-accounts', icon: MonitorSmartphone, permission: 'scanner_account:create' },
+  { label: 'Attendance Board', path: '/brand-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Holidays', path: '/brand-admin/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/brand-admin/policies', icon: FileText },
   { label: 'Settings', path: '/brand-admin/settings', icon: Settings },

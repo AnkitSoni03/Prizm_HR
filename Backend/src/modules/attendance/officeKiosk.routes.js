@@ -37,5 +37,15 @@ router.post(
 
 router.post('/scanner-accounts', requirePermission('scanner_account:create'), controller.createScannerAccount);
 router.get('/scanner-accounts', requirePermission('scanner_account:create'), controller.listScannerAccounts);
+router.patch(
+  '/scanner-accounts/:id/password',
+  requirePermission('scanner_account:create'),
+  controller.resetScannerAccountPassword
+);
+router.get(
+  '/scanner-accounts/:id/password',
+  requirePermission('scanner_account:create'),
+  controller.getScannerAccountPassword
+);
 
 module.exports = router;

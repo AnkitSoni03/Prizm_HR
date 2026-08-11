@@ -47,6 +47,31 @@ function scheduledEndDateTime(businessDate, shift) {
   return end;
 }
 
+// Fallback when no shift resolves for the date at all (no roster, no
+// default employee_shift assigned) — a plain 8-hour day, the same baseline
+// assumption used when nothing more specific is configured.
+const DEFAULT_SHIFT_MINUTES = 8 * 60;
+
+function shiftDurationMinutes(shift) {
+  if (!shift || !shift.startTime || !shift.endTime) return DEFAULT_SHIFT_MINUTES;
+  const [sh, sm, ss] = shift.startTime.split(':').map(Number);
+  const [eh, em, es] = shift.endTime.split(':').map(Number);
+  const startMinutes = sh * 60 + sm + (ss || 0) / 60;
+  let endMinutes = eh * 60 + em + (es || 0) / 60;
+  // A night shift's end time is numerically earlier than its start (it
+  // lands the next calendar day) — same crossing-midnight reasoning as
+  // scheduledEndDateTime above, just in plain minutes rather than a Date.
+  if (shift.isNightShift || endMinutes <= startMinutes) endMinutes += 24 * 60;
+  return endMinutes - startMinutes;
+}
+
+function formatHoursMinutes(totalMinutes) {
+  const mins = Math.max(0, Math.round(totalMinutes));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+}
+
 // Comp-off detection is a side effect of check-in, not part of its
 // contract — a bug here must never block or fail an otherwise-successful
 // attendance write (attendance is the security-sensitive path with no
@@ -65,7 +90,29 @@ async function detectCompOffSafely({ employeeId, attendanceId, dateStr }) {
 // authorized. Wrapped in a transaction with a Postgres advisory lock on the
 // employee id so a double-tap/retry landing on two different API instances
 // can't create two records.
-async function applyAttendancePunch({ employeeId, now, source, kioskUserId = null }) {
+//
+// `action` ('checkin'/'checkout') is the button the employee actually
+// pressed, and is now enforced rather than inferred purely from the
+// attendance row's current state — previously this function ignored
+// `action` entirely and just auto-toggled (no checkIn yet -> check in, has
+// checkIn but no checkOut -> check out), which meant a second accidental
+// "Check In" tap after already being checked in silently checked the
+// employee *out* instead of rejecting the duplicate. Now: a checkin while
+// already checked in, or a checkout with no matching checkin, both reject
+// (409, with a machine-readable `code` the frontend can react to) rather
+// than silently reinterpreting the request.
+//
+// `confirmIncompleteShift` is the kiosk's "check out anyway?" confirmation
+// — a checkout attempted before the resolved shift's duration (or an 8h
+// fallback if no shift resolves at all) has elapsed since check-in first
+// rejects with `code: 'SHIFT_INCOMPLETE'` and the worked/required minutes,
+// giving the frontend a chance to ask the employee to confirm; only a
+// second call with this flag set actually commits the checkout early.
+async function applyAttendancePunch({ employeeId, now, source, kioskUserId = null, action, confirmIncompleteShift = false }) {
+  if (action !== 'checkin' && action !== 'checkout') {
+    throw new HttpError(400, "action must be 'checkin' or 'checkout'");
+  }
+
   return db.sequelize.transaction(async (t) => {
     await db.sequelize.query('SELECT pg_advisory_xact_lock(:employeeId)', {
       replacements: { employeeId },
@@ -89,35 +136,57 @@ async function applyAttendancePunch({ employeeId, now, source, kioskUserId = nul
 
     let attendance = await db.Attendance.findOne({ where: { employeeId, date: businessDate }, transaction: t });
 
-    if (!attendance) {
-      attendance = await db.Attendance.create(
-        { employeeId, date: businessDate, checkIn: now, source, kioskUserId, status: 'present' },
-        { transaction: t }
-      );
+    if (action === 'checkin') {
+      if (attendance && attendance.checkIn) {
+        const err = new HttpError(409, 'You are already checked in today.', 'ALREADY_CHECKED_IN');
+        err.checkInTime = attendance.checkIn;
+        throw err;
+      }
+
+      if (!attendance) {
+        attendance = await db.Attendance.create(
+          { employeeId, date: businessDate, checkIn: now, source, kioskUserId, status: 'present' },
+          { transaction: t }
+        );
+      } else {
+        await attendance.update({ checkIn: now, source, kioskUserId, status: 'present' }, { transaction: t });
+      }
       await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
       return { action: 'check_in', attendance };
     }
 
-    if (!attendance.checkIn) {
-      await attendance.update(
-        { checkIn: now, source, kioskUserId, status: 'present' },
-        { transaction: t }
+    // action === 'checkout'
+    if (!attendance || !attendance.checkIn) {
+      throw new HttpError(409, 'You have not checked in yet today.', 'NOT_CHECKED_IN');
+    }
+    if (attendance.checkOut) {
+      const err = new HttpError(409, 'You are already checked out today.', 'ALREADY_CHECKED_OUT');
+      err.checkOutTime = attendance.checkOut;
+      throw err;
+    }
+
+    const requiredMinutes = shiftDurationMinutes(shift);
+    const workedMinutes = (now - attendance.checkIn) / 60000;
+
+    if (workedMinutes < requiredMinutes && !confirmIncompleteShift) {
+      const err = new HttpError(
+        409,
+        `You have completed only ${formatHoursMinutes(workedMinutes)} of your ${formatHoursMinutes(requiredMinutes)} shift. Check out anyway?`,
+        'SHIFT_INCOMPLETE'
       );
-      await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
-      return { action: 'check_in', attendance };
+      err.checkInTime = attendance.checkIn;
+      err.workedMinutes = Math.round(workedMinutes);
+      err.requiredMinutes = Math.round(requiredMinutes);
+      throw err;
     }
 
-    if (!attendance.checkOut) {
-      const scheduledEnd = scheduledEndDateTime(businessDate, shift);
-      const overtimeMinutes = scheduledEnd && now > scheduledEnd
-        ? Math.round((now - scheduledEnd) / 60000)
-        : 0;
+    const scheduledEnd = scheduledEndDateTime(businessDate, shift);
+    const overtimeMinutes = scheduledEnd && now > scheduledEnd
+      ? Math.round((now - scheduledEnd) / 60000)
+      : 0;
 
-      await attendance.update({ checkOut: now, overtimeMinutes }, { transaction: t });
-      return { action: 'check_out', attendance };
-    }
-
-    throw new HttpError(409, 'Already checked in and out for this date');
+    await attendance.update({ checkOut: now, overtimeMinutes }, { transaction: t });
+    return { action: 'check_out', attendance };
   });
 }
 
@@ -359,6 +428,225 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
   return { rows, count };
 }
 
+// Single-letter/short display code for each attendance status, shown as the
+// cell text on the "Attendance Board" (below) — 'leave' is handled
+// separately (LEAVE_CODE_DISPLAY) since it needs the specific leave type,
+// not just the bare status.
+const STATUS_DISPLAY_CODE = {
+  present: 'P',
+  on_duty: 'OD',
+  half_day: 'HD',
+  absent: 'A',
+  holiday: 'H',
+  weekoff: 'W',
+};
+
+// Maps this codebase's default leave type codes (company.service.js's
+// DEFAULT_LEAVE_TYPES) to the compact board code an admin recognizes at a
+// glance. A company-defined custom leave type (any code not in this map)
+// falls back to its own `code`, truncated to 4 chars, in
+// leaveDisplayCodeForType below — so the board never breaks for a leave
+// type this map doesn't know about, it just shows that type's own code.
+const LEAVE_CODE_DISPLAY = {
+  ANNUAL: 'AL',
+  SHORT: 'SHL',
+  SPECIAL: 'SPL',
+  MATERNITY: 'MTL',
+  PATERNITY: 'PTL',
+  UNPAID: 'UL',
+  UNPAID_HALF: 'UPHD',
+};
+
+function leaveDisplayCodeForType(leaveType) {
+  if (!leaveType) return 'L';
+  return LEAVE_CODE_DISPLAY[leaveType.code] ?? leaveType.code.slice(0, 4).toUpperCase();
+}
+
+// Company Admin/Brand Admin "Attendance Board" — a single page showing every
+// active employee (rows) x every day of one calendar month (columns), each
+// cell holding a compact status code (P/A/HD/H/W/OD, or a leave type's own
+// code). Reuses the same gap-fill synthesis listMyAttendanceHistory already
+// established (a day with no real Attendance row still resolves to
+// holiday/leave/weekoff/absent, never left blank) — just batched across
+// every employee in scope instead of looped one employee at a time, same
+// batching principle listAttendanceRoster already uses for a single day.
+// `brandIds` is req.auth.scopedBrandIds: null for a company-wide caller, an
+// array to restrict a Brand Admin to their own brand(s).
+async function listAttendanceBoard({ companyId, brandIds, year, month }) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) {
+    throw new HttpError(400, 'year and month (1-12) are required');
+  }
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const monthStart = `${y}-${pad2(m)}-01`;
+  const monthEnd = `${y}-${pad2(m)}-${pad2(daysInMonth)}`;
+  const todayStr = dateOnly(new Date());
+  // Days after today (only relevant for the current/a future month) are
+  // never fetched or synthesized — they render blank ("upcoming") rather
+  // than a misleading 'absent'.
+  const dataEnd = monthEnd < todayStr ? monthEnd : todayStr;
+
+  const employeeWhere = { companyId, status: 'active' };
+  if (brandIds) employeeWhere.brandId = { [Op.in]: brandIds };
+
+  const employees = await db.Employee.findAll({
+    where: employeeWhere,
+    attributes: ['id', 'employeeCode', 'name', 'brandId', 'dateOfJoining'],
+    order: [['name', 'ASC']],
+  });
+  const employeeIds = employees.map((e) => e.id);
+  if (employeeIds.length === 0) return { year: y, month: m, daysInMonth, rows: [] };
+
+  const fetchRange = dataEnd >= monthStart;
+  const [attendanceRows, holidays, leaveRequests, rosterEntries, employeeShifts] = await Promise.all([
+    fetchRange
+      ? db.Attendance.findAll({
+          where: { employeeId: { [Op.in]: employeeIds }, date: { [Op.gte]: monthStart, [Op.lte]: dataEnd } },
+        })
+      : [],
+    db.Holiday.findAll({
+      where: { companyId, date: { [Op.lte]: monthEnd }, endDate: { [Op.gte]: monthStart } },
+      attributes: ['date', 'endDate', 'brandId'],
+    }),
+    db.LeaveRequest.findAll({
+      where: {
+        employeeId: { [Op.in]: employeeIds },
+        status: 'approved',
+        fromDate: { [Op.lte]: monthEnd },
+        toDate: { [Op.gte]: monthStart },
+      },
+      attributes: ['employeeId', 'fromDate', 'toDate'],
+      include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['code', 'name'] }],
+    }),
+    fetchRange
+      ? db.ShiftRoster.findAll({
+          where: {
+            employeeId: { [Op.in]: employeeIds },
+            rosterDate: { [Op.gte]: monthStart, [Op.lte]: dataEnd },
+            status: 'published',
+          },
+          include: [{ model: db.Shift, as: 'shift' }],
+        })
+      : [],
+    db.EmployeeShift.findAll({
+      where: { employeeId: { [Op.in]: employeeIds }, effectiveFrom: { [Op.lte]: dataEnd } },
+      order: [['effectiveFrom', 'ASC']],
+      include: [{ model: db.Shift, as: 'shift' }],
+    }),
+  ]);
+
+  const attendanceByEmployee = new Map();
+  for (const row of attendanceRows) {
+    const key = String(row.employeeId);
+    if (!attendanceByEmployee.has(key)) attendanceByEmployee.set(key, new Map());
+    attendanceByEmployee.get(key).set(row.date, row);
+  }
+
+  const leaveRequestsByEmployee = new Map();
+  for (const lr of leaveRequests) {
+    const key = String(lr.employeeId);
+    if (!leaveRequestsByEmployee.has(key)) leaveRequestsByEmployee.set(key, []);
+    leaveRequestsByEmployee.get(key).push(lr);
+  }
+
+  const rosterShiftByEmployee = new Map();
+  for (const entry of rosterEntries) {
+    const key = String(entry.employeeId);
+    if (!rosterShiftByEmployee.has(key)) rosterShiftByEmployee.set(key, new Map());
+    rosterShiftByEmployee.get(key).set(entry.rosterDate, entry.shift);
+  }
+
+  const employeeShiftsByEmployee = new Map();
+  for (const es of employeeShifts) {
+    const key = String(es.employeeId);
+    if (!employeeShiftsByEmployee.has(key)) employeeShiftsByEmployee.set(key, []);
+    employeeShiftsByEmployee.get(key).push(es);
+  }
+
+  function leaveCodeForDate(employeeId, d) {
+    const requests = leaveRequestsByEmployee.get(String(employeeId)) ?? [];
+    const match = requests.find((lr) => lr.fromDate <= d && lr.toDate >= d);
+    return leaveDisplayCodeForType(match?.leaveType);
+  }
+
+  const rows = employees.map((employee) => {
+    const key = String(employee.id);
+    const attendanceByDate = attendanceByEmployee.get(key) ?? new Map();
+    const rosterByDate = rosterShiftByEmployee.get(key) ?? new Map();
+    const shiftHistory = employeeShiftsByEmployee.get(key) ?? [];
+    let shiftIdx = -1;
+
+    // Day-count totals + worked minutes, tallied alongside the day loop
+    // below — the export sheet's summary columns (Export helper, salary
+    // reference) read straight off this instead of re-deriving it from
+    // `days`. Never shown in the on-screen board, only the exported file.
+    const summary = {
+      present: 0, absent: 0, half_day: 0, leave: 0, holiday: 0, weekoff: 0, on_duty: 0, workedMinutes: 0,
+    };
+
+    const days = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const d = `${y}-${pad2(m)}-${pad2(day)}`;
+
+      if ((employee.dateOfJoining && d < employee.dateOfJoining) || d > dataEnd) {
+        days.push({ day, code: null, category: null, checkIn: null, checkOut: null });
+        continue;
+      }
+
+      const existing = attendanceByDate.get(d);
+      if (existing) {
+        const code = existing.status === 'leave' ? leaveCodeForDate(employee.id, d) : STATUS_DISPLAY_CODE[existing.status];
+        days.push({
+          day,
+          code: code ?? existing.status,
+          category: existing.status,
+          checkIn: existing.checkIn,
+          checkOut: existing.checkOut,
+        });
+        summary[existing.status] = (summary[existing.status] ?? 0) + 1;
+        if (existing.checkIn && existing.checkOut) {
+          summary.workedMinutes += (new Date(existing.checkOut) - new Date(existing.checkIn)) / 60000;
+        }
+        continue;
+      }
+
+      while (shiftIdx + 1 < shiftHistory.length && shiftHistory[shiftIdx + 1].effectiveFrom <= d) {
+        shiftIdx++;
+      }
+      const defaultShift = shiftIdx >= 0 ? shiftHistory[shiftIdx].shift : null;
+      const shift = rosterByDate.get(d) || defaultShift;
+      const isWeekOff = !!shift?.weeklyOffDays?.length && shift.weeklyOffDays.includes(new Date(`${d}T00:00:00`).getDay());
+      const isHoliday = holidays.some(
+        (h) => h.date <= d && h.endDate >= d && (h.brandId === null || h.brandId === employee.brandId)
+      );
+
+      let status;
+      if (isHoliday) status = 'holiday';
+      else if ((leaveRequestsByEmployee.get(key) ?? []).some((lr) => lr.fromDate <= d && lr.toDate >= d)) status = 'leave';
+      else if (isWeekOff) status = 'weekoff';
+      else status = 'absent';
+
+      const code = status === 'leave' ? leaveCodeForDate(employee.id, d) : STATUS_DISPLAY_CODE[status];
+      days.push({ day, code, category: status, checkIn: null, checkOut: null });
+      summary[status] = (summary[status] ?? 0) + 1;
+    }
+
+    return {
+      employeeId: employee.id,
+      employeeCode: employee.employeeCode,
+      name: employee.name,
+      brandId: employee.brandId,
+      days,
+      summary: { ...summary, workedMinutes: Math.round(summary.workedMinutes) },
+    };
+  });
+
+  return { year: y, month: m, daysInMonth, rows };
+}
+
 // present/half_day/absent go straight to the attendance row (below); 'leave'
 // is handled separately and requires a specific leaveTypeId — an admin
 // correction here stands in for a missed punch, or for filing a specific
@@ -553,6 +841,7 @@ module.exports = {
   listAttendance,
   listMyAttendanceHistory,
   listAttendanceRoster,
+  listAttendanceBoard,
   bulkSetAttendanceStatus,
   getAttendanceForRead,
   getAttendanceVideoUrl,

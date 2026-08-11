@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   CalendarCheck,
   CalendarClock,
+  CalendarRange,
+  CheckCircle2,
+  ChevronRight,
   ClipboardList,
   FileText,
   LogIn,
@@ -10,23 +14,29 @@ import {
   RefreshCw,
   Send,
   ShieldCheck,
+  Timer,
+  Users,
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
 import { getChartPalette } from '../../utils/chartColors';
-import { listMyAttendance, listMyRegularizations } from '../../api/ess/attendance';
+import { listMyAttendance, listMyRegularizations, type Attendance } from '../../api/ess/attendance';
 import { listHolidays, listMyLeaveBalances, listMyLeaveRequests, type Holiday } from '../../api/ess/leave';
 import { listMyOdRequests } from '../../api/ess/od';
-import { getMyProfile } from '../../api/ess/profile';
+import { getMyProfile, type EmployeeProfile } from '../../api/ess/profile';
 import { listPowers, type Power } from '../../api/powers';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
-import { StatTile, StatTileSkeleton } from '../../components/ui/StatTile';
+import { HeroStatTile } from '../../components/ui/HeroStatTile';
+import { StatTileSkeleton } from '../../components/ui/StatTile';
 import { Badge } from '../../components/ui/Badge';
 import { DashboardHeader } from '../../components/DashboardHeader';
 import { QuickActions, type QuickAction } from '../../components/QuickActions';
-import { MyLeaveBalanceChart, type LeaveBalanceEntry } from '../../components/charts/MyLeaveBalanceChart';
+import { MyLeaveBalanceChart, type LeaveBalanceEntry, type LeaveUsageEntry } from '../../components/charts/MyLeaveBalanceChart';
+import { MonthlyAttendanceCalendar } from '../../components/charts/MonthlyAttendanceCalendar';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+
+const NOW = new Date();
 
 function todayStr(): string {
   const d = new Date();
@@ -34,6 +44,12 @@ function todayStr(): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function monthStartStr(): string {
+  const y = NOW.getFullYear();
+  const m = String(NOW.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
 }
 
 function addDaysStr(days: number): string {
@@ -76,13 +92,41 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> 
   weekoff: 'neutral',
 };
 
+const TONE_CLASSES: Record<'success' | 'warning' | 'danger' | 'neutral', string> = {
+  success: 'bg-success/10 text-success',
+  warning: 'bg-warning/10 text-warning',
+  danger: 'bg-danger/10 text-danger',
+  neutral: 'bg-muted text-ink-muted',
+};
+
+// Same shape as MyAttendancePage's workedMinutes/formatDuration — only
+// meaningful once both punches exist for today.
+function workingHoursLabel(checkIn: string | null, checkOut: string | null): string {
+  if (!checkIn || !checkOut) return '—';
+  const minutes = (new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 60000;
+  if (minutes <= 0) return '—';
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `${hours}h ${String(mins).padStart(2, '0')}m`;
+}
+
+const EMPLOYEE_STATUS_LABEL: Record<EmployeeProfile['status'], string> = {
+  onboarding: 'Onboarding',
+  active: 'Active',
+  on_notice: 'On Notice',
+  exited: 'Exited',
+  archived: 'Archived',
+};
+
 const QUICK_ACTIONS: QuickAction[] = [
   { label: 'Apply Leave', to: '/ess/leave', icon: CalendarClock },
-  { label: 'Raise Regularization', to: '/ess/attendance?tab=requests', icon: CalendarCheck },
   { label: 'Apply OD', to: '/ess/od', icon: Send },
   { label: 'My Comp-Off', to: '/ess/comp-off', icon: RefreshCw },
   { label: 'My Payslips', to: '/ess/payslips', icon: Wallet },
+  { label: 'Raise Regularization', to: '/ess/attendance?tab=requests', icon: CalendarCheck },
+  { label: 'Team Approvals', to: '/ess/team-approvals', icon: Users },
   { label: 'Company Policies', to: '/ess/policies', icon: FileText },
+  { label: 'View Calendar', to: '/ess/attendance', icon: CalendarRange },
 ];
 
 interface Summary {
@@ -91,7 +135,10 @@ interface Summary {
   checkOut: string | null;
   leaveBalanceTotal: number;
   leaveBreakdown: LeaveBalanceEntry[];
+  leaveUsage: LeaveUsageEntry[];
+  leaveUsedTotal: number;
   pendingRequests: number;
+  monthAttendance: Attendance[];
 }
 
 // No backend dashboard-summary endpoint covers Employees (/dashboard/summary
@@ -104,6 +151,7 @@ export function EssDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [subtitle, setSubtitle] = useState('Here’s where things stand today.');
+  const [employeeStatus, setEmployeeStatus] = useState<EmployeeProfile['status'] | null>(null);
   const [upcomingHolidays, setUpcomingHolidays] = useState<Holiday[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [myPowers, setMyPowers] = useState<Power[]>([]);
@@ -127,6 +175,7 @@ export function EssDashboard() {
     getMyProfile(user.employeeId)
       .then((profile) => {
         setDisplayName(profile.name);
+        setEmployeeStatus(profile.status);
         const parts = [profile.designation?.title, profile.department?.name].filter(Boolean);
         if (parts.length > 0) setSubtitle(parts.join(' · '));
       })
@@ -149,14 +198,18 @@ export function EssDashboard() {
     const today = todayStr();
 
     Promise.all([
-      listMyAttendance({ from: today, to: today }),
+      // Month-to-date, gap-filled server-side (listMyAttendanceHistory) —
+      // every calendar day already carries the right status (holiday/
+      // weekoff resolved from the employee's actual shift/roster), so this
+      // one call covers both "today's status" and the monthly calendar.
+      listMyAttendance({ from: monthStartStr(), to: today }),
       listMyLeaveBalances({ year: new Date().getFullYear() }),
       listMyLeaveRequests({ status: 'pending', limit: 1 }),
       listMyOdRequests({ status: 'pending', limit: 1 }),
       listMyRegularizations({ status: 'pending', limit: 1 }),
     ])
       .then(([attendance, balances, leaveRequests, odRequests, regularizations]) => {
-        const todayRecord = attendance.data[0] ?? null;
+        const todayRecord = attendance.data.find((a) => a.date === today) ?? null;
         setSummary({
           todayStatus: todayRecord?.status ?? null,
           checkIn: todayRecord?.checkIn ?? null,
@@ -166,8 +219,13 @@ export function EssDashboard() {
             name: b.leaveType?.name ?? 'Leave',
             balance: Number(b.balance),
           })),
+          leaveUsage: balances
+            .filter((b) => Number(b.allotted) > 0 || Number(b.used) > 0)
+            .map((b) => ({ code: b.leaveType?.code ?? b.leaveType?.name ?? 'Leave', used: Number(b.used) })),
+          leaveUsedTotal: balances.reduce((sum, b) => sum + Number(b.used), 0),
           pendingRequests:
             leaveRequests.pagination.total + odRequests.pagination.total + regularizations.pagination.total,
+          monthAttendance: attendance.data,
         });
       })
       .catch(() => setError('Could not load your dashboard.'));
@@ -199,139 +257,205 @@ export function EssDashboard() {
 
   const nextHoliday = upcomingHolidays[0] ?? null;
 
-  // Each tile takes a distinct hue from the same theme-aware categorical
-  // palette the leave donut chart's legend uses (utils/chartColors.ts), so
-  // the multi-color tiles still read as one consistent set rather than
-  // arbitrary per-tile colors.
-  const tiles = [
-    {
-      label: "Today's Status",
-      value: summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet',
-      icon: CalendarCheck,
-      tone: 'filled' as const,
-      accentColor: palette.categorical[0],
-    },
-    {
-      label: 'Leave Balance (Days)',
-      value: summary.leaveBalanceTotal.toString(),
-      icon: Wallet,
-      tone: 'soft' as const,
-      accentColor: palette.categorical[1],
-    },
-    {
-      label: 'Pending Requests',
-      value: summary.pendingRequests.toString(),
-      icon: ClipboardList,
-      tone: 'filled' as const,
-      accentColor: palette.categorical[2],
-    },
-    {
-      label: nextHoliday ? nextHoliday.name : 'No upcoming holiday',
-      value: nextHoliday ? `${daysUntil(nextHoliday.date)}d` : '—',
-      icon: PartyPopper,
-      tone: 'soft' as const,
-      accentColor: palette.categorical[3],
-    },
-  ];
-
   return (
     <div>
-      <DashboardHeader name={displayName ?? user.email.split('@')[0]} subtitle={subtitle} />
+      <DashboardHeader
+        name={displayName ?? user.email.split('@')[0]}
+        subtitle={subtitle}
+        status={
+          employeeStatus
+            ? { label: EMPLOYEE_STATUS_LABEL[employeeStatus], tone: employeeStatus === 'active' ? 'success' : 'neutral' }
+            : undefined
+        }
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {tiles.map((tile) => (
-          <StatTile
-            key={tile.label}
-            label={tile.label}
-            value={tile.value}
-            icon={tile.icon}
-            tone={tile.tone}
-            accentColor={tile.accentColor}
-          />
-        ))}
+        <HeroStatTile
+          label="Today's Status"
+          value={summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
+          icon={CalendarCheck}
+          accentColor={palette.categorical[0]}
+          hint={
+            summary.checkIn && (
+              <span className="inline-flex items-center gap-1 text-success">
+                <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Checked in at {new Date(summary.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )
+          }
+        />
+        <HeroStatTile
+          label="Leave Balance (Days)"
+          value={summary.leaveBalanceTotal}
+          icon={Wallet}
+          accentColor={palette.categorical[1]}
+          hint={`${summary.leaveUsedTotal} used this year`}
+        />
+        <HeroStatTile
+          label="Pending Requests"
+          value={summary.pendingRequests}
+          icon={ClipboardList}
+          accentColor={palette.categorical[2]}
+          hint={summary.pendingRequests > 0 ? 'Awaiting approval' : 'All caught up'}
+        />
+        <HeroStatTile
+          label="Upcoming Holiday"
+          value={nextHoliday ? `${daysUntil(nextHoliday.date)}d` : '—'}
+          icon={PartyPopper}
+          accentColor={palette.categorical[3]}
+          hint={
+            nextHoliday ? (
+              <>
+                <p className="truncate font-medium text-ink">{nextHoliday.name}</p>
+                <p>{formatDisplayDate(nextHoliday.date)}</p>
+              </>
+            ) : (
+              'No upcoming holiday'
+            )
+          }
+        />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-4 lg:col-span-2">
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
-            <div className="mb-4 flex items-center justify-between">
+        <div className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
+                <LogIn className="h-4 w-4" strokeWidth={1.75} />
+              </span>
               <h3 className="text-base font-semibold text-ink">Today&apos;s Attendance</h3>
-              <Badge tone={summary.todayStatus ? STATUS_TONE[summary.todayStatus] ?? 'neutral' : 'neutral'}>
-                {summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
-              </Badge>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="flex items-center gap-3 rounded-lg bg-page px-4 py-3">
+            <Badge tone={summary.todayStatus ? STATUS_TONE[summary.todayStatus] ?? 'neutral' : 'neutral'}>
+              {summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
+            </Badge>
+          </div>
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
+              <span className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
                   <LogIn className="h-4 w-4" strokeWidth={1.75} />
                 </span>
-                <div>
-                  <p className="text-xs text-ink-muted">Check-in</p>
-                  <p className="text-sm font-medium text-ink">
-                    {summary.checkIn ? new Date(summary.checkIn).toLocaleTimeString() : '—'}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg bg-page px-4 py-3">
+                <span className="text-sm text-ink-muted">Check-in</span>
+              </span>
+              <span className="text-sm font-semibold text-ink">
+                {summary.checkIn ? new Date(summary.checkIn).toLocaleTimeString() : '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
+              <span className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger">
                   <LogOut className="h-4 w-4" strokeWidth={1.75} />
                 </span>
-                <div>
-                  <p className="text-xs text-ink-muted">Check-out</p>
-                  <p className="text-sm font-medium text-ink">
-                    {summary.checkOut ? new Date(summary.checkOut).toLocaleTimeString() : '—'}
-                  </p>
-                </div>
-              </div>
+                <span className="text-sm text-ink-muted">Check-out</span>
+              </span>
+              <span className="text-sm font-semibold text-ink">
+                {summary.checkOut ? new Date(summary.checkOut).toLocaleTimeString() : '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
+              <span className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
+                  <Timer className="h-4 w-4" strokeWidth={1.75} />
+                </span>
+                <span className="text-sm text-ink-muted">Total Working Hours</span>
+              </span>
+              <span className="text-sm font-semibold text-ink">
+                {workingHoursLabel(summary.checkIn, summary.checkOut)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
+              <span className="flex items-center gap-3">
+                <span
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                    TONE_CLASSES[summary.todayStatus ? STATUS_TONE[summary.todayStatus] ?? 'neutral' : 'neutral']
+                  }`}
+                >
+                  <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} />
+                </span>
+                <span className="text-sm text-ink-muted">Status</span>
+              </span>
+              <span className="text-sm font-semibold text-ink">
+                {summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
+              </span>
             </div>
           </div>
-
-          <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
-            <div className="mb-4 flex items-center gap-2">
-              <PartyPopper className="h-4 w-4 text-primary" strokeWidth={1.75} />
-              <h3 className="text-base font-semibold text-ink">Upcoming Holidays</h3>
-            </div>
-            {upcomingHolidays.length === 0 ? (
-              <p className="text-sm text-ink-muted">No holidays scheduled in the next 6 months.</p>
-            ) : (
-              <ul className="divide-y divide-border">
-                {upcomingHolidays.map((holiday) => (
-                  <li key={holiday.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <div>
-                      <p className="text-sm font-medium text-ink">{holiday.name}</p>
-                      <p className="text-xs text-ink-muted">{formatDisplayDate(holiday.date)}</p>
-                    </div>
-                    <Badge tone="neutral">{daysUntil(holiday.date)}d away</Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {myPowers.length > 0 && (
-            <div className="rounded-xl border border-border bg-card p-5 shadow-xs">
-              <div className="mb-3 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-primary" strokeWidth={1.75} />
-                <h3 className="text-base font-semibold text-ink">Your Additional Responsibilities</h3>
-              </div>
-              <ul className="space-y-2">
-                {myPowers.map((power) => (
-                  <li key={power.key} className="text-sm">
-                    <span className="font-medium text-ink">{power.label}</span>
-                    <span className="text-ink-muted"> — {power.description}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <Link
+            to="/ess/attendance"
+            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-white"
+          >
+            View Full Attendance
+            <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.75} />
+          </Link>
         </div>
 
-        <MyLeaveBalanceChart data={summary.leaveBreakdown} />
+        <MonthlyAttendanceCalendar
+          year={NOW.getFullYear()}
+          month={NOW.getMonth()}
+          rows={summary.monthAttendance}
+          today={todayStr()}
+        />
+
+        <MyLeaveBalanceChart data={summary.leaveBreakdown} usage={summary.leaveUsage} />
       </div>
 
-      <div className="mt-4">
-        <QuickActions actions={QUICK_ACTIONS} />
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
+              <PartyPopper className="h-4 w-4" strokeWidth={1.75} />
+            </span>
+            <h3 className="text-base font-semibold text-ink">Upcoming Holidays</h3>
+          </div>
+          {upcomingHolidays.length === 0 ? (
+            <p className="flex-1 text-sm text-ink-muted">No holidays scheduled in the next 6 months.</p>
+          ) : (
+            <ul className="flex-1 space-y-2.5">
+              {upcomingHolidays.map((holiday) => (
+                <li
+                  key={holiday.id}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-primary-light/60 px-3.5 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">{holiday.name}</p>
+                    <p className="text-xs text-ink-muted">{formatDisplayDate(holiday.date)}</p>
+                  </div>
+                  <Badge tone="neutral">{daysUntil(holiday.date)}d away</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link
+            to="/ess/holidays"
+            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-white"
+          >
+            View All Holidays
+            <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.75} />
+          </Link>
+        </div>
+
+        <div className="lg:col-span-2">
+          <QuickActions actions={QUICK_ACTIONS} />
+        </div>
       </div>
+
+      {myPowers.length > 0 && (
+        <div className="mt-4 rounded-xl border border-border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
+          <div className="mb-3 flex items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
+              <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+            </span>
+            <h3 className="text-base font-semibold text-ink">Your Additional Responsibilities</h3>
+          </div>
+          <ul className="space-y-2">
+            {myPowers.map((power) => (
+              <li key={power.key} className="text-sm">
+                <span className="font-medium text-ink">{power.label}</span>
+                <span className="text-ink-muted"> — {power.description}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

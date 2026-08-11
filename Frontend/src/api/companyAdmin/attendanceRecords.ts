@@ -42,6 +42,55 @@ export async function listAttendanceRoster(params: {
   return data;
 }
 
+// One cell of the "Attendance Board" month grid — `code` is the compact
+// display string (P/A/HD/H/W/OD, or a leave type's own code, e.g. AL/SHL),
+// `category` is the underlying status (drives cell color) or null for a
+// day the employee hadn't joined yet / a day still in the future. Both are
+// null together — never one without the other.
+export interface AttendanceBoardDay {
+  day: number;
+  code: string | null;
+  category: AttendanceRosterStatus | null;
+}
+
+export interface AttendanceBoardRow {
+  employeeId: string;
+  employeeCode: string;
+  name: string | null;
+  brandId: string | null;
+  days: AttendanceBoardDay[];
+}
+
+export interface AttendanceBoardResult {
+  year: number;
+  month: number;
+  daysInMonth: number;
+  rows: AttendanceBoardRow[];
+}
+
+// Every active employee in scope x every day of one calendar month, in a
+// single unpaginated response — the whole point is "all of it on one page".
+// Gap-filled server-side the same way listMyAttendanceHistory already is
+// (holiday/leave/weekoff/absent), so every past day always has a code.
+export async function getAttendanceBoard(year: number, month: number): Promise<AttendanceBoardResult> {
+  const { data } = await apiClient.get<{ data: AttendanceBoardResult }>('/attendance/board', {
+    params: { year, month },
+  });
+  return data.data;
+}
+
+// Server-rendered .xlsx of the same month — colored cell-by-cell to match
+// the on-screen board (CSV can't carry cell colors). Always the full
+// employee list for the month, independent of whatever the page's own
+// search box currently narrows the on-screen table to.
+export async function getAttendanceBoardXlsx(year: number, month: number): Promise<Blob> {
+  const response = await apiClient.get('/attendance/board/export', {
+    params: { year, month },
+    responseType: 'blob',
+  });
+  return response.data as Blob;
+}
+
 // Every leave-type-scoped status is expressed the same way here: 'leave'
 // plus a leaveTypeId, never a bare "on leave" — see attendance.service.js's
 // bulkSetAttendanceStatus for why (it needs the id to file a real,

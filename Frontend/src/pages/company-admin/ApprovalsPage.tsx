@@ -126,7 +126,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     ? (requestedTab as Tab)
     : 'leave';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const [statusFilter, setStatusFilter] = useState(initialTab === 'compOff' ? 'pending_approval' : 'pending');
+  const [statusFilter, setStatusFilter] = useState('');
   const [offset, setOffset] = useState(0);
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
@@ -142,6 +142,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
   const statusOptions =
     activeTab === 'compOff'
       ? [
+          { value: '', label: 'All' },
           { value: 'pending_approval', label: 'Pending' },
           { value: 'approved', label: 'Approved' },
           { value: 'rejected', label: 'Rejected' },
@@ -149,6 +150,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
           { value: 'used', label: 'Used' },
         ]
       : [
+          { value: '', label: 'All' },
           { value: 'pending', label: 'Pending' },
           { value: 'approved', label: 'Approved' },
           { value: 'rejected', label: 'Rejected' },
@@ -191,7 +193,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
 
   function switchTab(tab: Tab) {
     setActiveTab(tab);
-    setStatusFilter(tab === 'compOff' ? 'pending_approval' : 'pending');
+    setStatusFilter('');
     setOffset(0);
   }
 

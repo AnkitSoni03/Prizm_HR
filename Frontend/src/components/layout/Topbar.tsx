@@ -1,5 +1,5 @@
 import { LogOut, Menu, Moon, Sun } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
 import { NotificationBell } from '../NotificationBell';
@@ -46,10 +46,26 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
           {theme === 'dark' ? <Sun className="h-4 w-4" strokeWidth={1.75} /> : <Moon className="h-4 w-4" strokeWidth={1.75} />}
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <Avatar src={user?.photoUrl} alt={user?.email} />
-          <span className="hidden text-sm text-ink-muted sm:inline">{user?.email ?? 'Account'}</span>
-        </div>
+        {(() => {
+          const displayName = user?.name ?? user?.email ?? 'Account';
+          const content = (
+            <>
+              <Avatar src={user?.photoUrl} alt={displayName} />
+              <span className="hidden text-sm text-ink-muted sm:inline">{displayName}</span>
+            </>
+          );
+          // Only an ESS employee account (user.employeeId set) has a
+          // profile page to land on — pure admin accounts (no linked
+          // Employee record, so no name either) render the same block
+          // as a non-interactive span.
+          return user?.employeeId ? (
+            <Link to="/ess/profile" className="flex items-center gap-2.5 rounded-lg transition-opacity hover:opacity-80">
+              {content}
+            </Link>
+          ) : (
+            <div className="flex items-center gap-2.5">{content}</div>
+          );
+        })()}
 
         <button
           type="button"

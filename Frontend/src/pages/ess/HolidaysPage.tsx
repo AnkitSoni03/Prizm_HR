@@ -15,12 +15,12 @@ import { countDaysInclusive, formatDisplayDateRange } from '../../utils/dateDisp
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
 
-// Every employee can view this page (holiday:read). An HR-department
-// employee additionally holds holiday:create/update/delete (auto-granted —
-// see hrTeamSync.js on the backend) and gets the same Add/Edit/Delete
-// controls the Company Admin Holidays page has, right here in their own
-// ESS portal — there's no separate "admin" portal for an HR Team member to
-// go find these in, they're still a regular employee first.
+// Every employee can view this page (holiday:read). An employee additionally
+// granted the "Add/Edit/Delete Yearly Holidays" Power (powerCatalog.js) holds
+// holiday:create/update/delete and gets the same Add/Edit/Delete controls the
+// Company Admin Holidays page has, right here in their own ESS portal —
+// there's no separate "admin" portal for them to go find these in, they're
+// still a regular employee first.
 export function HolidaysPage() {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();

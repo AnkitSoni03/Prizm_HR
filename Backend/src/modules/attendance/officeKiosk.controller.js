@@ -53,8 +53,39 @@ async function listScannerAccounts(req, res, next) {
   }
 }
 
+async function resetScannerAccountPassword(req, res, next) {
+  try {
+    const companyId = requireCompanyScope({ authCompanyId: req.auth.companyId, override: req.body.companyId });
+    const result = await service.resetScannerAccountPassword({
+      companyId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      userId: req.params.id,
+      password: req.body.password,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getScannerAccountPassword(req, res, next) {
+  try {
+    const companyId = resolveCompanyScope({ authCompanyId: req.auth.companyId, override: req.query.companyId });
+    const result = await service.getScannerAccountPassword({
+      companyId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      userId: req.params.id,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   uploadFaceCapture,
   createScannerAccount,
   listScannerAccounts,
+  resetScannerAccountPassword,
+  getScannerAccountPassword,
 };

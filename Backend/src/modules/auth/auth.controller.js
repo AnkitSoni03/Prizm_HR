@@ -19,7 +19,7 @@ function validatePasswordStrength(password) {
 }
 
 // Best-effort, logged-not-thrown — same convention as comp-off
-// auto-detection/HR Team role sync elsewhere in this codebase. A bad SMTP
+// auto-detection/custom power role sync elsewhere in this codebase. A bad SMTP
 // config or transient send failure shouldn't fail the invite itself (the
 // Invitation/User rows are already committed); the activationToken is still
 // returned in the response outside production so the flow stays testable

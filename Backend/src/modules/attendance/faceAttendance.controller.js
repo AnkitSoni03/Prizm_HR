@@ -19,7 +19,7 @@ function decodeFrameImage(dataUrl) {
 
 async function faceCheckIn(req, res, next) {
   try {
-    const { action, embedding, liveness, frameImage, frameBbox } = req.body;
+    const { action, embedding, liveness, frameImage, frameBbox, confirmIncompleteShift } = req.body;
     const result = await service.checkInWithFace({
       companyId: req.auth.companyId,
       kioskUserId: req.auth.userId,
@@ -28,6 +28,7 @@ async function faceCheckIn(req, res, next) {
       liveness,
       frameImage: decodeFrameImage(frameImage),
       frameBbox,
+      confirmIncompleteShift: Boolean(confirmIncompleteShift),
     });
     res.json({ data: result });
   } catch (err) {

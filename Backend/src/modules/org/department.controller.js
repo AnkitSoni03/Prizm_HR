@@ -29,7 +29,7 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, code, isHrDepartment } = req.body;
+    const { name, code } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
 
     const companyId = requireCompanyScope({
@@ -37,7 +37,7 @@ async function create(req, res, next) {
       override: req.body.companyId,
     });
 
-    const department = await service.createDepartment({ companyId, name, code, isHrDepartment });
+    const department = await service.createDepartment({ companyId, name, code });
     res.status(201).json({ data: department });
   } catch (err) {
     next(err);

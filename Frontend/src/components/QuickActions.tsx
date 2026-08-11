@@ -11,7 +11,7 @@ export function QuickActions({ actions }: { actions: QuickAction[] }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
       <h3 className="mb-3 text-sm font-semibold text-ink sm:mb-4 sm:text-base">Quick Actions</h3>
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
         {actions.map((action) => (
           <Link
             key={action.label}

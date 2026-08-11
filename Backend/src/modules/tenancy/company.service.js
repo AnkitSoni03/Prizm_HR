@@ -46,7 +46,8 @@ async function getCompanyById({ id, callerCompanyId, callerGroupId }) {
 }
 
 // HR can always add more via leave_type:create — these just mean a fresh
-// company's HR Team/Company Admin has something to assign a Leave Balance
+// company's Company Admin (or anyone granted the equivalent Power) has
+// something to assign a Leave Balance
 // against immediately instead of hand-creating them first (see the
 // Employee Leave Balance tab in EmployeeDetailModal.tsx). Existing
 // companies got the same 5 paid types backfilled by

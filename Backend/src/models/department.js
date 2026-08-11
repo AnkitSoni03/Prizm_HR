@@ -18,11 +18,6 @@ module.exports = (sequelize, DataTypes) => {
       name: { type: DataTypes.STRING, allowNull: false },
       code: { type: DataTypes.STRING, allowNull: true },
       headEmployeeId: { type: DataTypes.BIGINT, allowNull: true },
-      // Drives hrTeamSync.js: every employee assigned to a department with
-      // this flag set gets the HR Team role auto-granted (see
-      // department.service.js::updateDepartment and
-      // employee.service.js::transferEmployee).
-      isHrDepartment: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       sequelize,

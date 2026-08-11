@@ -12,6 +12,13 @@ import { useAuth } from '../context/auth-context';
 import { getDefaultRoute } from '../routes/roleRedirect';
 
 const POLL_INTERVAL_MS = 30_000;
+// Small first page so opening the dropdown feels instant — older
+// notifications only load in as the user actually scrolls for them
+// (loadMore below), instead of fetching everything up front.
+const PAGE_SIZE = 10;
+// Fetch the next page once the user scrolls within this many pixels of the
+// bottom of the dropdown's scroll container.
+const LOAD_MORE_THRESHOLD_PX = 60;
 
 function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -124,6 +131,9 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -160,11 +170,34 @@ export function NotificationBell() {
     if (next) {
       setIsLoading(true);
       try {
-        const result = await listNotifications({ limit: 20 });
+        const result = await listNotifications({ limit: PAGE_SIZE, offset: 0 });
         setNotifications(result.data);
+        setOffset(result.data.length);
+        setHasMore(result.data.length < result.pagination.total);
       } finally {
         setIsLoading(false);
       }
+    }
+  }
+
+  async function loadMoreNotifications() {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const result = await listNotifications({ limit: PAGE_SIZE, offset });
+      setNotifications((prev) => [...prev, ...result.data]);
+      const nextOffset = offset + result.data.length;
+      setOffset(nextOffset);
+      setHasMore(nextOffset < result.pagination.total);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  function handleListScroll(event: React.UIEvent<HTMLDivElement>) {
+    const el = event.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < LOAD_MORE_THRESHOLD_PX) {
+      loadMoreNotifications();
     }
   }
 
@@ -236,7 +269,7 @@ export function NotificationBell() {
             )}
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto" onScroll={handleListScroll}>
             {isLoading && <p className="px-3.5 py-6 text-center text-sm text-ink-muted">Loading…</p>}
             {!isLoading && notifications.length === 0 && (
               <p className="px-3.5 py-6 text-center text-sm text-ink-muted">You're all caught up.</p>
@@ -269,6 +302,9 @@ export function NotificationBell() {
                   </span>
                 </button>
               ))}
+            {!isLoading && isLoadingMore && (
+              <p className="px-3.5 py-3 text-center text-xs text-ink-muted">Loading more…</p>
+            )}
           </div>
         </div>
       )}

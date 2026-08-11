@@ -12,11 +12,10 @@ const { runWithTenant } = require('../config/tenant-context');
 // role_permissions (see assignEmployeePowers), not by removing the grant.
 //
 // Idempotent, safe to call repeatedly. No-ops when either the employee has
-// no custom role assigned yet, or has no linked ESS login yet — mirrors
-// hrTeamSync.js::syncHrTeamRole's same no-op shape and the same reason for
-// nesting a null-company tenant context (Employee/Role/UserRole are all
-// tenant-scoped; callers here run under varying/absent contexts —
-// activateAccount runs under none at all).
+// no custom role assigned yet, or has no linked ESS login yet. Nests a
+// null-company tenant context because Employee/Role/UserRole are all
+// tenant-scoped and callers here run under varying/absent contexts —
+// activateAccount runs under none at all.
 async function ensureCustomRoleGrant({ employeeId, transaction }) {
   await runWithTenant({ companyId: null }, async () => {
     const employee = await db.Employee.findByPk(employeeId, { transaction });

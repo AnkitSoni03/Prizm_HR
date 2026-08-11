@@ -32,7 +32,7 @@ export async function listLeaveBalances(params: { employeeId: string; year: numb
 }
 
 // Sets `allotted` directly (not a delta) — gated by leave_balance:adjust,
-// held by Company Admin and the auto-granted HR Team role.
+// held by Company Admin and any employee granted the "Assign Leaves" Power.
 export async function adjustLeaveBalance(input: {
   employeeId: string;
   leaveTypeId: string;

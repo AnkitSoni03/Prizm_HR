@@ -1,9 +1,7 @@
 'use strict';
 
-const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { syncHrTeamRole } = require('../../utils/hrTeamSync');
 
 async function listDepartments({ companyId, limit, offset }) {
   // Department's tenant-scope hook already filters by company_id for a
@@ -32,52 +30,24 @@ async function getDepartmentForWrite({ companyId, id }) {
   return department;
 }
 
-async function createDepartment({ companyId, name, code, isHrDepartment }) {
-  return db.Department.create({
-    companyId,
-    name,
-    code,
-    ...(isHrDepartment !== undefined && { isHrDepartment }),
-  });
+async function createDepartment({ companyId, name, code }) {
+  return db.Department.create({ companyId, name, code });
 }
 
 async function updateDepartment({ companyId, id, updates }) {
   const department = await getDepartmentForWrite({ companyId, id });
-  const { name, code, headEmployeeId, isHrDepartment } = updates;
+  const { name, code, headEmployeeId } = updates;
 
   if (headEmployeeId) {
     const head = await db.Employee.findOne({ where: { id: headEmployeeId, companyId } });
     if (!head) throw new HttpError(400, 'headEmployeeId not found for this company');
   }
 
-  const isHrFlagChanging = isHrDepartment !== undefined && isHrDepartment !== department.isHrDepartment;
-
   await department.update({
     ...(name !== undefined && { name }),
     ...(code !== undefined && { code }),
     ...(headEmployeeId !== undefined && { headEmployeeId }),
-    ...(isHrDepartment !== undefined && { isHrDepartment }),
   });
-
-  // Retroactively sync every employee already sitting in this department
-  // (not just future transfers/activations) when the HR flag itself flips —
-  // e.g. Company Admin marks a pre-existing "HR" department as the HR
-  // department after employees are already assigned to it. Best-effort per
-  // employee (same convention as comp-off auto-detection in
-  // attendance.service.js) — one employee's sync failing must never block
-  // the department update itself or the rest of the batch.
-  if (isHrFlagChanging) {
-    const employees = await db.Employee.findAll({
-      where: { departmentId: id, companyId, userId: { [Op.ne]: null } },
-    });
-    for (const employee of employees) {
-      try {
-        await syncHrTeamRole({ employeeId: employee.id });
-      } catch (err) {
-        console.error('HR Team role sync failed:', err);
-      }
-    }
-  }
 
   return department;
 }

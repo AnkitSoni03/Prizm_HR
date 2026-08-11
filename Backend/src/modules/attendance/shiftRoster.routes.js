@@ -10,6 +10,8 @@ router.use(requireAuth);
 
 router.get('/', requirePermission('shift_roster:read'), controller.list);
 router.post('/', requirePermission('shift_roster:create'), controller.create);
+router.post('/bulk', requirePermission('shift_roster:create'), controller.bulkCreate);
 router.patch('/:id', requirePermission('shift_roster:update'), controller.update);
+router.delete('/:id', requirePermission('shift_roster:delete'), controller.remove);
 
 module.exports = router;

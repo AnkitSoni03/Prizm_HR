@@ -8,8 +8,9 @@ import { useAuth } from '../../context/auth-context';
 import { EditCompanyModal } from '../super-admin/components/EditCompanyModal';
 import { getCompany, listPlans, updateCompany, type Company, type Plan } from '../../api/tenancy';
 import { useToast } from '../../context/toast-context';
+import { ScannerAccountsPage } from './ScannerAccountsPage';
 
-type Tab = 'profile' | 'password';
+type Tab = 'profile' | 'password' | 'kiosks';
 
 function companyStatusTone(status: Company['status']) {
   if (status === 'active') return 'success';
@@ -27,9 +28,12 @@ export function SettingsPage() {
   const { user, hasPermission } = useAuth();
   const showToast = useToast();
   const [searchParams] = useSearchParams();
-  const initialTab: Tab = searchParams.get('tab') === 'password' ? 'password' : 'profile';
+  const requestedTab = searchParams.get('tab');
+  const initialTab: Tab =
+    requestedTab === 'password' ? 'password' : requestedTab === 'kiosks' ? 'kiosks' : 'profile';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const canEdit = hasPermission('company:update');
+  const canManageKiosks = hasPermission('scanner_account:create');
   const companyId = user?.roles.find((role) => role.companyId)?.companyId ?? null;
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -76,11 +80,14 @@ export function SettingsPage() {
   const planName = plans.find((plan) => plan.id === company?.planId)?.name ?? '—';
 
   return (
-    <div className="max-w-2xl space-y-6">
+    // Kiosk Accounts' table needs the full page width, unlike the
+    // profile/password cards below it — only those two stay capped.
+    <div className={activeTab === 'kiosks' ? 'space-y-6' : 'max-w-2xl space-y-6'}>
       <Tabs
         items={[
           { key: 'profile', label: 'Profile' },
           { key: 'password', label: 'Reset Password' },
+          ...(canManageKiosks ? [{ key: 'kiosks', label: 'Kiosk Accounts' }] : []),
         ]}
         active={activeTab}
         onChange={(key) => setActiveTab(key as Tab)}
@@ -165,6 +172,8 @@ export function SettingsPage() {
       )}
 
       {activeTab === 'password' && <ChangePasswordCard />}
+
+      {activeTab === 'kiosks' && canManageKiosks && <ScannerAccountsPage />}
 
       {isEditModalOpen && company && (
         <EditCompanyModal

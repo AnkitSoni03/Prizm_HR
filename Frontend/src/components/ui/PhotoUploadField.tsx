@@ -1,6 +1,9 @@
-import { useRef, useState } from 'react';
-import { Camera, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Camera, ImagePlus, X } from 'lucide-react';
 import { Avatar } from './Avatar';
+import { Button } from './Button';
+import { Modal } from './Modal';
+import { PhotoEditorModal } from './PhotoEditorModal';
 
 const ACCEPTED_TYPES = 'image/png,image/jpeg';
 
@@ -18,7 +21,10 @@ interface PhotoUploadFieldProps {
 
 // Reused wherever an employee/own photo can be set: the Employee Add/Edit
 // forms and ESS "My Profile" — always optional, file-based (not a URL field,
-// unlike the older employee_documents pattern).
+// unlike the older employee_documents pattern). Both entry points (live
+// camera capture and picking a file from disk/gallery) route through the
+// same PhotoEditorModal crop/zoom step before onSelect ever fires, so
+// whatever gets uploaded is already framed for a circular avatar.
 export function PhotoUploadField({
   label = 'Photo',
   previewUrl,
@@ -28,13 +34,68 @@ export function PhotoUploadField({
   helperText = 'Optional. JPG or PNG.',
 }: PhotoUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [editingImageSrc, setEditingImageSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  // The <video> element only mounts once isCameraOpen is true, so the stream
+  // has to be attached after that render — same pattern as
+  // RegisterFaceCard.tsx (videoRef.current is still null before then).
+  useEffect(() => {
+    if (isCameraOpen && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isCameraOpen]);
+
+  async function handleOpenCamera() {
+    setCameraError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      streamRef.current = stream;
+      setIsCameraOpen(true);
+    } catch {
+      setCameraError('Could not access your camera. Please allow camera access and try again.');
+    }
+  }
+
+  function closeCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setIsCameraOpen(false);
+  }
+
+  function handleCapture() {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')?.drawImage(video, 0, 0);
+    closeCamera();
+    setEditingImageSrc(canvas.toDataURL('image/jpeg', 0.95));
+  }
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    setEditingImageSrc(URL.createObjectURL(file));
+  }
+
+  function handleEditorSave(file: File) {
     setLocalPreview(URL.createObjectURL(file));
+    setEditingImageSrc(null);
     onSelect(file);
   }
 
@@ -46,15 +107,25 @@ export function PhotoUploadField({
       <div className="flex items-center gap-4">
         <Avatar src={displayUrl} size="xl" />
         <div className="flex flex-col gap-2">
-          <div className="flex gap-2">
+          {cameraError && <p className="text-xs text-danger">{cameraError}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleOpenCamera}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-page disabled:opacity-60"
+            >
+              <Camera className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Take Photo
+            </button>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={isBusy}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-page disabled:opacity-60"
             >
-              <Camera className="h-3.5 w-3.5" strokeWidth={1.75} />
-              {displayUrl ? 'Change Photo' : 'Upload Photo'}
+              <ImagePlus className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Choose from Gallery
             </button>
             {displayUrl && onRemove && (
               <button
@@ -74,14 +145,32 @@ export function PhotoUploadField({
           </div>
           {helperText && <p className="text-xs text-ink-muted">{helperText}</p>}
         </div>
-        <input
-          ref={inputRef}
-          type="file"
-          accept={ACCEPTED_TYPES}
-          className="hidden"
-          onChange={handleFileChange}
-        />
+        <input ref={inputRef} type="file" accept={ACCEPTED_TYPES} className="hidden" onChange={handleFileChange} />
       </div>
+
+      {isCameraOpen && (
+        <Modal title="Take Photo" onClose={closeCamera} widthClassName="max-w-sm">
+          <div className="space-y-4">
+            <video ref={videoRef} muted playsInline className="w-full rounded-lg bg-black" />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={closeCamera}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleCapture}>
+                Capture
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editingImageSrc && (
+        <PhotoEditorModal
+          imageSrc={editingImageSrc}
+          onCancel={() => setEditingImageSrc(null)}
+          onSave={handleEditorSave}
+        />
+      )}
     </div>
   );
 }

@@ -23,9 +23,14 @@ app.use((req, res) => {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   if (err instanceof HttpError) {
-    return res
-      .status(err.status)
-      .json({ error: err.message, ...(err.code && { code: err.code }), ...(err.flagId && { flagId: err.flagId }) });
+    // Forward any extra own-enumerable fields a call site attached to the
+    // error (e.g. flagId, checkInTime, workedMinutes) — generic rather than
+    // allow-listing each one by name, so a new field a call site adds later
+    // doesn't silently get dropped here. Safe: Error's own `message`/`stack`
+    // are non-enumerable, so they're never duplicated or leaked by this
+    // spread (verified directly against V8's Error implementation).
+    const { status, ...extra } = err;
+    return res.status(status).json({ error: err.message, ...extra });
   }
 
   if (err.name === 'SequelizeValidationError' || err.name === 'SequelizeUniqueConstraintError') {

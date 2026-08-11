@@ -49,10 +49,17 @@ import {
 } from '../../../api/companyAdmin/leaveBalance';
 import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
-import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
+import type { Brand, Department, Designation, Employee, Shift } from '../../../api/tenancy';
 import { INDIAN_STATES } from '../../../utils/indianStates';
 import { holidayAuditName } from '../../../api/companyAdmin/holidays';
-import { formatDisplayDateTime } from '../../../utils/dateDisplay';
+import { formatDisplayDateTime, formatDisplayDate } from '../../../utils/dateDisplay';
+import {
+  listShifts,
+  listEmployeeShiftAssignments,
+  assignEmployeeShift,
+  deleteEmployeeShiftAssignment,
+  type EmployeeShiftAssignment,
+} from '../../../api/companyAdmin/attendance';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -129,6 +136,9 @@ export function EmployeeDetailModal({
   const canInviteEss = hasPermission('user:invite');
   const canReadLeaveBalance = hasPermission('leave_balance:read');
   const canAdjustLeaveBalance = hasPermission('leave_balance:adjust');
+  const canCreateEmployeeShift = hasPermission('employee_shift:create');
+  const canReadEmployeeShift = hasPermission('employee_shift:read');
+  const canDeleteEmployeeShift = hasPermission('employee_shift:delete');
 
   const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'leaveBalance' | 'powers'>(initialTab);
 
@@ -191,6 +201,81 @@ export function EmployeeDetailModal({
       cancelled = true;
     };
   }, [canInviteEss, employee.id, employee.userId]);
+
+  // defaultShift/todayRoster (resolved server-side "as of today") aren't on
+  // the list-view `employee` prop — same reason customRole/loginUser above
+  // need their own fetch of the full GET /employees/:id record.
+  const [shiftSummary, setShiftSummary] = useState<
+    Pick<Employee, 'defaultShift' | 'todayRoster'> | undefined
+  >(undefined);
+
+  function refreshShiftSummary() {
+    getEmployee(employee.id)
+      .then((full) => setShiftSummary({ defaultShift: full.defaultShift ?? null, todayRoster: full.todayRoster ?? null }))
+      .catch(() => setShiftSummary({ defaultShift: null, todayRoster: null }));
+  }
+
+  useEffect(() => {
+    refreshShiftSummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.id]);
+
+  const [shiftOptions, setShiftOptions] = useState<Shift[]>([]);
+  useEffect(() => {
+    if (!canCreateEmployeeShift) return;
+    listShifts().then(setShiftOptions).catch(() => {});
+  }, [canCreateEmployeeShift]);
+
+  const [shiftHistory, setShiftHistory] = useState<EmployeeShiftAssignment[] | null>(null);
+  useEffect(() => {
+    if (!canReadEmployeeShift) return;
+    listEmployeeShiftAssignments(employee.id)
+      .then(setShiftHistory)
+      .catch(() => setShiftHistory([]));
+  }, [canReadEmployeeShift, employee.id]);
+
+  const [assignShiftId, setAssignShiftId] = useState('');
+  const [assignEffectiveFrom, setAssignEffectiveFrom] = useState('');
+  const [isAssigningShift, setIsAssigningShift] = useState(false);
+  const [assignShiftError, setAssignShiftError] = useState<string | null>(null);
+
+  async function handleAssignShift(event: FormEvent) {
+    event.preventDefault();
+    if (!assignShiftId || !assignEffectiveFrom) return;
+    setAssignShiftError(null);
+    setIsAssigningShift(true);
+    try {
+      const created = await assignEmployeeShift(employee.id, {
+        shiftId: assignShiftId,
+        effectiveFrom: assignEffectiveFrom,
+      });
+      setShiftHistory((prev) => (prev ? [created, ...prev] : [created]));
+      refreshShiftSummary();
+      setAssignShiftId('');
+      setAssignEffectiveFrom('');
+    } catch (err) {
+      setAssignShiftError(extractError(err, 'Could not assign this shift. Please try again.'));
+    } finally {
+      setIsAssigningShift(false);
+    }
+  }
+
+  async function handleDeleteShiftAssignment(assignment: EmployeeShiftAssignment) {
+    const confirmed = await confirm({
+      title: 'Delete shift assignment',
+      message: `Delete the ${assignment.shift?.name ?? 'shift'} assignment effective ${formatDisplayDate(assignment.effectiveFrom)}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteEmployeeShiftAssignment(employee.id, assignment.id);
+      setShiftHistory((prev) => (prev ? prev.filter((a) => a.id !== assignment.id) : prev));
+      refreshShiftSummary();
+    } catch {
+      showToast('Could not delete this shift assignment. Please try again.');
+    }
+  }
 
   // Soft toggle — never deletes the employee. Deactivating also blocks their
   // ESS login immediately (see employee.service.js::setEmployeeActiveStatus);
@@ -669,6 +754,111 @@ export function EmployeeDetailModal({
               )}
             </div>
           </div>
+
+          {shiftSummary && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Shift &amp; Roster</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border border-border bg-page px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Default Shift</p>
+                  {shiftSummary.defaultShift ? (
+                    <p className="mt-1 text-sm text-ink">
+                      {shiftSummary.defaultShift.name} · {shiftSummary.defaultShift.startTime.slice(0, 5)}–
+                      {shiftSummary.defaultShift.endTime.slice(0, 5)}
+                      {shiftSummary.defaultShift.isNightShift && (
+                        <span className="ml-1.5 text-xs text-ink-muted">(Night Shift)</span>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-ink-muted">Not assigned yet</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border bg-page px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Today&apos;s Roster</p>
+                  {shiftSummary.todayRoster?.shift ? (
+                    <p className="mt-1 text-sm text-ink">
+                      {shiftSummary.todayRoster.shift.name} · {shiftSummary.todayRoster.shift.startTime.slice(0, 5)}–
+                      {shiftSummary.todayRoster.shift.endTime.slice(0, 5)}
+                      {shiftSummary.defaultShift && shiftSummary.todayRoster.shift.id !== shiftSummary.defaultShift.id && (
+                        <span className="ml-1.5 text-xs text-warning">(overrides default)</span>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-ink-muted">Following default shift</p>
+                  )}
+                </div>
+              </div>
+
+              {canCreateEmployeeShift && (
+                <form onSubmit={handleAssignShift} className="space-y-3">
+                  {assignShiftError && <p className="text-sm text-danger">{assignShiftError}</p>}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Select
+                      id="employee-assign-shift"
+                      label="Shift"
+                      value={assignShiftId}
+                      onChange={(event) => setAssignShiftId(event.target.value)}
+                      disabled={shiftOptions.length === 0}
+                      placeholder={shiftOptions.length === 0 ? 'Create a shift first' : 'Select a shift'}
+                      options={shiftOptions.map((shift) => ({
+                        value: shift.id,
+                        label: `${shift.name} (${shift.startTime.slice(0, 5)}–${shift.endTime.slice(0, 5)})`,
+                      }))}
+                    />
+                    <Input
+                      id="employee-assign-shift-from"
+                      label="Effective From"
+                      type="date"
+                      value={assignEffectiveFrom}
+                      onChange={(event) => setAssignEffectiveFrom(event.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs text-ink-muted">
+                    Applies from this date onward and stays in effect until you assign a new one — no need to
+                    set it again for every day. A published roster entry for a specific date still overrides it.
+                  </p>
+                  <div className="flex justify-end">
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      isLoading={isAssigningShift}
+                      disabled={!assignShiftId || !assignEffectiveFrom}
+                    >
+                      Assign Shift
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {canReadEmployeeShift && shiftHistory && shiftHistory.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-ink-muted">History</p>
+                  <div className="max-h-40 overflow-y-auto rounded-xl border border-border">
+                    {shiftHistory.map((assignment) => (
+                      <div
+                        key={assignment.id}
+                        className="flex items-center justify-between border-b border-border px-3 py-2 text-xs last:border-b-0"
+                      >
+                        <span className="text-ink">
+                          {assignment.shift?.name ?? 'Shift'} — from {formatDisplayDate(assignment.effectiveFrom)}
+                        </span>
+                        {canDeleteEmployeeShift && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteShiftAssignment(assignment)}
+                            aria-label="Delete this shift assignment"
+                            className="shrink-0 rounded-md p-1 text-ink-muted hover:bg-danger/10 hover:text-danger"
+                          >
+                            <Trash2 className="h-3 w-3" strokeWidth={1.75} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <form onSubmit={handleSaveDetails} className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Edit Details</p>

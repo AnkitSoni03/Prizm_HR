@@ -4,7 +4,6 @@ const bcrypt = require('bcrypt');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
-const { syncHrTeamRole } = require('../../utils/hrTeamSync');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { getSignedDownloadUrl } = require('../../utils/gcs');
 const { isCompanyInactive } = require('../../utils/companyStatus');
@@ -356,6 +355,21 @@ async function activateAccount({ token, password }) {
       { transaction: t }
     );
 
+    // Flips the Employee lifecycle status (distinct from the User login
+    // status just set above) from 'onboarding' to 'active' the moment they
+    // actually set their password — previously this only ever happened via
+    // a manual edit in EmployeeDetailModal.tsx. Only touches an employee
+    // still sitting in the default pre-activation 'onboarding' state, so it
+    // never clobbers a deliberate later lifecycle change (e.g. an admin who
+    // marked them 'on_notice'/'exited' before they got around to
+    // activating their invite).
+    if (user.employeeId) {
+      const employee = await db.Employee.findByPk(user.employeeId, { transaction: t });
+      if (employee && employee.status === 'onboarding') {
+        await employee.update({ status: 'active' }, { transaction: t });
+      }
+    }
+
     await invitation.update({ acceptedAt: new Date() }, { transaction: t });
   });
 
@@ -363,20 +377,12 @@ async function activateAccount({ token, password }) {
   // comp-off auto-detection wiring in attendance.service.js) — a bug here
   // must never block an employee from actually activating their login.
   // Only relevant for an ESS activation (user.employeeId set); Group/
-  // Company/Brand Admin invitations never carry one.
+  // Company/Brand Admin invitations never carry one. Retroactively grants
+  // the UserRole for any custom "powers" Role already assigned to this
+  // employee before they ever activated (assignEmployeePowers only creates
+  // the grant immediately when the employee is already active; this is the
+  // other half of that ordering).
   if (user.employeeId) {
-    try {
-      await syncHrTeamRole({ employeeId: user.employeeId });
-    } catch (err) {
-      console.error('HR Team role sync failed:', err);
-    }
-
-    // Same best-effort convention — retroactively grants the UserRole for
-    // any custom "powers" Role already assigned to this employee before
-    // they ever activated (assignEmployeePowers only creates the grant
-    // immediately when the employee is already active; this is the other
-    // half of that ordering, mirroring how syncHrTeamRole is called here
-    // rather than at invite time).
     try {
       await ensureCustomRoleGrant({ employeeId: user.employeeId });
     } catch (err) {
@@ -497,18 +503,23 @@ async function getCurrentUser({ userId, companyId }) {
   // their own (companyId null), so this is null for that portal.
   const company = companyId ? await db.Company.findByPk(companyId, { attributes: ['usesBrands'] }) : null;
 
-  // Photo lives on the Employee record, not User (see the employee module) —
-  // only resolvable for a caller whose account is actually linked to one
-  // (ESS employees; most admin-only accounts have no employeeId and simply
-  // get null here, falling back to the generic avatar icon on the frontend).
+  // Name and photo both live on the Employee record, not User (see the
+  // employee module) — only resolvable for a caller whose account is
+  // actually linked to one (ESS employees; most admin-only accounts have
+  // no employeeId and simply get null for both, falling back to the raw
+  // email / generic avatar icon on the frontend).
+  let name = null;
   let photoUrl = null;
   if (user.employeeId) {
-    const employee = await db.Employee.findByPk(user.employeeId, { attributes: ['photoUrl'] });
-    if (employee && employee.photoUrl) {
-      try {
-        photoUrl = await getSignedDownloadUrl(employee.photoUrl);
-      } catch (err) {
-        console.error('Could not generate signed URL for profile photo:', err);
+    const employee = await db.Employee.findByPk(user.employeeId, { attributes: ['name', 'photoUrl'] });
+    if (employee) {
+      name = employee.name;
+      if (employee.photoUrl) {
+        try {
+          photoUrl = await getSignedDownloadUrl(employee.photoUrl);
+        } catch (err) {
+          console.error('Could not generate signed URL for profile photo:', err);
+        }
       }
     }
   }
@@ -517,6 +528,7 @@ async function getCurrentUser({ userId, companyId }) {
     id: user.id,
     email: user.email,
     employeeId: user.employeeId,
+    name,
     roles,
     permissions,
     companyUsesBrands: company ? company.usesBrands : null,

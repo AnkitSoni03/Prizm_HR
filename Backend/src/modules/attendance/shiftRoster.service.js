@@ -91,6 +91,54 @@ async function createShiftRoster({ companyId, employeeId, shiftId, brandId, rost
   }
 }
 
+// Assigns one shift+date roster entry to each of several employees in a
+// single call — the single-employee createShiftRoster above always starts a
+// row as 'draft' (right for the "unassigned slot before anyone exists"
+// tenancy-gate case), but here every employeeId is a real, already-existing
+// employee the caller explicitly picked, so rows default to 'published'
+// straight away instead of forcing a second per-row publish step.
+// Per-employee errors (wrong brand, duplicate for that date) are collected
+// and skipped rather than aborting the whole batch — one bad row shouldn't
+// block assigning the other 49.
+async function bulkCreateShiftRoster({ companyId, employeeIds, shiftId, brandId, rosterDate, status, publisherEmployeeId }) {
+  await assertBelongsToCompany(db.Shift, shiftId, companyId, 'Shift');
+  if (brandId) await assertBelongsToCompany(db.Brand, brandId, companyId, 'Brand');
+
+  const rosterStatus = status === 'draft' ? 'draft' : 'published';
+  const results = [];
+
+  for (const employeeId of employeeIds) {
+    try {
+      const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
+      if (!employee) throw new HttpError(400, 'Employee not found for this company');
+      if (String(employee.brandId || '') !== String(brandId || '')) {
+        throw new HttpError(400, "brandId does not match the employee's current brand");
+      }
+
+      const roster = await db.ShiftRoster.create({
+        employeeId,
+        shiftId,
+        companyId,
+        brandId: brandId || null,
+        rosterDate,
+        status: rosterStatus,
+        publishedBy: rosterStatus === 'published' ? publisherEmployeeId || null : null,
+      });
+      results.push({ employeeId, status: 'created', roster });
+    } catch (err) {
+      if (err.name === 'SequelizeUniqueConstraintError') {
+        results.push({ employeeId, status: 'skipped', reason: 'A roster entry already exists for this employee on this date' });
+      } else if (err instanceof HttpError) {
+        results.push({ employeeId, status: 'skipped', reason: err.message });
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  return results;
+}
+
 async function updateShiftRoster({ companyId, id, updates, publisherEmployeeId, scopedBrandIds }) {
   const roster = await getShiftRosterForWrite({ companyId, id });
   // scopedBrandIds is null for a company-wide grant; for a brand-scoped
@@ -128,9 +176,21 @@ async function updateShiftRoster({ companyId, id, updates, publisherEmployeeId, 
   return roster;
 }
 
+async function deleteShiftRoster({ companyId, id, scopedBrandIds }) {
+  const roster = await getShiftRosterForWrite({ companyId, id });
+  // Same brand-scope enforcement as updateShiftRoster: a Brand Admin may
+  // only delete a roster entry that's actually theirs.
+  if (scopedBrandIds && !scopedBrandIds.some((brandId) => String(brandId) === String(roster.brandId))) {
+    throw new HttpError(404, 'Roster entry not found');
+  }
+  await roster.destroy();
+}
+
 module.exports = {
   listShiftRosters,
   getActiveRosterEntry,
   createShiftRoster,
+  bulkCreateShiftRoster,
   updateShiftRoster,
+  deleteShiftRoster,
 };

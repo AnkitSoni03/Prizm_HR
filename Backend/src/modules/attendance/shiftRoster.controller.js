@@ -63,6 +63,39 @@ async function create(req, res, next) {
   }
 }
 
+async function bulkCreate(req, res, next) {
+  try {
+    const { employeeIds, shiftId, brandId, rosterDate, status } = req.body;
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0 || !shiftId || !rosterDate) {
+      return res.status(400).json({ error: 'employeeIds (non-empty array), shiftId and rosterDate are required' });
+    }
+    // Same "an omitted brandId must not silently fall through to company-wide"
+    // rule the single create endpoint already enforces for a brand-scoped
+    // caller.
+    if (req.auth.scopedBrandIds && !brandId) {
+      return res.status(400).json({ error: 'brandId is required' });
+    }
+
+    const companyId = requireCompanyScope({
+      authCompanyId: req.auth.companyId,
+      override: req.body.companyId,
+    });
+
+    const results = await service.bulkCreateShiftRoster({
+      companyId,
+      employeeIds,
+      shiftId,
+      brandId,
+      rosterDate,
+      status,
+      publisherEmployeeId: req.auth.employeeId,
+    });
+    res.status(201).json({ data: results });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function update(req, res, next) {
   try {
     const companyId = requireCompanyScope({
@@ -86,4 +119,22 @@ async function update(req, res, next) {
   }
 }
 
-module.exports = { list, create, update };
+async function remove(req, res, next) {
+  try {
+    const companyId = requireCompanyScope({
+      authCompanyId: req.auth.companyId,
+      override: req.query.companyId,
+    });
+
+    await service.deleteShiftRoster({
+      companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, create, bulkCreate, update, remove };

@@ -164,7 +164,16 @@ async function runSpoofDefense({ companyId, kioskUserId, action, employeeId, fra
   return { flaggedButAllowed: null };
 }
 
-async function checkInWithFace({ companyId, kioskUserId, action, embedding, liveness, frameImage, frameBbox }) {
+async function checkInWithFace({
+  companyId,
+  kioskUserId,
+  action,
+  embedding,
+  liveness,
+  frameImage,
+  frameBbox,
+  confirmIncompleteShift = false,
+}) {
   if (action !== 'checkin' && action !== 'checkout') {
     throw new HttpError(400, "action must be 'checkin' or 'checkout'");
   }
@@ -197,6 +206,8 @@ async function checkInWithFace({ companyId, kioskUserId, action, embedding, live
     now: new Date(),
     source: 'face',
     kioskUserId,
+    action,
+    confirmIncompleteShift,
   });
 
   if (flaggedButAllowed) {

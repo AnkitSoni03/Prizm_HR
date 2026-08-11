@@ -17,6 +17,20 @@ let tokens: Tokens = {
 };
 let authExpiredHandler: (() => void) | null = null;
 
+// Bumped on every setTokens/clearTokens — i.e. every login/logout/rotation.
+// A refresh request captures this before it fires; if it's changed by the
+// time the response comes back (a logout, or a login as someone else,
+// happened while it was in flight), the response belongs to a session that
+// is no longer current and must be discarded rather than applied — see
+// client.ts's refreshAccessToken, which is what this actually guards
+// against (a stale in-flight refresh clobbering a freshly-logged-in user's
+// tokens, or logging them straight back out).
+let sessionEpoch = 0;
+
+export function getSessionEpoch(): number {
+  return sessionEpoch;
+}
+
 // Carries a specific "why you were logged out" message (e.g. account/company
 // deactivated mid-session, see client.ts's response interceptor) across the
 // forced redirect to /login, which happens via a plain React state change
@@ -42,6 +56,7 @@ export function getTokens(): Tokens {
 
 export function setTokens(next: Tokens): void {
   tokens = next;
+  sessionEpoch += 1;
   if (next.refreshToken) {
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, next.refreshToken);
   } else {
@@ -51,6 +66,7 @@ export function setTokens(next: Tokens): void {
 
 export function clearTokens(): void {
   tokens = { accessToken: null, refreshToken: null };
+  sessionEpoch += 1;
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
 }
 

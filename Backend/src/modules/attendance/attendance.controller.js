@@ -2,6 +2,7 @@
 
 const service = require('./attendance.service');
 const { parsePagination } = require('../../utils/pagination');
+const { writeAttendanceBoardXlsx } = require('../../utils/attendanceBoardExport');
 
 async function list(req, res, next) {
   try {
@@ -55,6 +56,34 @@ async function roster(req, res, next) {
   }
 }
 
+async function board(req, res, next) {
+  try {
+    const result = await service.listAttendanceBoard({
+      companyId: req.auth.companyId,
+      brandIds: req.auth.scopedBrandIds,
+      year: req.query.year,
+      month: req.query.month,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function exportBoard(req, res, next) {
+  try {
+    const result = await service.listAttendanceBoard({
+      companyId: req.auth.companyId,
+      brandIds: req.auth.scopedBrandIds,
+      year: req.query.year,
+      month: req.query.month,
+    });
+    await writeAttendanceBoardXlsx(res, result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function bulkUpdateStatus(req, res, next) {
   try {
     const result = await service.bulkSetAttendanceStatus({
@@ -99,4 +128,4 @@ async function videoUrl(req, res, next) {
   }
 }
 
-module.exports = { list, get, videoUrl, roster, bulkUpdateStatus };
+module.exports = { list, get, videoUrl, roster, board, exportBoard, bulkUpdateStatus };

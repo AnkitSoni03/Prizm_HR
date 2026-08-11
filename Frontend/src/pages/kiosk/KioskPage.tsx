@@ -67,21 +67,41 @@ type KioskState =
   | { phase: 'ready' }
   | { phase: 'matching'; action: 'checkin' | 'checkout' }
   | { phase: 'success'; message: string }
-  | { phase: 'error'; message: string };
+  | { phase: 'error'; message: string }
+  // The employee tried to check out before their shift's hours were up —
+  // reused across confirm-in-progress too (isConfirming), rather than a
+  // separate 'matching' detour, so the OK/Wait buttons stay visible with a
+  // disabled state instead of the dialog disappearing mid-confirm.
+  | { phase: 'confirm_incomplete_shift'; message: string; isConfirming: boolean };
 
-// code/flagId are only ever present on a blocked anti-spoof rejection (see
-// Backend/src/app.js's error handler + faceAttendance.service.js) — every
-// other rejection (unknown face, liveness challenge failed) has neither.
-function extractErrorDetails(err: unknown, fallback: string): { message: string; code?: string; flagId?: string } {
+// checkInTime/checkOutTime/workedMinutes/requiredMinutes are only present
+// for the specific attendance-state error codes below (see
+// attendance.service.js::applyAttendancePunch); flagId only for a blocked
+// anti-spoof rejection. Every other rejection (unknown face, liveness
+// challenge failed) has none of these.
+interface FaceCheckInErrorDetails {
+  message: string;
+  code?: string;
+  flagId?: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+  workedMinutes?: number;
+  requiredMinutes?: number;
+}
+
+function extractErrorDetails(err: unknown, fallback: string): FaceCheckInErrorDetails {
   if (axios.isAxiosError(err) && err.response?.data) {
-    const data = err.response.data as { error?: string; code?: string; flagId?: string };
+    const data = err.response.data as Omit<FaceCheckInErrorDetails, 'message'> & { error?: string };
     return {
+      ...data,
       message: typeof data.error === 'string' ? data.error : fallback,
-      code: data.code,
-      flagId: data.flagId,
     };
   }
   return { message: fallback };
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 // Fullscreen, no Layout/Sidebar/Topbar chrome — a physical kiosk device logs
@@ -109,6 +129,19 @@ export function KioskPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Everything needed to resubmit the exact same checkout attempt with
+  // confirmIncompleteShift: true after the employee taps "Check Out Anyway"
+  // — set right before the first faceCheckIn call, so confirming doesn't
+  // require the employee to redo the liveness challenge in front of the
+  // camera a second time. Cleared once the confirm dialog resolves either
+  // way (confirm or Wait).
+  const pendingCheckoutRef = useRef<{
+    descriptor: number[];
+    liveness: { challenge: LivenessChallenge; frames: LivenessFrame[] };
+    frameImage?: string;
+    frameBbox?: FrameBbox;
+    blob: Blob;
+  } | null>(null);
 
   useEffect(() => {
     loadFaceApiModels()
@@ -261,6 +294,13 @@ export function KioskPage() {
       return;
     }
 
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+
+    // Suppressed only when this attempt lands on the "check out anyway?"
+    // confirmation instead of a normal terminal state — that dialog waits
+    // on the employee's own OK/Wait tap, not a timer.
+    let autoResetToReady = true;
+
     setState({ phase: 'matching', action });
     try {
       const result = await faceCheckIn(
@@ -275,27 +315,76 @@ export function KioskPage() {
         message: `Welcome, ${result.employee.name} — ${result.action === 'check_in' ? 'Checked In' : 'Checked Out'}`,
       });
 
-      const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
       uploadFaceCapture(result.attendance.id, action, blob).catch((err) =>
         console.error('Face capture upload failed:', err)
       );
     } catch (err) {
-      const { message, code, flagId } = extractErrorDetails(err, 'Face not recognized. Please try again.');
-      setState({ phase: 'error', message });
+      const details = extractErrorDetails(err, 'Face not recognized. Please try again.');
+
+      if (details.code === 'SHIFT_INCOMPLETE') {
+        // Keep everything needed to resubmit as a confirmed checkout — the
+        // employee shouldn't have to redo the liveness challenge just to
+        // say "yes, check me out anyway".
+        pendingCheckoutRef.current = { descriptor: Array.from(descriptor), liveness: { challenge: challenge.key, frames }, frameImage, frameBbox, blob };
+        setState({ phase: 'confirm_incomplete_shift', message: details.message, isConfirming: false });
+        autoResetToReady = false;
+      } else if (details.code === 'ALREADY_CHECKED_IN' && details.checkInTime) {
+        setState({ phase: 'error', message: `Already Checked-In at ${formatTime(details.checkInTime)}` });
+      } else if (details.code === 'ALREADY_CHECKED_OUT' && details.checkOutTime) {
+        setState({ phase: 'error', message: `Already Checked-Out at ${formatTime(details.checkOutTime)}` });
+      } else {
+        setState({ phase: 'error', message: details.message });
+      }
 
       // Blocked anti-spoof attempt — preserve the capture clip against the
       // flag record so an admin can review it on the Fraud Attempts page,
       // same as a normal successful check-in always preserves its clip.
-      if (code === 'SPOOF_DETECTED' && flagId) {
-        const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-        uploadFaceFlagCapture(flagId, blob).catch((uploadErr) =>
+      if (details.code === 'SPOOF_DETECTED' && details.flagId) {
+        uploadFaceFlagCapture(details.flagId, blob).catch((uploadErr) =>
           console.error('Fraud attempt capture upload failed:', uploadErr)
         );
       }
     } finally {
+      if (autoResetToReady) setTimeout(() => setState({ phase: 'ready' }), 3000);
+    }
+  }, []);
+
+  // "Check Out Anyway" on the SHIFT_INCOMPLETE confirmation — resubmits the
+  // exact same descriptor/liveness/frame data already captured, just with
+  // confirmIncompleteShift: true, rather than reopening the camera.
+  const confirmCheckoutAnyway = useCallback(async () => {
+    const pending = pendingCheckoutRef.current;
+    if (!pending) return;
+
+    setState((prev) => (prev.phase === 'confirm_incomplete_shift' ? { ...prev, isConfirming: true } : prev));
+    try {
+      const result = await faceCheckIn(
+        'checkout',
+        pending.descriptor,
+        pending.liveness,
+        pending.frameImage,
+        pending.frameBbox,
+        true
+      );
+      setState({ phase: 'success', message: `Welcome, ${result.employee.name} — Checked Out` });
+      uploadFaceCapture(result.attendance.id, 'checkout', pending.blob).catch((err) =>
+        console.error('Face capture upload failed:', err)
+      );
+    } catch (err) {
+      const { message } = extractErrorDetails(err, 'Could not check out. Please try again.');
+      setState({ phase: 'error', message });
+    } finally {
+      pendingCheckoutRef.current = null;
       setTimeout(() => setState({ phase: 'ready' }), 3000);
     }
   }, []);
+
+  // "Wait" — the employee isn't ready to leave yet; discard the pending
+  // checkout entirely and go straight back to ready, no attendance write.
+  function dismissIncompleteShiftCheckout() {
+    pendingCheckoutRef.current = null;
+    setState({ phase: 'ready' });
+  }
 
   if (!isAuthenticated) {
     return (
@@ -342,7 +431,20 @@ export function KioskPage() {
       </div>
 
       <div className="relative flex h-[360px] w-[480px] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-xl">
-        <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+        {/* Mirrored (-scale-x-100) so the preview behaves like a normal
+            mirror — move your head left, the picture moves left — instead
+            of the camera's raw, unmirrored feed which looks reversed to
+            whoever's standing in front of it. Purely a display transform:
+            face-api.js's detection, the captured descriptor/snapshot, and
+            the recorded clip all read the video element's actual decoded
+            frame buffer, which CSS transforms never touch. */}
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="h-full w-full -scale-x-100 object-cover"
+        />
 
         {state.phase === 'ready' && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-white">
@@ -374,6 +476,30 @@ export function KioskPage() {
         {state.phase === 'error' && (
           <div className="absolute inset-0 flex items-center justify-center bg-danger/90 px-6 text-center text-sm font-semibold text-white">
             {state.message}
+          </div>
+        )}
+
+        {state.phase === 'confirm_incomplete_shift' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
+            <p className="text-sm font-semibold text-white">{state.message}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={confirmCheckoutAnyway}
+                disabled={state.isConfirming}
+                className="rounded-xl bg-danger px-5 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {state.isConfirming ? 'Checking Out…' : 'OK, Check Out'}
+              </button>
+              <button
+                type="button"
+                onClick={dismissIncompleteShiftCheckout}
+                disabled={state.isConfirming}
+                className="rounded-xl bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-50"
+              >
+                Wait
+              </button>
+            </div>
           </div>
         )}
       </div>

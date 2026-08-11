@@ -4,7 +4,7 @@ const nodemailer = require('nodemailer');
 
 // Lazily created so a missing/misconfigured SMTP_* env var only breaks email
 // sending (caught and logged by callers, same "best-effort" convention as
-// comp-off auto-detection and HR Team role sync elsewhere in this codebase),
+// comp-off auto-detection and custom power role sync elsewhere in this codebase),
 // not server boot.
 let transporter = null;
 function getTransporter() {

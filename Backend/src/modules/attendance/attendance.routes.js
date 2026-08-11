@@ -4,6 +4,7 @@ const { Router } = require('express');
 const shiftRoutes = require('./shift.routes');
 const shiftRosterRoutes = require('./shiftRoster.routes');
 const employeeShiftRoutes = require('./employeeShift.routes');
+const employeeShiftBulkRoutes = require('./employeeShiftBulk.routes');
 const attendanceRegularizationRoutes = require('./attendanceRegularization.routes');
 const odRequestRoutes = require('./odRequest.routes');
 const attendanceCoreRoutes = require('./attendanceCore.routes');
@@ -16,6 +17,7 @@ const router = Router();
 
 router.use('/shifts', shiftRoutes);
 router.use('/rosters', shiftRosterRoutes);
+router.use('/employee-shifts', employeeShiftBulkRoutes);
 router.use('/employees/:employeeId/shifts', employeeShiftRoutes);
 router.use('/regularizations', attendanceRegularizationRoutes);
 router.use('/od-requests', odRequestRoutes);

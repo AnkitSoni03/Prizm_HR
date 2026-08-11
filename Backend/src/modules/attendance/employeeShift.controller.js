@@ -33,6 +33,25 @@ async function create(req, res, next) {
   }
 }
 
+async function bulkCreate(req, res, next) {
+  try {
+    const { employeeIds, shiftId, effectiveFrom } = req.body;
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0 || !shiftId || !effectiveFrom) {
+      return res.status(400).json({ error: 'employeeIds (non-empty array), shiftId and effectiveFrom are required' });
+    }
+
+    const results = await service.bulkCreateEmployeeShift({
+      companyId: req.auth.companyId,
+      employeeIds,
+      shiftId,
+      effectiveFrom,
+    });
+    res.status(201).json({ data: results });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function remove(req, res, next) {
   try {
     await service.deleteEmployeeShift({
@@ -46,4 +65,4 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, create, remove };
+module.exports = { list, create, bulkCreate, remove };

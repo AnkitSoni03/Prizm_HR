@@ -64,16 +64,24 @@ export interface ShiftRoster {
   updatedAt: string;
 }
 
+// Trimmed shape of Shift returned inline on Employee.defaultShift/todayRoster
+// (see employee.service.js::getEmployeeForRead's shiftSummary()) — no
+// companyId/createdAt/updatedAt, those aren't needed for display.
+export interface EmployeeShiftSummary {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  isNightShift: boolean;
+  weeklyOffDays: number[];
+}
+
 export interface Department {
   id: string;
   companyId: string;
   name: string;
   code: string | null;
   headEmployeeId: string | null;
-  // Drives automatic HR Team role grants (src/utils/hrTeamSync.js,
-  // backend) — every employee assigned here gets holiday/leave-balance
-  // management powers on top of their normal ESS access.
-  isHrDepartment: boolean;
 }
 
 export interface Designation {
@@ -121,6 +129,12 @@ export interface Employee {
   // when eager-loaded by GET /employees/:id — lets EmployeeDetailModal.tsx
   // show which email they log in with and offer to transfer it.
   loginUser?: { id: string; email: string; isActive: boolean; status: string } | null;
+  // Standing default shift (employee_shifts, resolved as of today) and any
+  // published shift_rosters override for today — only present when
+  // eager-loaded by GET /employees/:id (see employee.service.js::
+  // getEmployeeForRead). null means none is assigned/published.
+  defaultShift?: EmployeeShiftSummary | null;
+  todayRoster?: { id: string; rosterDate: string; shift: EmployeeShiftSummary | null } | null;
 }
 
 export interface Plan {
@@ -350,7 +364,6 @@ export async function createDepartment(input: {
   companyId: string;
   name: string;
   code: string;
-  isHrDepartment?: boolean;
 }): Promise<Department> {
   const { data } = await apiClient.post<{ data: Department }>('/departments', input);
   return data.data;
@@ -358,7 +371,7 @@ export async function createDepartment(input: {
 
 export async function updateDepartment(
   id: string,
-  input: { companyId: string; name: string; code: string; isHrDepartment?: boolean }
+  input: { companyId: string; name: string; code: string }
 ): Promise<Department> {
   const { data } = await apiClient.patch<{ data: Department }>(`/departments/${id}`, input);
   return data.data;

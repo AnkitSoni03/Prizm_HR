@@ -26,7 +26,6 @@ export function DepartmentFormModal({ companyId, department, onClose, onSaved }:
   const isEdit = !!department;
   const [name, setName] = useState(department?.name ?? '');
   const [code, setCode] = useState(department?.code ?? '');
-  const [isHrDepartment, setIsHrDepartment] = useState(department?.isHrDepartment ?? false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{ created: string[]; failed: string[] } | null>(null);
@@ -41,7 +40,7 @@ export function DepartmentFormModal({ companyId, department, onClose, onSaved }:
     if (isEdit) {
       setIsSubmitting(true);
       try {
-        await updateDepartment(department.id, { companyId, name, code, isHrDepartment });
+        await updateDepartment(department.id, { companyId, name, code });
         onSaved();
         onClose();
       } catch {
@@ -59,7 +58,7 @@ export function DepartmentFormModal({ companyId, department, onClose, onSaved }:
     if (parsedNames.length === 1) {
       setIsSubmitting(true);
       try {
-        await createDepartment({ companyId, name: parsedNames[0], code, isHrDepartment });
+        await createDepartment({ companyId, name: parsedNames[0], code });
         onSaved();
         onClose();
       } catch {
@@ -153,22 +152,6 @@ export function DepartmentFormModal({ companyId, department, onClose, onSaved }:
             </p>
           )}
         </div>
-        {!isBulk && (
-          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border px-3 py-2.5 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={isHrDepartment}
-              onChange={(event) => setIsHrDepartment(event.target.checked)}
-            />
-            <span>
-              <span className="block text-sm font-medium text-ink">This is the HR department</span>
-              <span className="block text-xs text-ink-muted">
-                Every employee assigned here automatically gets holiday and leave balance management access.
-              </span>
-            </span>
-          </label>
-        )}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

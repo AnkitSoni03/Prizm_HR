@@ -3,18 +3,20 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
-import { Badge } from '../../components/ui/Badge';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
-import { deleteShift, listShiftRosters, listShifts } from '../../api/companyAdmin/attendance';
+import { deleteShift, deleteShiftRoster, listShiftRosters, listShifts } from '../../api/companyAdmin/attendance';
 import { listBrands } from '../../api/companyAdmin/org';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import type { Brand, Employee, Shift, ShiftRoster } from '../../api/tenancy';
 import { ShiftFormModal } from '../company-admin/components/ShiftFormModal';
 import { RosterFormModal } from '../company-admin/components/RosterFormModal';
 import { RosterEditModal } from '../company-admin/components/RosterEditModal';
+import { RosterGroupEmployees } from '../company-admin/components/RosterGroupEmployees';
+import { AddRosterEmployeesModal } from '../company-admin/components/AddRosterEmployeesModal';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+import { groupRosters, type RosterGroup } from '../../utils/rosterGrouping';
 
 type Tab = 'shifts' | 'rosters';
 
@@ -46,6 +48,7 @@ export function ShiftsRostersPage() {
   const [editingShift, setEditingShift] = useState<Shift | 'new' | null>(null);
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
   const [editingRoster, setEditingRoster] = useState<ShiftRoster | null>(null);
+  const [addingToGroup, setAddingToGroup] = useState<RosterGroup | null>(null);
 
   async function loadShifts() {
     try {
@@ -68,6 +71,24 @@ export function ShiftsRostersPage() {
       loadShifts();
     } catch {
       showToast('Could not delete this shift — it may still be in use by an employee shift or roster.');
+    }
+  }
+
+  async function handleDeleteRoster(roster: ShiftRoster) {
+    const employee = roster.employeeId ? employees.find((e) => e.id === roster.employeeId) : null;
+    const label = employee ? `${employee.name} (${employee.employeeCode})` : 'this unassigned slot';
+    const confirmed = await confirm({
+      title: 'Delete roster entry',
+      message: `Delete the roster entry for ${label} on ${formatDisplayDate(roster.rosterDate)}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteShiftRoster(roster.id);
+      loadRosters();
+    } catch {
+      showToast('Could not delete this roster entry. Please try again.');
     }
   }
 
@@ -205,40 +226,27 @@ export function ShiftsRostersPage() {
           </div>
           <Table
             isLoading={isRostersLoading}
-            rows={rosters}
-            rowKey={(roster) => roster.id}
+            rows={groupRosters(rosters)}
+            rowKey={(group) => group.key}
+            emptyMessage="No roster entries found."
             columns={[
-              { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.rosterDate) },
-              { key: 'shift', header: 'Shift', render: (r) => r.shift?.name ?? '—' },
+              { key: 'date', header: 'Date', className: 'w-32', render: (g) => formatDisplayDate(g.rosterDate) },
+              { key: 'shift', header: 'Shift', className: 'w-32', render: (g) => g.entries[0]?.shift?.name ?? '—' },
               {
-                key: 'employee',
-                header: 'Employee',
-                render: (r) => {
-                  if (!r.employeeId) return <span className="text-ink-muted">Unassigned</span>;
-                  const employee = employees.find((e) => e.id === r.employeeId);
-                  return employee ? `${employee.name} (${employee.employeeCode})` : r.employeeId;
-                },
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (r) => <Badge tone={r.status === 'published' ? 'success' : 'neutral'}>{r.status}</Badge>,
-              },
-              {
-                key: 'actions',
-                header: '',
-                className: 'w-16 text-right',
-                render: (roster) =>
-                  hasPermission('shift_roster:update') && (
-                    <button
-                      type="button"
-                      onClick={() => setEditingRoster(roster)}
-                      aria-label={`Edit roster for ${roster.rosterDate}`}
-                      className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
-                    >
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    </button>
-                  ),
+                key: 'employees',
+                header: 'Employees',
+                render: (g) => (
+                  <RosterGroupEmployees
+                    entries={g.entries}
+                    employees={employees}
+                    canUpdate={hasPermission('shift_roster:update')}
+                    canDelete={hasPermission('shift_roster:delete')}
+                    canCreate={hasPermission('shift_roster:create')}
+                    onEdit={setEditingRoster}
+                    onDelete={handleDeleteRoster}
+                    onAddEmployees={() => setAddingToGroup(g)}
+                  />
+                ),
               },
             ]}
           />
@@ -258,6 +266,7 @@ export function ShiftsRostersPage() {
         <RosterFormModal
           brands={[ownBrand]}
           shifts={shifts}
+          employees={employees}
           onClose={() => setIsRosterModalOpen(false)}
           onCreated={loadRosters}
         />
@@ -269,6 +278,16 @@ export function ShiftsRostersPage() {
           employees={employees}
           onClose={() => setEditingRoster(null)}
           onSaved={loadRosters}
+        />
+      )}
+
+      {addingToGroup && (
+        <AddRosterEmployeesModal
+          group={addingToGroup}
+          shiftName={addingToGroup.entries[0]?.shift?.name ?? '—'}
+          employees={employees}
+          onClose={() => setAddingToGroup(null)}
+          onCreated={loadRosters}
         />
       )}
     </div>

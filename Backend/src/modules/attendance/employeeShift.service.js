@@ -22,6 +22,7 @@ async function listEmployeeShifts({ companyId, employeeId }) {
   return db.EmployeeShift.findAll({
     where: { employeeId },
     order: [['effectiveFrom', 'DESC']],
+    include: [{ model: db.Shift, as: 'shift' }],
   });
 }
 
@@ -40,7 +41,14 @@ async function createEmployeeShift({ companyId, employeeId, shiftId, effectiveFr
   await assertEmployeeInCompany({ companyId, employeeId });
   await assertBelongsToCompany(db.Shift, shiftId, companyId, 'Shift');
 
-  return db.EmployeeShift.create({ employeeId, shiftId, effectiveFrom });
+  try {
+    return await db.EmployeeShift.create({ employeeId, shiftId, effectiveFrom });
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      throw new HttpError(409, 'A shift assignment already exists for this employee starting on this date');
+    }
+    throw err;
+  }
 }
 
 async function deleteEmployeeShift({ companyId, employeeId, id }) {
@@ -50,9 +58,38 @@ async function deleteEmployeeShift({ companyId, employeeId, id }) {
   await assignment.destroy();
 }
 
+// Assigns the same default shift (same effective_from) to several employees
+// in one call — createEmployeeShift above only takes one employeeId at a
+// time, which is fine for a single correction but not for onboarding a
+// whole team onto a shift pattern. Per-employee errors (not found, duplicate
+// effective_from) are collected and skipped so one bad row doesn't block the
+// rest of the batch.
+async function bulkCreateEmployeeShift({ companyId, employeeIds, shiftId, effectiveFrom }) {
+  await assertBelongsToCompany(db.Shift, shiftId, companyId, 'Shift');
+
+  const results = [];
+  for (const employeeId of employeeIds) {
+    try {
+      await assertEmployeeInCompany({ companyId, employeeId });
+      const assignment = await db.EmployeeShift.create({ employeeId, shiftId, effectiveFrom });
+      results.push({ employeeId, status: 'created', assignment });
+    } catch (err) {
+      if (err.name === 'SequelizeUniqueConstraintError') {
+        results.push({ employeeId, status: 'skipped', reason: 'A shift assignment already exists for this employee starting on this date' });
+      } else if (err instanceof HttpError) {
+        results.push({ employeeId, status: 'skipped', reason: err.message });
+      } else {
+        throw err;
+      }
+    }
+  }
+  return results;
+}
+
 module.exports = {
   listEmployeeShifts,
   getActiveEmployeeShift,
   createEmployeeShift,
+  bulkCreateEmployeeShift,
   deleteEmployeeShift,
 };

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { CalendarCheck, CalendarX2, Clock3, PlaneTakeoff, Timer } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
 import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
@@ -9,6 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { AttendanceHoursChart } from '../../components/charts/AttendanceHoursChart';
 import { useAuth } from '../../context/auth-context';
 import {
   createRegularization,
@@ -192,6 +194,62 @@ export function MyAttendancePage() {
     }
   }
 
+  // Denominator deliberately counts leave alongside present/half-day/absent —
+  // only holiday/weekoff days (already resolved server-side from the
+  // employee's own shift/roster) are excluded, same convention as the
+  // dashboard's Monthly Attendance card.
+  let presentCount = 0;
+  let halfDayCount = 0;
+  let leaveCount = 0;
+  let absentCount = 0;
+  let totalHours = 0;
+  for (const r of attendance) {
+    if (r.status === 'present' || r.status === 'on_duty') presentCount++;
+    else if (r.status === 'half_day') halfDayCount++;
+    else if (r.status === 'leave') leaveCount++;
+    else if (r.status === 'absent') absentCount++;
+    totalHours += workedMinutes(r) / 60;
+  }
+  const workingDaysCount = presentCount + halfDayCount + leaveCount + absentCount;
+  const avgHoursPerDay = presentCount + halfDayCount > 0 ? totalHours / (presentCount + halfDayCount) : 0;
+
+  const summaryCards = [
+    {
+      label: 'Present',
+      value: presentCount,
+      icon: CalendarCheck,
+      classes: 'bg-success/10 text-success',
+      hint: workingDaysCount > 0 ? `${Math.round((presentCount / workingDaysCount) * 100)}% of working days` : undefined,
+    },
+    {
+      label: 'Half Day',
+      value: halfDayCount,
+      icon: Clock3,
+      classes: 'bg-warning/10 text-warning',
+    },
+    {
+      label: 'On Leave',
+      value: leaveCount,
+      icon: PlaneTakeoff,
+      classes: 'bg-primary-light text-primary',
+    },
+    {
+      label: 'Absent',
+      value: absentCount,
+      icon: CalendarX2,
+      classes: 'bg-danger/10 text-danger',
+    },
+    {
+      label: 'Avg Hours/Day',
+      value: `${avgHoursPerDay.toFixed(1)}h`,
+      icon: Timer,
+      classes: 'bg-primary-light text-primary',
+    },
+  ];
+
+  const showVisuals = activeTab === 'history' && !isBeforeJoining && attendance.length > 0;
+  const [chartYear, chartMonth] = month !== '' ? month.split('-').map(Number) : [0, 0];
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -236,6 +294,28 @@ export function MyAttendancePage() {
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
+      {showVisuals && (
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {summaryCards.map((card) => (
+              <div
+                key={card.label}
+                className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md"
+              >
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${card.classes}`}>
+                  <card.icon className="h-4 w-4" strokeWidth={1.75} />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-bold text-ink">{card.value}</p>
+                  <p className="truncate text-xs text-ink-muted">{card.label}</p>
+                  {card.hint && <p className="truncate text-[10px] text-ink-muted">{card.hint}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {activeTab === 'history' && isBeforeJoining && (
         <EmptyStateCard
           title="No attendance to show"
@@ -245,6 +325,7 @@ export function MyAttendancePage() {
 
       {activeTab === 'history' && !isBeforeJoining && (
         <Table
+          scrollOnMobile
           isLoading={isLoading}
           rows={attendance}
           rowKey={(r) => r.id}
@@ -285,9 +366,16 @@ export function MyAttendancePage() {
         />
       )}
 
+      {showVisuals && month !== '' && (
+        <div className="mt-4">
+          <AttendanceHoursChart year={chartYear} month={chartMonth - 1} rows={attendance} />
+        </div>
+      )}
+
       {activeTab === 'requests' && (
         <>
           <Table
+            scrollOnMobile
             isLoading={isLoading}
             rows={requests}
             rowKey={(r) => r.id}

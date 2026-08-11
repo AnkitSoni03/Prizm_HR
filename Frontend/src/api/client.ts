@@ -1,5 +1,12 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
-import { clearTokens, getTokens, notifyAuthExpired, setPendingSessionMessage, setTokens } from './tokenStore';
+import {
+  clearTokens,
+  getSessionEpoch,
+  getTokens,
+  notifyAuthExpired,
+  setPendingSessionMessage,
+  setTokens,
+} from './tokenStore';
 
 // Set on a 403 by requireAuth (Backend/src/middleware/auth.middleware.js)
 // when the caller's own account, or their whole company, was deactivated
@@ -39,11 +46,34 @@ interface RetriableConfig extends InternalAxiosRequestConfig {
   _retried?: boolean;
 }
 
-// Only one refresh call should ever be in flight — concurrent 401s share
-// this promise instead of each firing their own /auth/refresh request.
+// Only one refresh call should ever be in flight for a given session —
+// concurrent callers (a 401 retry, AND AuthContext's app-load bootstrap
+// effect, which React 18 StrictMode double-invokes in dev) share this
+// promise instead of each firing their own /auth/refresh request. Two
+// concurrent requests using the same (rotating, single-use) refresh token
+// would otherwise race: whichever the backend sees second gets rejected as
+// already-revoked, which used to wipe out the tokens the first one had just
+// set. Scoped by session epoch (see tokenStore.ts) rather than just "one
+// promise ever" — a fresh login/logout must be able to start its own
+// refresh cycle rather than piggyback on a stale one from the session that
+// just ended.
 let refreshPromise: Promise<string | null> | null = null;
+let refreshPromiseEpoch = -1;
 
 export async function refreshAccessToken(): Promise<string | null> {
+  const epoch = getSessionEpoch();
+  if (refreshPromise && refreshPromiseEpoch === epoch) {
+    return refreshPromise;
+  }
+
+  refreshPromiseEpoch = epoch;
+  refreshPromise = doRefresh(epoch).finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+async function doRefresh(epochAtStart: number): Promise<string | null> {
   const { refreshToken } = getTokens();
   if (!refreshToken) return null;
 
@@ -51,9 +81,15 @@ export async function refreshAccessToken(): Promise<string | null> {
     const { data } = await axios.post(`${apiClient.defaults.baseURL}/auth/refresh`, {
       refreshToken,
     });
+    // A logout, or a login as someone else, happened while this request was
+    // in flight — the response belongs to a session that's no longer
+    // current. Applying it now would silently overwrite whatever the newer
+    // session already set. Just drop it.
+    if (getSessionEpoch() !== epochAtStart) return null;
     setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
     return data.accessToken as string;
   } catch {
+    if (getSessionEpoch() !== epochAtStart) return null;
     clearTokens();
     notifyAuthExpired();
     return null;
@@ -102,11 +138,7 @@ apiClient.interceptors.response.use(
     }
 
     config._retried = true;
-    refreshPromise ??= refreshAccessToken().finally(() => {
-      refreshPromise = null;
-    });
-
-    const newAccessToken = await refreshPromise;
+    const newAccessToken = await refreshAccessToken();
     if (!newAccessToken) {
       throw error;
     }

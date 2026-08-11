@@ -26,7 +26,13 @@ export async function faceCheckIn(
   embedding: number[],
   liveness: { challenge: LivenessChallenge; frames: LivenessFrame[] },
   frameImage?: string,
-  frameBbox?: FrameBbox
+  frameBbox?: FrameBbox,
+  // Set only on the follow-up call after the employee has explicitly
+  // confirmed "check out anyway" on a SHIFT_INCOMPLETE rejection — never on
+  // the first attempt. Reuses the same already-captured embedding/liveness
+  // data rather than making the employee redo the liveness challenge just
+  // to confirm.
+  confirmIncompleteShift?: boolean
 ): Promise<FaceCheckInResult> {
   const { data } = await apiClient.post<{ data: FaceCheckInResult }>('/attendance/face-checkin', {
     action,
@@ -34,6 +40,7 @@ export async function faceCheckIn(
     liveness,
     frameImage,
     frameBbox,
+    confirmIncompleteShift,
   });
   return data.data;
 }

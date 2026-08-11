@@ -19,8 +19,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isBootstrapping, setIsBootstrapping] = useState(() => !!getTokens().refreshToken);
 
   const logout = useCallback(() => {
+    // Capture before clearing — clearTokens() wipes it from memory/storage,
+    // and an explicit logout should actually end the session server-side
+    // (revoke the refresh token), not just forget it locally. Best-effort,
+    // fire-and-forget: the local logout must succeed even if this fails.
+    const { refreshToken } = getTokens();
     clearTokens();
     setUser(null);
+    if (refreshToken) {
+      void revokeRefreshToken(refreshToken);
+    }
   }, []);
 
   useEffect(() => {

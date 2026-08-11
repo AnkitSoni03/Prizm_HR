@@ -1,6 +1,15 @@
 import { apiClient } from '../client';
 import type { HolidayAuditUser } from '../companyAdmin/holidays';
 
+export interface EmployeeShiftSummary {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  isNightShift: boolean;
+  weeklyOffDays: number[];
+}
+
 export interface EmployeeProfile {
   id: string;
   companyId: string;
@@ -18,6 +27,12 @@ export interface EmployeeProfile {
   designation?: { id: string; title: string } | null;
   manager?: { id: string; name: string; employeeCode: string } | null;
   photoDownloadUrl?: string | null;
+  // Standing default shift (employee_shifts) — null if none was ever
+  // assigned. Resolved server-side as of today.
+  defaultShift: EmployeeShiftSummary | null;
+  // A published shift_rosters entry for today, if one exists — overrides
+  // defaultShift per CLAUDE.md rule 7 ("Roster > default shift").
+  todayRoster: { id: string; rosterDate: string; shift: EmployeeShiftSummary | null } | null;
 }
 
 export interface EmployeeDocument {

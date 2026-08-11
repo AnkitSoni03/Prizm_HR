@@ -25,6 +25,17 @@ module.exports = (sequelize, DataTypes) => {
       employeeId: { type: DataTypes.BIGINT, allowNull: true },
       email: { type: DataTypes.STRING, allowNull: false },
       passwordHash: { type: DataTypes.STRING, allowNull: true },
+      // AES-256-GCM ciphertext of the current plaintext password — only
+      // ever set for Scanner/kiosk accounts (see
+      // officeKiosk.service.js::createScannerAccount/
+      // resetScannerAccountPassword, src/utils/kioskCredentials.js).
+      // passwordHash above remains the sole source of truth for actual
+      // login on every account, including Scanner; this is a separate,
+      // additional copy purely so an admin can reveal a kiosk's current
+      // password again later, a deliberate exception to this app's usual
+      // never-recoverable-password rule, requested specifically for these
+      // machine accounts.
+      kioskPasswordEncrypted: { type: DataTypes.TEXT, allowNull: true },
       status: {
         type: DataTypes.ENUM('invited', 'active', 'disabled'),
         allowNull: false,

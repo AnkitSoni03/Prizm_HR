@@ -19,7 +19,6 @@ export async function listDepartments(): Promise<Department[]> {
 export async function createDepartment(input: {
   name: string;
   code?: string;
-  isHrDepartment?: boolean;
 }): Promise<Department> {
   const { data } = await apiClient.post<{ data: Department }>('/departments', input);
   return data.data;
@@ -27,7 +26,7 @@ export async function createDepartment(input: {
 
 export async function updateDepartment(
   id: string,
-  input: { name: string; code?: string; isHrDepartment?: boolean }
+  input: { name: string; code?: string }
 ): Promise<Department> {
   const { data } = await apiClient.patch<{ data: Department }>(`/departments/${id}`, input);
   return data.data;

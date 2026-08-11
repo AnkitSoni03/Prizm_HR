@@ -240,6 +240,37 @@ export function MyProfilePage() {
           <Field label="Date of Joining" value={formatDisplayDate(profile.dateOfJoining)} />
         </div>
 
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-border bg-page px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Default Shift</p>
+            {profile.defaultShift ? (
+              <p className="mt-1 text-sm text-ink">
+                {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
+                {profile.defaultShift.endTime.slice(0, 5)}
+                {profile.defaultShift.isNightShift && (
+                  <span className="ml-1.5 text-xs text-ink-muted">(Night Shift)</span>
+                )}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-ink-muted">Not assigned yet — contact your admin</p>
+            )}
+          </div>
+          <div className="rounded-lg border border-border bg-page px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Today&apos;s Roster</p>
+            {profile.todayRoster?.shift ? (
+              <p className="mt-1 text-sm text-ink">
+                {profile.todayRoster.shift.name} · {profile.todayRoster.shift.startTime.slice(0, 5)}–
+                {profile.todayRoster.shift.endTime.slice(0, 5)}
+                {profile.defaultShift && profile.todayRoster.shift.id !== profile.defaultShift.id && (
+                  <span className="ml-1.5 text-xs text-warning">(overrides default)</span>
+                )}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-ink-muted">No roster published for today — following default shift</p>
+            )}
+          </div>
+        </div>
+
         <p className="mt-5 text-xs text-ink-muted">
           Need something updated here? Reach out to your Company Admin or HR team — profile changes aren&apos;t
           self-service.

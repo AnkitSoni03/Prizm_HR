@@ -5,6 +5,7 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
 const { uploadBuffer, buildObjectPath } = require('../../utils/gcs');
+const { encryptKioskPassword, decryptKioskPassword } = require('../../utils/kioskCredentials');
 
 const BCRYPT_ROUNDS = 12;
 
@@ -83,10 +84,11 @@ async function createScannerAccount({ companyId, brandId, email, password }) {
   if (existing) throw new HttpError(409, 'A user with this email already exists for this company');
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const kioskPasswordEncrypted = encryptKioskPassword(password);
 
   const user = await db.sequelize.transaction(async (t) => {
     const createdUser = await db.User.create(
-      { companyId, email, passwordHash, status: 'active', isActive: true, activatedAt: new Date() },
+      { companyId, email, passwordHash, kioskPasswordEncrypted, status: 'active', isActive: true, activatedAt: new Date() },
       { transaction: t }
     );
     await db.UserRole.create(
@@ -97,6 +99,54 @@ async function createScannerAccount({ companyId, brandId, email, password }) {
   });
 
   return { id: user.id, email: user.email, brandId: brandId || null };
+}
+
+// Reuses scanner_account:create the same way listScannerAccounts already
+// does (no dedicated scanner_account:update code exists — this resource has
+// never needed more than one permission). 404s (not 403) when a Brand
+// Admin's own brand doesn't own this account — same "don't confirm
+// existence" precedent as employee.service.js's getEmployeeForWrite.
+async function resetScannerAccountPassword({ companyId, scopedBrandIds, userId, password }) {
+  if (!password) throw new HttpError(400, 'password is required');
+  if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
+
+  const grant = await findScannerGrant({ companyId, scopedBrandIds, userId });
+  if (!grant) throw new HttpError(404, 'Kiosk account not found');
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const kioskPasswordEncrypted = encryptKioskPassword(password);
+  await db.User.update({ passwordHash, kioskPasswordEncrypted }, { where: { id: userId, companyId } });
+  return { id: userId };
+}
+
+// Shared by resetScannerAccountPassword and getScannerAccountPassword — both
+// need the exact same "is this a Scanner account, in my company, and (for a
+// brand-scoped caller) in my own brand" check before touching it.
+async function findScannerGrant({ companyId, scopedBrandIds, userId }) {
+  const grant = await db.UserRole.findOne({
+    where: { userId, companyId },
+    include: [{ model: db.Role, as: 'role', where: { name: 'Scanner', isSystem: true }, required: true, attributes: [] }],
+  });
+  if (!grant) return null;
+  if (scopedBrandIds && !scopedBrandIds.some((id) => String(id) === String(grant.brandId))) return null;
+  return grant;
+}
+
+// Decrypts and returns a kiosk account's current plaintext password for the
+// "reveal" action — see kioskCredentials.js for why this is possible at all
+// (a deliberate, explicitly requested exception to this app's usual
+// never-recoverable-password rule, only for Scanner/kiosk accounts).
+// Returns null (not an error) for an account that predates this feature or
+// was never given one for any other reason — resetting its password fixes
+// that going forward, same as any other account.
+async function getScannerAccountPassword({ companyId, scopedBrandIds, userId }) {
+  const grant = await findScannerGrant({ companyId, scopedBrandIds, userId });
+  if (!grant) throw new HttpError(404, 'Kiosk account not found');
+
+  const user = await db.User.findOne({ where: { id: userId, companyId }, attributes: ['kioskPasswordEncrypted'] });
+  if (!user || !user.kioskPasswordEncrypted) return { password: null };
+
+  return { password: decryptKioskPassword(user.kioskPasswordEncrypted) };
 }
 
 async function listScannerAccounts({ companyId, brandId }) {
@@ -125,4 +175,6 @@ module.exports = {
   uploadFaceCapture,
   createScannerAccount,
   listScannerAccounts,
+  resetScannerAccountPassword,
+  getScannerAccountPassword,
 };
