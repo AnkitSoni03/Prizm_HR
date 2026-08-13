@@ -20,7 +20,7 @@ export interface EmployeeProfile {
   name: string;
   employeeCode: string;
   dateOfJoining: string | null;
-  employmentType: 'full_time' | 'part_time' | 'contract';
+  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   status: 'onboarding' | 'active' | 'on_notice' | 'exited' | 'archived';
   brand?: { id: string; name: string };
   department?: { id: string; name: string };

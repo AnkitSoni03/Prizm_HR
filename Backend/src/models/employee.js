@@ -62,7 +62,7 @@ module.exports = (sequelize, DataTypes) => {
       // signed download URL on read (see employee.service.js::withPhotoUrl).
       photoUrl: { type: DataTypes.STRING, allowNull: true },
       employmentType: {
-        type: DataTypes.ENUM('full_time', 'part_time', 'contract'),
+        type: DataTypes.ENUM('full_time', 'part_time', 'contract', 'probation'),
         allowNull: false,
       },
       status: {

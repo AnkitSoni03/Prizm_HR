@@ -31,6 +31,7 @@ const EMPLOYMENT_TYPES = [
   { value: 'full_time', label: 'Full-time' },
   { value: 'part_time', label: 'Part-time' },
   { value: 'contract', label: 'Contract' },
+  { value: 'probation', label: 'Probation' },
 ];
 
 const NEW_OPTION_VALUE = '__new__';
@@ -64,7 +65,9 @@ export function EmployeeFormModal({
   const [newDesignationTitle, setNewDesignationTitle] = useState('');
   const [managerId, setManagerId] = useState('');
   const [dateOfJoining, setDateOfJoining] = useState('');
-  const [employmentType, setEmploymentType] = useState<'full_time' | 'part_time' | 'contract'>('full_time');
+  const [employmentType, setEmploymentType] = useState<
+    'full_time' | 'part_time' | 'contract' | 'probation'
+  >('full_time');
   const [workState, setWorkState] = useState('');
   const [powerKeys, setPowerKeys] = useState<string[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);

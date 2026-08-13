@@ -40,6 +40,10 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, year, transaction }
   if (policy) {
     if (policy.accrual === 'yearly') {
       allotted = Number(policy.annualQuota);
+    } else if (policy.accrual === 'monthly_reset') {
+      // Flat per-month amount, not divided/accumulated — the monthly cron
+      // (leaveAccrual.job.js) resets this same amount every month.
+      allotted = Number(policy.annualQuota);
     } else {
       const employee = await db.Employee.findOne({ where: { id: employeeId }, transaction });
       const monthlyAmount = Number(policy.annualQuota) / 12;

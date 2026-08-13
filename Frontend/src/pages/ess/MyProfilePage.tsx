@@ -38,6 +38,7 @@ const EMPLOYMENT_TYPE_LABEL: Record<EmployeeProfile['employmentType'], string> =
   full_time: 'Full-time',
   part_time: 'Part-time',
   contract: 'Contract',
+  probation: 'Probation',
 };
 
 function statusTone(status: EmployeeProfile['status']) {

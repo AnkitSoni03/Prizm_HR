@@ -78,7 +78,7 @@ async function createCompany({ groupId, name, legalName, gstNumber, planId, uses
     createdBy,
   });
 
-  await db.LeaveType.bulkCreate(
+  const leaveTypes = await db.LeaveType.bulkCreate(
     DEFAULT_LEAVE_TYPES.map((leaveType) => ({
       companyId: company.id,
       code: leaveType.code,
@@ -87,6 +87,23 @@ async function createCompany({ groupId, name, legalName, gstNumber, planId, uses
       carryForward: false,
     }))
   );
+
+  // Short Leave is not opt-in — every employee gets 2/month automatically,
+  // reset (not carried forward) each month, whether they use it or not.
+  // 'monthly_reset' accrual (see leavePolicy.js) handles the reset; the
+  // policy itself must exist for getOrCreateBalance/the monthly cron to ever
+  // grant it. Existing companies got this backfilled by
+  // 20260813090200-seed-short-leave-policy-for-existing-companies.js.
+  const shortLeaveType = leaveTypes.find((leaveType) => leaveType.code === 'SHORT');
+  if (shortLeaveType) {
+    await db.LeavePolicy.create({
+      companyId: company.id,
+      leaveTypeId: shortLeaveType.id,
+      annualQuota: 2,
+      accrual: 'monthly_reset',
+      applicableAfterDays: 0,
+    });
+  }
 
   return company;
 }

@@ -102,7 +102,7 @@ export interface Employee {
   name: string;
   employeeCode: string;
   dateOfJoining: string | null;
-  employmentType: 'full_time' | 'part_time' | 'contract';
+  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   // Free text — used for Professional Tax slab lookup only (see
   // Backend/src/config/statutoryDefaults.js). An unrecognized/blank value
   // just falls back to the 'default' PT slab.
@@ -443,7 +443,7 @@ export async function createEmployee(input: {
   designationId: string | null;
   managerId: string | null;
   dateOfJoining: string;
-  employmentType: 'full_time' | 'part_time' | 'contract';
+  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
   return data.data;

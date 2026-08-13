@@ -16,9 +16,10 @@ async function runLeaveAccrual({ asOf = new Date() } = {}) {
 
   // Outside January there's nothing to do for yearly-accrual policies —
   // those are seeded in full the moment a balance row is first created
-  // (see leaveBalance.service.js::getOrCreateBalance).
+  // (see leaveBalance.service.js::getOrCreateBalance). monthly_reset must
+  // run every month (including January), same as monthly.
   const policies = await db.LeavePolicy.findAll({
-    where: isJanuary ? {} : { accrual: 'monthly' },
+    where: isJanuary ? {} : { accrual: { [Op.in]: ['monthly', 'monthly_reset'] } },
   });
 
   let processed = 0;
@@ -37,6 +38,15 @@ async function runLeaveAccrual({ asOf = new Date() } = {}) {
         const allotted = Math.round(monthlyAmount * months * 100) / 100;
         if (Number(balance.allotted) !== allotted) {
           await balance.update({ allotted, balance: allotted - Number(balance.used) });
+        }
+      } else if (policy.accrual === 'monthly_reset') {
+        // Use-it-or-lose-it: reset to the flat quota every month, unlike
+        // 'monthly' above which only tops up `allotted` and keeps `used`
+        // running for the whole year. `used` is explicitly zeroed here too
+        // — this run is expected to fire once, on the 1st of the month.
+        const allotted = Number(policy.annualQuota);
+        if (Number(balance.allotted) !== allotted || Number(balance.used) !== 0) {
+          await balance.update({ allotted, used: 0, balance: allotted });
         }
       }
       processed += 1;

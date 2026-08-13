@@ -16,8 +16,11 @@ module.exports = (sequelize, DataTypes) => {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
       leaveTypeId: { type: DataTypes.BIGINT, allowNull: false },
       annualQuota: { type: DataTypes.DECIMAL(5, 2), allowNull: false },
+      // 'monthly_reset': flat annualQuota amount granted every month, reset
+      // (not cumulative) — no carry-forward. See migration
+      // 20260813090100 and leaveBalance.service.js/leaveAccrual.job.js.
       accrual: {
-        type: DataTypes.ENUM('yearly', 'monthly'),
+        type: DataTypes.ENUM('yearly', 'monthly', 'monthly_reset'),
         allowNull: false,
         defaultValue: 'yearly',
       },
