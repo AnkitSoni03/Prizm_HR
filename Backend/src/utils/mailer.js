@@ -22,11 +22,11 @@ function getTransporter() {
   return transporter;
 }
 
-// Same WEBAUTHN_ORIGIN reuse as buildActivationUrl/buildPasswordResetUrl
+// Same FRONTEND_URL reuse as buildActivationUrl/buildPasswordResetUrl
 // below — the frontend serves its own public/HRMS Logo.png at this path, so
 // no separate asset hosting is needed for email clients to fetch it.
 function buildLogoUrl() {
-  const origin = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173';
+  const origin = process.env.FRONTEND_URL || 'http://localhost:5173';
   return `${origin}/HRMS%20Logo.png`;
 }
 
@@ -55,16 +55,13 @@ async function sendMail({ to, subject, html, text }) {
   });
 }
 
-// WEBAUTHN_ORIGIN holds the frontend's own origin (name is a historical
-// leftover from the now-removed WebAuthn flow — kept as-is rather than
-// renaming a live deployment env var for this).
 function buildActivationUrl(activationToken) {
-  const origin = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173';
+  const origin = process.env.FRONTEND_URL || 'http://localhost:5173';
   return `${origin}/activate?token=${encodeURIComponent(activationToken)}`;
 }
 
 function buildPasswordResetUrl(resetToken) {
-  const origin = process.env.WEBAUTHN_ORIGIN || 'http://localhost:5173';
+  const origin = process.env.FRONTEND_URL || 'http://localhost:5173';
   return `${origin}/reset-password?token=${encodeURIComponent(resetToken)}`;
 }
 

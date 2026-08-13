@@ -8,8 +8,16 @@ const { HttpError } = require('./utils/errors');
 
 const app = express();
 
+// FRONTEND_URL is the single source of truth for the frontend's own origin
+// (also used by mailer.js for activation/reset links). Supports a
+// comma-separated list so local dev (localhost:5173) and the deployed
+// frontend can both be allowed at once.
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim());
+
 app.use(helmet());
-app.use(cors());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));

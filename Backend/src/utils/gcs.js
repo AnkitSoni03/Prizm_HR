@@ -3,18 +3,26 @@
 const path = require('path');
 const { Storage } = require('@google-cloud/storage');
 
-// Service account key lives on disk at Backend/gcs-key.json — gitignored
-// (see .gitignore), never committed. Storage() reads project_id straight
-// out of the key file itself, so nothing else needs configuring here.
+// Service account key: locally it still lives on disk at Backend/gcs-key.json
+// (gitignored, never committed). On a host with no convenient way to upload a
+// separate secret file, paste the same key file's JSON contents into
+// GCS_CREDENTIALS_JSON instead — every other piece of config in this project
+// lives in .env, so this keeps that true instead of needing a second upload
+// step per host.
 const KEY_FILE_PATH = path.join(__dirname, '../../gcs-key.json');
 const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'hrms_prizm';
 
-// Lazily created (same convention as mailer.js's transporter) so a missing
-// key file only breaks upload/download calls, not server boot.
+// Lazily created (same convention as mailer.js's transporter) so missing
+// credentials only break upload/download calls, not server boot.
 let storage = null;
 function getStorage() {
   if (!storage) {
-    storage = new Storage({ keyFilename: KEY_FILE_PATH });
+    if (process.env.GCS_CREDENTIALS_JSON) {
+      const credentials = JSON.parse(process.env.GCS_CREDENTIALS_JSON);
+      storage = new Storage({ credentials, projectId: credentials.project_id });
+    } else {
+      storage = new Storage({ keyFilename: KEY_FILE_PATH });
+    }
   }
   return storage;
 }
