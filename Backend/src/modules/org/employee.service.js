@@ -178,27 +178,11 @@ async function createEmployee({
   if (designationId) await assertBelongsToCompany(db.Designation, designationId, companyId, 'Designation');
   if (managerId) await assertBelongsToCompany(db.Employee, managerId, companyId, 'Manager');
 
-  // CLAUDE.md: "A Brand cannot receive its first employee until it has
-  // >=1 Roster." shift_rosters.employee_id is nullable specifically so an
-  // "unassigned slot" roster row can be created for a brand before anyone
-  // exists to assign it to (see the shift_rosters migration) — that's what
-  // this check requires the brand to have at least one of. Brand-optional
-  // companies (uses_brands = false) apply the same rule one level up: the
-  // Company itself needs >=1 company-level (brand_id null) roster.
-  // status: 'published' — a draft roster is not yet authoritative
-  // (getActiveRosterEntry ignores drafts), so counting drafts here would let
-  // this gate pass with no schedule that will actually resolve on day one.
-  const rosterCount = brandId
-    ? await db.ShiftRoster.count({ where: { brandId, status: 'published' } })
-    : await db.ShiftRoster.count({ where: { companyId, brandId: null, status: 'published' } });
-  if (rosterCount === 0) {
-    throw new HttpError(
-      422,
-      brandId
-        ? 'Brand has no published roster; cannot add employees yet'
-        : 'Company has no published roster; cannot add employees yet'
-    );
-  }
+  // Roster is no longer a precondition for creating an employee — it can be
+  // assigned any time afterward via shift_rosters (create/bulk-assign +
+  // publish). Roster still matters for check-in shift resolution
+  // (resolveShiftForDate: published roster > employee_shifts default), it's
+  // just not a gate on onboarding anymore.
 
   try {
     const employee = await db.Employee.create({

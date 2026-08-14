@@ -16,9 +16,12 @@ Super Admin → Group → Company → [Brand] → (Roster mandatory) → Departm
   (`uses_brands = false`) has zero Brands — brand creation is rejected for it — and
   Employees/Rosters/QR terminals are created straight at the Company level instead
   (`brand_id` null throughout).
-- Roster-mandatory rule now applies one level up for direct-mode companies: a Brand
-  needs ≥1 roster before its first Brand-scoped employee (unchanged); a direct-mode
-  Company needs ≥1 company-level roster (`brand_id IS NULL`) before its first employee.
+- Roster is important but no longer a precondition for employee creation (removed
+  2026-08-14 — see Progress log): a Brand or direct-mode Company can onboard employees
+  with zero rosters; roster gets assigned afterward via `shift_rosters`
+  create/bulk-assign + publish. Roster still governs check-in shift resolution
+  (published roster > `employee_shifts` default, CLAUDE.md rule 7) — it's just not a
+  gate on onboarding anymore.
 - Brand and Department are independent dimensions on `employees` (WHERE vs WHAT).
 
 ## Tech stack
@@ -1074,6 +1077,22 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     — they never depended on its internal format, so the existing "tab closed without logout,
     reopen same URL → silently restores the session" auto-login behavior (`AuthContext.tsx:43-50`)
     is unchanged, it's just backed by a JWT now instead of a DB-hashed opaque token.
+- ✅ Roster-mandatory gate removed from employee creation (2026-08-14): explicit ask —
+  roster stays important but must not block onboarding an employee; it can be assigned
+  later. Removed the `ShiftRoster.count(...) === 0 → 422` check from
+  `employee.service.js::createEmployee` (both the brand-mode `{ brandId, status:
+  'published' }` branch and the direct-mode `{ companyId, brandId: null, status:
+  'published' }` branch) — creating a Brand-scoped or direct-mode-Company employee no
+  longer requires any pre-existing roster row at all. Nothing else changed: roster
+  create/bulk-assign/publish (`shiftRoster.service.js`) and the check-in-time
+  roster-over-default-shift resolution (`attendance.service.js::resolveShiftForDate`,
+  CLAUDE.md rule 7) are completely untouched — an employee with no roster simply falls
+  through to their `employee_shifts` default (or the flat 8-hour fallback) until one is
+  assigned. Frontend needed no functional change (Super Admin's "Add Employee" button
+  was never actually disabled by roster count — only by zero departments — the roster
+  count only drove an informational badge); that badge's copy was softened from "Ready
+  for employees" to "Roster set" so it no longer implies a hard block that no longer
+  exists.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

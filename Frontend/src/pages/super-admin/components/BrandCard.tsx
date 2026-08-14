@@ -156,7 +156,7 @@ export function BrandCard({
         </button>
         <div className="flex items-center gap-2">
           <Badge tone={rosterCount > 0 ? 'success' : 'warning'}>
-            {rosterCount > 0 ? 'Ready for employees' : 'No roster yet'}
+            {rosterCount > 0 ? 'Roster set' : 'No roster yet'}
           </Badge>
           {brand && (
             <Badge tone={brand.isActive ? 'success' : 'neutral'}>
