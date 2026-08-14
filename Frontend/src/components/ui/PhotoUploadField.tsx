@@ -41,6 +41,7 @@ export function PhotoUploadField({
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [editingImageSrc, setEditingImageSrc] = useState<string | null>(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -105,7 +106,18 @@ export function PhotoUploadField({
     <div>
       <p className="mb-1.5 block text-sm font-medium text-ink">{label}</p>
       <div className="flex items-center gap-4">
-        <Avatar src={displayUrl} size="xl" />
+        {displayUrl ? (
+          <button
+            type="button"
+            onClick={() => setIsViewerOpen(true)}
+            aria-label="View photo"
+            className="rounded-full transition-opacity hover:opacity-80"
+          >
+            <Avatar src={displayUrl} size="xl" />
+          </button>
+        ) : (
+          <Avatar src={displayUrl} size="xl" />
+        )}
         <div className="flex flex-col gap-2">
           {cameraError && <p className="text-xs text-danger">{cameraError}</p>}
           <div className="flex flex-wrap gap-2">
@@ -170,6 +182,20 @@ export function PhotoUploadField({
           onCancel={() => setEditingImageSrc(null)}
           onSave={handleEditorSave}
         />
+      )}
+
+      {isViewerOpen && displayUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] transition-colors duration-150 animate-[fade-in_150ms_ease-out]"
+          onClick={() => setIsViewerOpen(false)}
+        >
+          <img
+            src={displayUrl}
+            alt={label}
+            className="h-[70vmin] w-[70vmin] max-h-[80vh] max-w-[80vw] rounded-full object-cover shadow-lg animate-[modal-in_180ms_cubic-bezier(0.16,1,0.3,1)]"
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );

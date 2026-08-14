@@ -15,6 +15,8 @@ export interface AuthUser {
   // any — same as photoUrl below, null for pure admin accounts with no
   // Employee record, which fall back to the raw email in the UI.
   name: string | null;
+  // Resolved the same way as name — null for pure admin accounts.
+  designation: string | null;
   roles: AuthRole[];
   permissions: string[];
   // null for Super Admin (no company of their own); otherwise whether the

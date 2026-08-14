@@ -516,17 +516,22 @@ async function getCurrentUser({ userId, companyId }) {
   // their own (companyId null), so this is null for that portal.
   const company = companyId ? await db.Company.findByPk(companyId, { attributes: ['usesBrands'] }) : null;
 
-  // Name and photo both live on the Employee record, not User (see the
-  // employee module) — only resolvable for a caller whose account is
-  // actually linked to one (ESS employees; most admin-only accounts have
-  // no employeeId and simply get null for both, falling back to the raw
-  // email / generic avatar icon on the frontend).
+  // Name, photo, and designation all live on the Employee record, not User
+  // (see the employee module) — only resolvable for a caller whose account
+  // is actually linked to one (ESS employees; most admin-only accounts have
+  // no employeeId and simply get null for all three, falling back to the
+  // raw email / generic avatar icon on the frontend).
   let name = null;
   let photoUrl = null;
+  let designation = null;
   if (user.employeeId) {
-    const employee = await db.Employee.findByPk(user.employeeId, { attributes: ['name', 'photoUrl'] });
+    const employee = await db.Employee.findByPk(user.employeeId, {
+      attributes: ['name', 'photoUrl'],
+      include: [{ model: db.Designation, as: 'designation', attributes: ['title'] }],
+    });
     if (employee) {
       name = employee.name;
+      designation = employee.designation ? employee.designation.title : null;
       if (employee.photoUrl) {
         try {
           photoUrl = await getSignedDownloadUrl(employee.photoUrl);
@@ -542,6 +547,7 @@ async function getCurrentUser({ userId, companyId }) {
     email: user.email,
     employeeId: user.employeeId,
     name,
+    designation,
     roles,
     permissions,
     companyUsesBrands: company ? company.usesBrands : null,

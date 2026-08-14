@@ -1,4 +1,5 @@
-import { LogOut, Menu, Moon, Sun } from 'lucide-react';
+import { LogOut, Loader2, Menu, Moon, Sun } from 'lucide-react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
@@ -10,14 +11,24 @@ interface TopbarProps {
   onOpenMobileMenu: () => void;
 }
 
+// A shade under a second so it registers as a real transition (session
+// teardown feels intentional) without becoming an actual annoyance to wait
+// through on every logout.
+const LOGOUT_DELAY_MS = 700;
+
 export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   function handleLogout() {
-    logout();
-    navigate('/login', { replace: true });
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setTimeout(() => {
+      logout();
+      navigate('/login', { replace: true });
+    }, LOGOUT_DELAY_MS);
   }
 
   return (
@@ -51,7 +62,10 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
           const content = (
             <>
               <Avatar src={user?.photoUrl} alt={displayName} />
-              <span className="hidden text-sm text-ink-muted sm:inline">{displayName}</span>
+              <span className="hidden flex-col items-start leading-tight sm:flex">
+                <span className="text-sm text-ink-muted">{displayName}</span>
+                {user?.designation && <span className="text-xs text-ink-muted/70">{user.designation}</span>}
+              </span>
             </>
           );
           // Only an ESS employee account (user.employeeId set) has a
@@ -70,10 +84,15 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger"
+          disabled={isLoggingOut}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:cursor-not-allowed disabled:opacity-70"
         >
-          <LogOut className="h-4 w-4" strokeWidth={1.75} />
-          <span className="hidden sm:inline">Logout</span>
+          {isLoggingOut ? (
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+          ) : (
+            <LogOut className="h-4 w-4" strokeWidth={1.75} />
+          )}
+          <span className="hidden sm:inline">{isLoggingOut ? 'Logging out…' : 'Logout'}</span>
         </button>
       </div>
     </header>
