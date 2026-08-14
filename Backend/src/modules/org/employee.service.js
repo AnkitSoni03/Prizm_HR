@@ -313,9 +313,10 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
 //      rather than hard-deleted: approval_histories.actor_user_id is
 //      NOT NULL/RESTRICT, so hard-deleting a User who ever approved someone
 //      else's request would abort the whole transaction. Session/access rows
-//      that are exclusively this user's own (UserRole, RefreshToken,
-//      PasswordReset, Notification) are hard-deleted — nothing else
-//      references those.
+//      that are exclusively this user's own (UserRole, PasswordReset,
+//      Notification) are hard-deleted — nothing else references those.
+//      (Refresh tokens are stateless JWTs now, not DB rows — deleting the
+//      User row itself is enough; there's nothing left to clean up here.)
 async function deleteEmployeePermanently({ companyId, id, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
 
@@ -366,7 +367,6 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds }) {
     if (userId) {
       await db.Notification.destroy({ where: { userId }, force: true, transaction: t });
       await db.UserRole.destroy({ where: { userId }, force: true, transaction: t });
-      await db.RefreshToken.destroy({ where: { userId }, force: true, transaction: t });
       await db.PasswordReset.destroy({ where: { userId }, force: true, transaction: t });
       const user = await db.User.findByPk(userId, { transaction: t });
       if (user) {

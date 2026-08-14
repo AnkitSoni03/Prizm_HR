@@ -10,7 +10,6 @@ module.exports = (sequelize, DataTypes) => {
       User.belongsTo(models.Group, { foreignKey: 'groupId', as: 'group' });
       User.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
       User.hasMany(models.UserRole, { foreignKey: 'userId', as: 'userRoles' });
-      User.hasMany(models.RefreshToken, { foreignKey: 'userId', as: 'refreshTokens' });
       User.hasMany(models.PasswordReset, { foreignKey: 'userId', as: 'passwordResets' });
       User.hasMany(models.Group, { foreignKey: 'createdBy', as: 'createdGroups' });
       User.hasMany(models.Company, { foreignKey: 'createdBy', as: 'createdCompanies' });
@@ -46,6 +45,11 @@ module.exports = (sequelize, DataTypes) => {
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
       twoFaEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       lastLoginAt: { type: DataTypes.DATE, allowNull: true },
+      // Embedded in every refresh JWT at issue time (tokens.js::signRefreshToken)
+      // and checked against on every /auth/refresh call — bumping this
+      // instantly invalidates every outstanding refresh token for this user
+      // across all devices, without a session table to revoke rows in.
+      tokenVersion: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     },
     {
       sequelize,

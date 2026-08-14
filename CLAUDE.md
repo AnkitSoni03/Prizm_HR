@@ -1044,6 +1044,36 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     explicitly discussed and accepted limitation, not an oversight — closing it would need
     a dedicated anti-spoofing model or a commercial liveness API, out of scope for this
     pass.
+- ✅ Refresh tokens made stateless — `refresh_tokens` table dropped (2026-08-14): explicit
+  ask to stop persisting a session row per refresh token. Replaced with a signed JWT refresh
+  token (`utils/tokens.js::signRefreshToken`/`verifyRefreshToken`, `type: 'refresh'` claim,
+  `REFRESH_TOKEN_TTL_DAYS` expiry, `JWT_REFRESH_SECRET` env var if set else falls back to
+  `JWT_SECRET`) validated by signature + expiry + a new `users.token_version` column
+  (migration `20260814090000`) embedded in the token at issue time — `auth.service.js::refresh`
+  401s if the token's `tokenVersion` no longer matches the user's current one. Migration
+  `20260814090100` drops the table; `models/refreshToken.js` and its `User.hasMany` association
+  are deleted; `employee.service.js::deleteEmployeePermanently`'s `db.RefreshToken.destroy` call
+  is removed (nothing left to clean up — deleting the User row is now sufficient).
+  - **What this preserves**: `resetPassword` and `transferEmployeeLogin`'s existing "force
+    logout everywhere" behavior — both now `user.tokenVersion + 1` instead of bulk-revoking
+    rows, which still instantly invalidates every outstanding refresh token for that user
+    across every device (same guarantee, no table needed). Verified live end-to-end (disposable
+    test user, cleaned up after): login → refresh → tokenVersion bump → old refresh token
+    correctly 401s → fresh login works; the actual `resetPassword()` flow (forgot-password →
+    reset → old refresh token dead → login with new password works) also verified.
+  - **What this costs, accepted as a known trade-off per explicit ask**: `logout()` is now a
+    no-op (no per-token row exists to revoke individually) — clicking "Logout" only clears the
+    token client-side (`tokenStore.ts::clearTokens`); a leaked refresh token remains valid
+    until its own natural expiry unless a password reset (or login-transfer) bumps
+    `tokenVersion` for *every* session on the account, not just one. There's also no more
+    server-side audit trail of individual refresh-token issuance/use. Only password reset and
+    employee-login-transfer can force a session dead early now, and both do so for all devices
+    at once — there is no single-device remote-revoke anymore.
+  - **Frontend needed zero changes**: `tokenStore.ts`/`AuthContext.tsx`/`client.ts` already
+    treat the refresh token as an opaque string (stored in `localStorage`, sent back verbatim)
+    — they never depended on its internal format, so the existing "tab closed without logout,
+    reopen same URL → silently restores the session" auto-login behavior (`AuthContext.tsx:43-50`)
+    is unchanged, it's just backed by a JWT now instead of a DB-hashed opaque token.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

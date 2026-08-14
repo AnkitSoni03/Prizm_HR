@@ -10,18 +10,23 @@ const { isCompanyInactive } = require('../../utils/companyStatus');
 const { resolveEscalationContact } = require('../../utils/accountEscalation');
 const {
   signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
   generateOpaqueToken,
   hashToken,
   daysFromNow,
   minutesFromNow,
-  refreshTokenExpiry,
 } = require('../../utils/tokens');
 
 const BCRYPT_ROUNDS = 12;
 const INVITATION_TTL_DAYS = 7;
 const PASSWORD_RESET_TTL_MINUTES = 10;
 
-async function issueTokenPair(user) {
+// Refresh tokens are stateless signed JWTs (utils/tokens.js), not rows in a
+// session table — see the tokenVersion column on User for how they're
+// invalidated. No DB write happens here at all; issuing a token pair is now
+// pure computation.
+function issueTokenPair(user) {
   const accessToken = signAccessToken({
     sub: user.id,
     companyId: user.companyId,
@@ -29,14 +34,9 @@ async function issueTokenPair(user) {
     employeeId: user.employeeId,
   });
 
-  const rawRefreshToken = generateOpaqueToken();
-  await db.RefreshToken.create({
-    userId: user.id,
-    tokenHash: hashToken(rawRefreshToken),
-    expiresAt: refreshTokenExpiry(),
-  });
+  const refreshToken = signRefreshToken({ userId: user.id, tokenVersion: user.tokenVersion });
 
-  return { accessToken, refreshToken: rawRefreshToken };
+  return { accessToken, refreshToken };
 }
 
 // Super Admin invites a Company Admin for an existing company. The role is
@@ -289,13 +289,13 @@ async function transferEmployeeLogin({ companyId, employeeId, newEmail, brandId,
   const { user, invitation } = await db.sequelize.transaction(async (t) => {
     const oldUser = await db.User.findByPk(oldUserId, { transaction: t });
     if (oldUser) {
-      await oldUser.update({ employeeId: null, isActive: false }, { transaction: t });
       // The old inbox may have been compromised or simply abandoned —
-      // revoke every outstanding session on it, same as resetPassword's
-      // "force logout everywhere" precedent.
-      await db.RefreshToken.update(
-        { revokedAt: new Date() },
-        { where: { userId: oldUser.id, revokedAt: null }, transaction: t }
+      // invalidate every outstanding refresh token on it (tokenVersion
+      // bump), same as resetPassword's "force logout everywhere" precedent.
+      // isActive: false also blocks login/refresh outright regardless.
+      await oldUser.update(
+        { employeeId: null, isActive: false, tokenVersion: oldUser.tokenVersion + 1 },
+        { transaction: t }
       );
     }
 
@@ -433,28 +433,41 @@ async function login({ email, password }) {
 }
 
 async function refresh({ refreshToken }) {
-  const existing = await db.RefreshToken.findOne({ where: { tokenHash: hashToken(refreshToken) } });
-  if (!existing || existing.revokedAt || existing.expiresAt < new Date()) {
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch {
     throw new HttpError(401, 'Invalid or expired refresh token');
   }
 
-  const user = await db.User.findByPk(existing.userId);
+  const user = await db.User.findByPk(payload.sub);
   if (!user || user.status !== 'active') {
     throw new HttpError(401, 'Invalid or expired refresh token');
   }
 
-  // Rotation: the old token is revoked the moment it's used, so a replayed
-  // (e.g. stolen) refresh token can't be used again after the real client uses it.
-  await existing.update({ revokedAt: new Date() });
+  // The token's embedded tokenVersion must still match the user's current
+  // one — this is the whole revocation mechanism now that there's no
+  // per-token DB row. resetPassword/transferEmployeeLogin bump
+  // user.tokenVersion, which instantly fails this check for every refresh
+  // token issued before that bump, on every device, without looking
+  // anything up per-token.
+  if (payload.tokenVersion !== user.tokenVersion) {
+    throw new HttpError(401, 'Invalid or expired refresh token');
+  }
 
   return issueTokenPair(user);
 }
 
-async function logout({ refreshToken }) {
-  const existing = await db.RefreshToken.findOne({ where: { tokenHash: hashToken(refreshToken) } });
-  if (existing && !existing.revokedAt) {
-    await existing.update({ revokedAt: new Date() });
-  }
+// Stateless refresh tokens can't be revoked individually — there's no
+// per-token row to mark used, only the user-wide tokenVersion (which would
+// log out every device, not just this one). So "logout" here is a no-op
+// that exists purely so the endpoint keeps returning a clean 204 for the
+// frontend's fire-and-forget call — the actual sign-out is the client
+// discarding its stored tokens (tokenStore.ts::clearTokens). A leaked
+// refresh token therefore stays valid until its own expiry (REFRESH_TOKEN_TTL_DAYS)
+// even after the legitimate user clicks "Logout"; only a password
+// reset/employee-login-transfer forces it dead early, for every session at once.
+async function logout() {
   return { success: true };
 }
 
@@ -584,18 +597,19 @@ async function resetPassword({ token, password }) {
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
   await db.sequelize.transaction(async (t) => {
-    await user.update({ passwordHash }, { transaction: t });
-    await reset.update({ usedAt: new Date() }, { transaction: t });
-
     // Forgot-password is the higher-risk path (the request itself implies
     // the account owner may have lost control of their credentials), so
     // every other active session is force-logged-out here — unlike
     // changePassword below, which leaves existing sessions alone since the
-    // caller already proved they know the current password.
-    await db.RefreshToken.update(
-      { revokedAt: new Date() },
-      { where: { userId: user.id, revokedAt: null }, transaction: t }
+    // caller already proved they know the current password. Bumping
+    // tokenVersion instantly invalidates every refresh JWT issued before
+    // this point, on every device, since refresh() rejects any token whose
+    // embedded tokenVersion no longer matches.
+    await user.update(
+      { passwordHash, tokenVersion: user.tokenVersion + 1 },
+      { transaction: t }
     );
+    await reset.update({ usedAt: new Date() }, { transaction: t });
   });
 
   return { user };
