@@ -63,8 +63,8 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
             <>
               <Avatar src={user?.photoUrl} alt={displayName} />
               <span className="hidden flex-col items-start leading-tight sm:flex">
-                <span className="text-sm text-ink-muted">{displayName}</span>
-                {user?.designation && <span className="text-xs text-ink-muted/70">{user.designation}</span>}
+                <span className="text-sm font-semibold text-ink">{displayName}</span>
+                {user?.designation && <span className="text-xs font-medium text-primary">{user.designation}</span>}
               </span>
             </>
           );
