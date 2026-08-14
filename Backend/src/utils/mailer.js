@@ -29,6 +29,19 @@ function getTransporter() {
   return transporter;
 }
 
+// Best-effort startup check (called once from server.js, logged-not-thrown
+// same as every other mailer failure) — confirms SMTP auth + connectivity
+// actually work on this host at boot, instead of only finding out via a
+// silently-swallowed failure the first time someone sends an invite.
+async function verifyMailerConnection() {
+  try {
+    await getTransporter().verify();
+    console.log('[mailer] SMTP connection verified OK');
+  } catch (err) {
+    console.error('[mailer] SMTP verification failed:', err.message);
+  }
+}
+
 // Same FRONTEND_URL reuse as buildActivationUrl/buildPasswordResetUrl
 // below — the frontend serves its own public/HRMS Logo.png at this path, so
 // no separate asset hosting is needed for email clients to fetch it.
@@ -116,4 +129,5 @@ module.exports = {
   sendPasswordResetEmail,
   buildActivationUrl,
   buildPasswordResetUrl,
+  verifyMailerConnection,
 };

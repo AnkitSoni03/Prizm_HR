@@ -8,6 +8,7 @@ const { runLeaveAccrual } = require('./jobs/leaveAccrual.job');
 const { sweepExpiredCompOff } = require('./jobs/compOffExpiry.job');
 const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanup.job');
 const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
+const { verifyMailerConnection } = require('./utils/mailer');
 
 const PORT = process.env.PORT || 5000;
 
@@ -44,6 +45,7 @@ db.sequelize
       console.log(`HRMS backend listening on port ${PORT}`);
     });
     startLeaveJobs();
+    verifyMailerConnection();
   })
   .catch((err) => {
     console.error('Unable to connect to the database:', err);
