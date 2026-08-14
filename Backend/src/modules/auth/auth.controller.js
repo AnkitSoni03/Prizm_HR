@@ -51,7 +51,14 @@ async function signupInvite(req, res, next) {
       companyId,
       email,
     });
-    await trySendActivationEmail({ to: user.email, activationToken });
+    // Fire-and-forget: awaiting this would block the HTTP response on
+    // however long the SMTP provider takes to answer (or hang) — a slow or
+    // silently-throttling provider (Gmail is notorious for this from
+    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
+    // spinning indefinitely even though the invite itself already
+    // succeeded. trySendActivationEmail already catches+logs its own
+    // errors, so there's nothing to await for correctness here.
+    void trySendActivationEmail({ to: user.email, activationToken });
 
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
@@ -81,7 +88,14 @@ async function signupInviteGroup(req, res, next) {
       groupId,
       email,
     });
-    await trySendActivationEmail({ to: user.email, activationToken });
+    // Fire-and-forget: awaiting this would block the HTTP response on
+    // however long the SMTP provider takes to answer (or hang) — a slow or
+    // silently-throttling provider (Gmail is notorious for this from
+    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
+    // spinning indefinitely even though the invite itself already
+    // succeeded. trySendActivationEmail already catches+logs its own
+    // errors, so there's nothing to await for correctness here.
+    void trySendActivationEmail({ to: user.email, activationToken });
 
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
@@ -109,7 +123,14 @@ async function signupInviteBrand(req, res, next) {
       brandId,
       email,
     });
-    await trySendActivationEmail({ to: user.email, activationToken });
+    // Fire-and-forget: awaiting this would block the HTTP response on
+    // however long the SMTP provider takes to answer (or hang) — a slow or
+    // silently-throttling provider (Gmail is notorious for this from
+    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
+    // spinning indefinitely even though the invite itself already
+    // succeeded. trySendActivationEmail already catches+logs its own
+    // errors, so there's nothing to await for correctness here.
+    void trySendActivationEmail({ to: user.email, activationToken });
 
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
@@ -152,7 +173,14 @@ async function signupInviteEmployee(req, res, next) {
       // (if anything) the client sent as brandId.
       scopedBrandIds: req.auth.scopedBrandIds,
     });
-    await trySendActivationEmail({ to: user.email, activationToken });
+    // Fire-and-forget: awaiting this would block the HTTP response on
+    // however long the SMTP provider takes to answer (or hang) — a slow or
+    // silently-throttling provider (Gmail is notorious for this from
+    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
+    // spinning indefinitely even though the invite itself already
+    // succeeded. trySendActivationEmail already catches+logs its own
+    // errors, so there's nothing to await for correctness here.
+    void trySendActivationEmail({ to: user.email, activationToken });
 
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
@@ -191,7 +219,14 @@ async function transferEmployeeLoginEmail(req, res, next) {
       brandId,
       scopedBrandIds: req.auth.scopedBrandIds,
     });
-    await trySendActivationEmail({ to: user.email, activationToken });
+    // Fire-and-forget: awaiting this would block the HTTP response on
+    // however long the SMTP provider takes to answer (or hang) — a slow or
+    // silently-throttling provider (Gmail is notorious for this from
+    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
+    // spinning indefinitely even though the invite itself already
+    // succeeded. trySendActivationEmail already catches+logs its own
+    // errors, so there's nothing to await for correctness here.
+    void trySendActivationEmail({ to: user.email, activationToken });
 
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
@@ -291,7 +326,8 @@ async function forgotPassword(req, res, next) {
     const response = { message: FORGOT_PASSWORD_MESSAGE };
 
     if (user && resetToken) {
-      await trySendPasswordResetEmail({ to: user.email, resetToken });
+      // Fire-and-forget, same reasoning as trySendActivationEmail above.
+      void trySendPasswordResetEmail({ to: user.email, resetToken });
       // Dev-only fallback for local testing when SMTP isn't reachable —
       // same convention as the activationToken exposed by the invite
       // endpoints. Never present in production, and never present at all
