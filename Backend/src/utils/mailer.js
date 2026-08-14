@@ -17,6 +17,13 @@ function getTransporter() {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      // Some hosts (Render included) have no outbound IPv6 route, but
+      // smtp.gmail.com resolves to both an AAAA and an A record — without
+      // this, Node's DNS resolution can hand nodemailer the IPv6 address
+      // first and the connection fails with ENETUNREACH. Forcing IPv4
+      // avoids that entirely; it's forwarded straight through to the
+      // underlying net/tls connect() call.
+      family: 4,
     });
   }
   return transporter;
