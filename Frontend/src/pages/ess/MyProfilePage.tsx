@@ -56,10 +56,14 @@ function docStatusTone(status: EmployeeDocument['status']) {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className="mt-1 text-sm text-ink">{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">{label}</p>
+      <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">{value}</p>
     </div>
   );
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:text-xs">{children}</p>;
 }
 
 export function MyProfilePage() {
@@ -213,89 +217,103 @@ export function MyProfilePage() {
 
   return (
     <>
-    <div className="space-y-6">
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">{profile.name}</h2>
-            <p className="text-sm text-ink-muted">{profile.employeeCode}</p>
+    <div className="space-y-4 sm:space-y-6">
+      <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
+        <div className="mb-5 flex items-start justify-between gap-3 border-b border-border pb-5 sm:mb-6 sm:pb-6">
+          <div className="min-w-0 flex-1">
+            <PhotoUploadField
+              headerContent={
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-semibold text-ink sm:text-lg">{profile.name}</h2>
+                  <p className="text-xs text-ink-muted sm:text-sm">{profile.employeeCode}</p>
+                </div>
+              }
+              previewUrl={profile.photoDownloadUrl}
+              onSelect={handlePhotoSelect}
+              onRemove={profile.photoDownloadUrl ? handlePhotoRemove : undefined}
+              isBusy={isSavingPhoto}
+            />
           </div>
           <Badge tone={statusTone(profile.status)}>{profile.status.replace('_', ' ')}</Badge>
         </div>
 
-        <div className="mb-5">
-          <PhotoUploadField
-            previewUrl={profile.photoDownloadUrl}
-            onSelect={handlePhotoSelect}
-            onRemove={profile.photoDownloadUrl ? handlePhotoRemove : undefined}
-            isBusy={isSavingPhoto}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Brand" value={profile.brand?.name ?? '—'} />
-          <Field label="Department" value={profile.department?.name ?? '—'} />
-          <Field label="Designation" value={profile.designation?.title ?? '—'} />
-          <Field label="Manager" value={profile.manager?.name ?? '—'} />
-          <Field label="Employment Type" value={EMPLOYMENT_TYPE_LABEL[profile.employmentType]} />
-          <Field label="Date of Joining" value={formatDisplayDate(profile.dateOfJoining)} />
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-page px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Default Shift</p>
-            {profile.defaultShift ? (
-              <p className="mt-1 text-sm text-ink">
-                {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
-                {profile.defaultShift.endTime.slice(0, 5)}
-                {profile.defaultShift.isNightShift && (
-                  <span className="ml-1.5 text-xs text-ink-muted">(Night Shift)</span>
-                )}
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-ink-muted">Not assigned yet — contact your admin</p>
-            )}
-          </div>
-          <div className="rounded-lg border border-border bg-page px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Today&apos;s Roster</p>
-            {profile.todayRoster?.shift ? (
-              <p className="mt-1 text-sm text-ink">
-                {profile.todayRoster.shift.name} · {profile.todayRoster.shift.startTime.slice(0, 5)}–
-                {profile.todayRoster.shift.endTime.slice(0, 5)}
-                {profile.defaultShift && profile.todayRoster.shift.id !== profile.defaultShift.id && (
-                  <span className="ml-1.5 text-xs text-warning">(overrides default)</span>
-                )}
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-ink-muted">No roster published for today — following default shift</p>
-            )}
+        <div className="mb-5 sm:mb-6">
+          <SectionLabel>Employment Details</SectionLabel>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+            <Field label="Brand" value={profile.brand?.name ?? '—'} />
+            <Field label="Department" value={profile.department?.name ?? '—'} />
+            <Field label="Designation" value={profile.designation?.title ?? '—'} />
+            <Field label="Manager" value={profile.manager?.name ?? '—'} />
+            <Field label="Employment Type" value={EMPLOYMENT_TYPE_LABEL[profile.employmentType]} />
+            <Field label="Date of Joining" value={formatDisplayDate(profile.dateOfJoining)} />
           </div>
         </div>
 
-        <p className="mt-5 text-xs text-ink-muted">
+        <div>
+          <SectionLabel>Shift &amp; Roster</SectionLabel>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+            <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
+                Default Shift
+              </p>
+              {profile.defaultShift ? (
+                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
+                  {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
+                  {profile.defaultShift.endTime.slice(0, 5)}
+                  {profile.defaultShift.isNightShift && (
+                    <span className="ml-1.5 text-[10px] text-ink-muted sm:text-xs">(Night Shift)</span>
+                  )}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">Not assigned yet — contact your admin</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
+                Today&apos;s Roster
+              </p>
+              {profile.todayRoster?.shift ? (
+                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
+                  {profile.todayRoster.shift.name} · {profile.todayRoster.shift.startTime.slice(0, 5)}–
+                  {profile.todayRoster.shift.endTime.slice(0, 5)}
+                  {profile.defaultShift && profile.todayRoster.shift.id !== profile.defaultShift.id && (
+                    <span className="ml-1.5 text-[10px] text-warning sm:text-xs">(overrides default)</span>
+                  )}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">
+                  No roster published for today — following default shift
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-5 text-[11px] text-ink-muted sm:mt-6 sm:text-xs">
           Need something updated here? Reach out to your Company Admin or HR team — profile changes aren&apos;t
           self-service.
         </p>
       </div>
 
       {pendingRequests.length > 0 && (
-        <div className="rounded-xl border border-warning/30 bg-warning/5 p-5">
-          <h3 className="mb-3 text-sm font-semibold text-ink">Documents Requested</h3>
+        <div className="rounded-xl border border-warning/30 bg-warning/5 p-4 sm:p-5">
+          <h3 className="mb-3 text-xs font-semibold text-ink sm:text-sm">Documents Requested</h3>
           <div className="space-y-2">
             {pendingRequests.map((request) => (
               <div
                 key={request.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-2.5"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 sm:px-4 sm:py-2.5"
               >
-                <div>
-                  <p className="text-sm font-medium text-ink">{request.documentType}</p>
-                  {request.note && <p className="text-xs text-ink-muted">{request.note}</p>}
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-ink sm:text-sm">{request.documentType}</p>
+                  {request.note && <p className="text-[11px] text-ink-muted sm:text-xs">{request.note}</p>}
                 </div>
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={() => handleDoneRequest(request)}
                   isLoading={completingRequestId === request.id}
+                  className="px-3 py-1.5 text-xs sm:text-sm"
                 >
                   Done
                 </Button>
@@ -306,7 +324,7 @@ export function MyProfilePage() {
       )}
 
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-ink">My Documents</h3>
+        <h3 className="mb-3 text-xs font-semibold text-ink sm:text-sm">My Documents</h3>
         <Table
           rows={documents}
           rowKey={(d) => d.id}
@@ -429,10 +447,12 @@ export function MyProfilePage() {
         {canUploadDocs && (
           <form
             onSubmit={handleUploadDocument}
-            className="mt-4 space-y-4 rounded-xl border border-border bg-card p-5"
+            className="mt-4 space-y-3 rounded-xl border border-border bg-card p-4 sm:space-y-4 sm:p-5"
           >
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Upload a Document</p>
-            {docUploadError && <p className="text-sm text-danger">{docUploadError}</p>}
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:text-xs">
+              Upload a Document
+            </p>
+            {docUploadError && <p className="text-xs text-danger sm:text-sm">{docUploadError}</p>}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Input
                 id="my-doc-type"
@@ -444,7 +464,7 @@ export function MyProfilePage() {
               />
               <FileUploadField file={docFile} onSelect={setDocFile} disabled={isUploadingDoc} />
             </div>
-            <p className="text-xs text-ink-muted">
+            <p className="text-[11px] text-ink-muted sm:text-xs">
               Once uploaded, it'll show as "Pending" until an admin or a document verifier reviews it — you'll get
               a notification either way. You can edit the title or delete it any time before it's verified.
             </p>

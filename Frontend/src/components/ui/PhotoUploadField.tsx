@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Camera, ImagePlus, X } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
@@ -17,6 +17,12 @@ interface PhotoUploadFieldProps {
   onRemove?: () => void;
   isBusy?: boolean;
   helperText?: string;
+  // Replaces the plain "Photo" label above the field with custom content
+  // (e.g. name + employee code) rendered above the action buttons, to the
+  // right of the avatar — used by ESS "My Profile" so the photo, identity,
+  // and actions read as one combined header block instead of two stacked
+  // sections. Omit to keep the plain label layout every other caller uses.
+  headerContent?: ReactNode;
 }
 
 // Reused wherever an employee/own photo can be set: the Employee Add/Edit
@@ -32,6 +38,7 @@ export function PhotoUploadField({
   onRemove,
   isBusy = false,
   helperText = 'Optional. JPG or PNG.',
+  headerContent,
 }: PhotoUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -104,39 +111,40 @@ export function PhotoUploadField({
 
   return (
     <div>
-      <p className="mb-1.5 block text-sm font-medium text-ink">{label}</p>
-      <div className="flex items-center gap-4">
+      {!headerContent && <p className="mb-1.5 block text-xs font-medium text-ink sm:text-sm">{label}</p>}
+      <div className="flex min-w-0 items-center gap-3 sm:gap-4">
         {displayUrl ? (
           <button
             type="button"
             onClick={() => setIsViewerOpen(true)}
             aria-label="View photo"
-            className="rounded-full transition-opacity hover:opacity-80"
+            className="shrink-0 rounded-full transition-opacity hover:opacity-80"
           >
             <Avatar src={displayUrl} size="xl" />
           </button>
         ) : (
-          <Avatar src={displayUrl} size="xl" />
+          <Avatar src={displayUrl} size="xl" className="shrink-0" />
         )}
-        <div className="flex flex-col gap-2">
-          {cameraError && <p className="text-xs text-danger">{cameraError}</p>}
-          <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-col gap-1.5 sm:gap-2">
+          {headerContent}
+          {cameraError && <p className="text-[10px] text-danger sm:text-xs">{cameraError}</p>}
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={handleOpenCamera}
               disabled={isBusy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-page disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-page disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
             >
-              <Camera className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <Camera className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} />
               Take Photo
             </button>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={isBusy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-page disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-page disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
             >
-              <ImagePlus className="h-3.5 w-3.5" strokeWidth={1.75} />
+              <ImagePlus className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} />
               Choose from Gallery
             </button>
             {displayUrl && onRemove && (
@@ -148,14 +156,14 @@ export function PhotoUploadField({
                 }}
                 disabled={isBusy}
                 aria-label="Remove photo"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:opacity-60"
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
               >
-                <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+                <X className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} />
                 Remove
               </button>
             )}
           </div>
-          {helperText && <p className="text-xs text-ink-muted">{helperText}</p>}
+          {helperText && <p className="text-[10px] text-ink-muted sm:text-xs">{helperText}</p>}
         </div>
         <input ref={inputRef} type="file" accept={ACCEPTED_TYPES} className="hidden" onChange={handleFileChange} />
       </div>

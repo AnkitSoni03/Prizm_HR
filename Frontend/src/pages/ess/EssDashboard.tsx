@@ -247,7 +247,7 @@ export function EssDashboard() {
 
   if (!summary) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <StatTileSkeleton key={i} />
         ))}
@@ -269,7 +269,7 @@ export function EssDashboard() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <HeroStatTile
           label="Today's Status"
           value={summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
@@ -317,71 +317,71 @@ export function EssDashboard() {
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4">
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
-                <LogIn className="h-4 w-4" strokeWidth={1.75} />
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
+                <LogIn className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
               </span>
-              <h3 className="text-base font-semibold text-ink">Today&apos;s Attendance</h3>
+              <h3 className="text-sm font-semibold text-ink sm:text-base">Today&apos;s Attendance</h3>
             </div>
             <Badge tone={summary.todayStatus ? STATUS_TONE[summary.todayStatus] ?? 'neutral' : 'neutral'}>
               {summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
             </Badge>
           </div>
-          <div className="flex flex-1 flex-col gap-3">
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
-              <span className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
-                  <LogIn className="h-4 w-4" strokeWidth={1.75} />
+          <div className="flex flex-1 flex-col gap-2.5 sm:gap-3">
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <span className="flex items-center gap-2.5 sm:gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success sm:h-9 sm:w-9">
+                  <LogIn className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
                 </span>
-                <span className="text-sm text-ink-muted">Check-in</span>
+                <span className="text-xs text-ink-muted sm:text-sm">Check-in</span>
               </span>
-              <span className="text-sm font-semibold text-ink">
+              <span className="text-xs font-semibold text-ink sm:text-sm">
                 {summary.checkIn ? new Date(summary.checkIn).toLocaleTimeString() : '—'}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
-              <span className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger">
-                  <LogOut className="h-4 w-4" strokeWidth={1.75} />
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <span className="flex items-center gap-2.5 sm:gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger sm:h-9 sm:w-9">
+                  <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
                 </span>
-                <span className="text-sm text-ink-muted">Check-out</span>
+                <span className="text-xs text-ink-muted sm:text-sm">Check-out</span>
               </span>
-              <span className="text-sm font-semibold text-ink">
+              <span className="text-xs font-semibold text-ink sm:text-sm">
                 {summary.checkOut ? new Date(summary.checkOut).toLocaleTimeString() : '—'}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
-              <span className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
-                  <Timer className="h-4 w-4" strokeWidth={1.75} />
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <span className="flex items-center gap-2.5 sm:gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-9 sm:w-9">
+                  <Timer className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
                 </span>
-                <span className="text-sm text-ink-muted">Total Working Hours</span>
+                <span className="text-xs text-ink-muted sm:text-sm">Total Working Hours</span>
               </span>
-              <span className="text-sm font-semibold text-ink">
+              <span className="text-xs font-semibold text-ink sm:text-sm">
                 {workingHoursLabel(summary.checkIn, summary.checkOut)}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-4 py-3">
-              <span className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <span className="flex items-center gap-2.5 sm:gap-3">
                 <span
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${
                     TONE_CLASSES[summary.todayStatus ? STATUS_TONE[summary.todayStatus] ?? 'neutral' : 'neutral']
                   }`}
                 >
-                  <CheckCircle2 className="h-4 w-4" strokeWidth={1.75} />
+                  <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
                 </span>
-                <span className="text-sm text-ink-muted">Status</span>
+                <span className="text-xs text-ink-muted sm:text-sm">Status</span>
               </span>
-              <span className="text-sm font-semibold text-ink">
+              <span className="text-xs font-semibold text-ink sm:text-sm">
                 {summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
               </span>
             </div>
           </div>
           <Link
             to="/ess/attendance"
-            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-white"
+            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary hover:text-white sm:text-sm"
           >
             View Full Attendance
             <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.75} />
@@ -399,25 +399,25 @@ export function EssDashboard() {
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex flex-col rounded-xl border border-border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
-          <div className="mb-4 flex items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
-              <PartyPopper className="h-4 w-4" strokeWidth={1.75} />
+        <div className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">
+          <div className="mb-3 flex items-center gap-2 sm:mb-4">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
+              <PartyPopper className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
             </span>
-            <h3 className="text-base font-semibold text-ink">Upcoming Holidays</h3>
+            <h3 className="text-sm font-semibold text-ink sm:text-base">Upcoming Holidays</h3>
           </div>
           {upcomingHolidays.length === 0 ? (
-            <p className="flex-1 text-sm text-ink-muted">No holidays scheduled in the next 6 months.</p>
+            <p className="flex-1 text-xs text-ink-muted sm:text-sm">No holidays scheduled in the next 6 months.</p>
           ) : (
-            <ul className="flex-1 space-y-2.5">
+            <ul className="flex-1 space-y-2 sm:space-y-2.5">
               {upcomingHolidays.map((holiday) => (
                 <li
                   key={holiday.id}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-primary-light/60 px-3.5 py-3"
+                  className="flex items-center justify-between gap-3 rounded-lg bg-primary-light/60 px-3 py-2.5 sm:px-3.5 sm:py-3"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{holiday.name}</p>
-                    <p className="text-xs text-ink-muted">{formatDisplayDate(holiday.date)}</p>
+                    <p className="truncate text-xs font-medium text-ink sm:text-sm">{holiday.name}</p>
+                    <p className="text-[11px] text-ink-muted sm:text-xs">{formatDisplayDate(holiday.date)}</p>
                   </div>
                   <Badge tone="neutral">{daysUntil(holiday.date)}d away</Badge>
                 </li>
@@ -426,7 +426,7 @@ export function EssDashboard() {
           )}
           <Link
             to="/ess/holidays"
-            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary hover:text-white"
+            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary hover:text-white sm:text-sm"
           >
             View All Holidays
             <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.75} />
@@ -439,16 +439,16 @@ export function EssDashboard() {
       </div>
 
       {myPowers.length > 0 && (
-        <div className="mt-4 rounded-xl border border-border bg-card p-5 shadow-xs transition-shadow hover:shadow-md">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
-              <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
+        <div className="mt-4 rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">
+          <div className="mb-2.5 flex items-center gap-2 sm:mb-3">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
+              <ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
             </span>
-            <h3 className="text-base font-semibold text-ink">Your Additional Responsibilities</h3>
+            <h3 className="text-sm font-semibold text-ink sm:text-base">Your Additional Responsibilities</h3>
           </div>
-          <ul className="space-y-2">
+          <ul className="space-y-1.5 sm:space-y-2">
             {myPowers.map((power) => (
-              <li key={power.key} className="text-sm">
+              <li key={power.key} className="text-xs sm:text-sm">
                 <span className="font-medium text-ink">{power.label}</span>
                 <span className="text-ink-muted"> — {power.description}</span>
               </li>
