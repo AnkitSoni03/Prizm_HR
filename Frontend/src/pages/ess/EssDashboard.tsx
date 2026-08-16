@@ -150,7 +150,8 @@ export function EssDashboard() {
   const palette = getChartPalette(theme);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [subtitle, setSubtitle] = useState('Here’s where things stand today.');
+  const [designation, setDesignation] = useState<string | null>(null);
+  const [department, setDepartment] = useState<string | null>(null);
   const [employeeStatus, setEmployeeStatus] = useState<EmployeeProfile['status'] | null>(null);
   const [upcomingHolidays, setUpcomingHolidays] = useState<Holiday[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -176,8 +177,8 @@ export function EssDashboard() {
       .then((profile) => {
         setDisplayName(profile.name);
         setEmployeeStatus(profile.status);
-        const parts = [profile.designation?.title, profile.department?.name].filter(Boolean);
-        if (parts.length > 0) setSubtitle(parts.join(' · '));
+        setDesignation(profile.designation?.title ?? null);
+        setDepartment(profile.department?.name ?? null);
       })
       .catch(() => {
         /* non-critical — falls back to email in the greeting */
@@ -261,13 +262,13 @@ export function EssDashboard() {
     <div>
       <DashboardHeader
         name={displayName ?? user.email.split('@')[0]}
-        subtitle={subtitle}
+        subtitle={designation ?? 'Here’s where things stand today.'}
+        subtitleDesktopExtra={designation ? (department ?? undefined) : undefined}
         status={
           employeeStatus
             ? { label: EMPLOYEE_STATUS_LABEL[employeeStatus], tone: employeeStatus === 'active' ? 'success' : 'neutral' }
             : undefined
-        }
-      />
+        }      />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <HeroStatTile

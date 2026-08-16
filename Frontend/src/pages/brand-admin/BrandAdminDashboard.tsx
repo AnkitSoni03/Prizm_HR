@@ -69,8 +69,7 @@ export function BrandAdminDashboard() {
     <div>
       <DashboardHeader
         name={user?.email.split('@')[0] ?? 'Admin'}
-        subtitle="Here's what's happening in your brand today."
-      />
+        subtitle="Here's what's happening in your brand today."      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tilesFor(summary).map((tile) => (

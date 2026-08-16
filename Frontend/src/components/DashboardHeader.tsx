@@ -1,42 +1,53 @@
-import { CalendarDays } from 'lucide-react';
-import { formatDisplayDate } from '../utils/dateDisplay';
-
-const TODAY_LABEL = formatDisplayDate(
-  new Date().toLocaleDateString('en-CA'), // en-CA gives YYYY-MM-DD in local time
-);
+import { Link } from 'react-router-dom';
+import { useAuth } from '../context/auth-context';
+import { Avatar } from './ui/Avatar';
 
 interface DashboardHeaderProps {
   name: string;
   subtitle: string;
-  /** Optional status chip appended after the subtitle (e.g. an employee's
-   * active/on-notice state) — omit to leave the header exactly as before. */
+  /** Extra subtitle text (e.g. department) appended after `subtitle` —
+   * shown only from `sm:` up, so the mobile subtitle stays just `subtitle`. */
+  subtitleDesktopExtra?: string;
+  /** Optional status chip, paired with the date on the right (e.g. an
+   * employee's active/on-notice state) — omit to leave just the date. */
   status?: { label: string; tone?: 'success' | 'neutral' };
 }
 
-export function DashboardHeader({ name, subtitle, status }: DashboardHeaderProps) {
+export function DashboardHeader({ name, subtitle, subtitleDesktopExtra }: DashboardHeaderProps) {
+  const { user } = useAuth();
+
+  const avatar = (
+    <Avatar
+      src={user?.photoUrl}
+      alt={name}
+      size="lg"
+      className="shrink-0 ring-2 ring-card transition-transform duration-150 group-hover:scale-105"
+    />
+  );
+
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5 sm:mb-6 sm:gap-3">
-      <div className="min-w-0">
-        <h2 className="truncate text-lg font-semibold tracking-tight text-ink sm:text-2xl">
-          Welcome back, <span className="text-primary">{name}</span>  ! <span aria-hidden="true">👋</span>
-        </h2>
-        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">
-          <span>{subtitle}</span>
-          {status && (
-            <span
-              className={`inline-flex items-center gap-1 font-medium ${
-                status.tone === 'neutral' ? 'text-ink-muted' : 'text-success'
-              }`}
-            >
-              · <span className={`h-1.5 w-1.5 rounded-full ${status.tone === 'neutral' ? 'bg-ink-muted' : 'bg-success'}`} />
-              {status.label}
-            </span>
-          )}
-        </p>
-      </div>
-      <div className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-ink-muted shadow-xs sm:gap-2 sm:px-3 sm:py-2 sm:text-sm">
-        <CalendarDays className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
-        {TODAY_LABEL}
+    <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-gradient-to-br from-primary-light to-card p-3.5 shadow-xs sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-5">
+      <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
+        {/* Same "clickable only if there's a profile to land on" convention
+            as Topbar's own avatar — a pure admin account (no Employee record)
+            renders the same block as a non-interactive span. */}
+        {user?.employeeId ? (
+          <Link to="/ess/profile" aria-label="View my profile" className="group shrink-0 rounded-full active:scale-95">
+            {avatar}
+          </Link>
+        ) : (
+          avatar
+        )}
+        <div className="min-w-0">
+          <h2 className="truncate text-base font-semibold tracking-tight text-ink sm:text-2xl">
+            <span className="hidden sm:inline">Welcome back, </span>
+            <span className="text-primary">{name}</span>
+          </h2>
+          <p className="mt-0.5 truncate text-xs text-ink-muted sm:mt-1 sm:text-sm">
+            {subtitle}
+            {subtitleDesktopExtra && <span className="hidden sm:inline"> · {subtitleDesktopExtra}</span>}
+          </p>
+        </div>
       </div>
     </div>
   );

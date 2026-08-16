@@ -10,22 +10,10 @@ const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser } = require('../../utils/notifications');
 const { createLeaveRequest, approveLeaveRequest } = require('../leave/leaveRequest.service');
-
-// Local-time YYYY-MM-DD — deliberately not toISOString() (UTC), since the
-// whole point of the night-shift business-date logic below is to reason in
-// the employee's calendar day, not a UTC-shifted one.
-function dateOnly(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function addDays(dateStr, delta) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setDate(d.getDate() + delta);
-  return dateOnly(d);
-}
+// dateOnly/addDays: business-timezone (IST) date helpers, not the server
+// process's own ambient TZ — see utils/dateRange.js for why that distinction
+// matters (Render's containers default to UTC, unlike a dev machine's IST).
+const { dateOnly, addDays } = require('../../utils/dateRange');
 
 // Roster overrides the default employee_shift assignment for a specific
 // date (CLAUDE.md rule 7).

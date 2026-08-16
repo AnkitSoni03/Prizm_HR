@@ -2,12 +2,13 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { toBusinessLocal } = require('../../utils/dateRange');
 
 // Monthly accrual is credited whole-month, not prorated by day-of-month: an
 // employee who joins on the 20th still gets that month's full share.
 // PHASE4_MODELS.md only calls for day-of-joining proration at the "which
 // months count at all" level, not sub-month precision.
-function monthsAccruedForYear({ year, dateOfJoining, asOf = new Date() }) {
+function monthsAccruedForYear({ year, dateOfJoining, asOf = toBusinessLocal() }) {
   const yearStart = new Date(year, 0, 1);
   const joinDate = dateOfJoining ? new Date(`${dateOfJoining}T00:00:00`) : null;
   const accrualStart = joinDate && joinDate > yearStart ? joinDate : yearStart;

@@ -2,6 +2,7 @@
 
 const { Op } = require('sequelize');
 const db = require('../../models');
+const { toBusinessLocal } = require('../../utils/dateRange');
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -11,7 +12,7 @@ const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 // yet; the most recent update to an exited employee is assumed to be the
 // status change itself).
 function buildEmployeeTrend(employees) {
-  const now = new Date();
+  const now = toBusinessLocal();
   const buckets = [];
   for (let i = 5; i >= 0; i -= 1) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -68,7 +69,7 @@ async function getDashboardSummary({ companyId, brandId }) {
   const employeeWhere = { companyId };
   if (brandId) employeeWhere.brandId = brandId;
 
-  const startOfYear = new Date(new Date().getFullYear(), 0, 1);
+  const startOfYear = new Date(toBusinessLocal().getFullYear(), 0, 1);
 
   const [
     brandCount,

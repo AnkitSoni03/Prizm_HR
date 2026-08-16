@@ -3,6 +3,7 @@
 const { Op } = require('sequelize');
 const db = require('../models');
 const { getOrCreateBalance, monthsAccruedForYear } = require('../modules/leave/leaveBalance.service');
+const { toBusinessLocal } = require('../utils/dateRange');
 
 // Repeatable job, scheduled '0 0 1 * *' (midnight on the 1st of each month)
 // from src/server.js. PHASE4_MODELS.md: "monthly: annual_quota / 12 credited
@@ -10,7 +11,7 @@ const { getOrCreateBalance, monthsAccruedForYear } = require('../modules/leave/l
 // `allotted` from scratch each run rather than incrementing it — since
 // monthsAccruedForYear only grows as real time moves forward, recomputation
 // is idempotent even if this runs more than once for the same month.
-async function runLeaveAccrual({ asOf = new Date() } = {}) {
+async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
   const year = asOf.getFullYear();
   const isJanuary = asOf.getMonth() === 0;
 
