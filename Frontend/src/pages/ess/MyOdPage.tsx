@@ -110,7 +110,7 @@ export function MyOdPage() {
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 sm:mb-3 sm:gap-3">
         <div className="w-full sm:w-48">
           <Select
             id="od-status-filter"
@@ -129,10 +129,12 @@ export function MyOdPage() {
             ]}
           />
         </div>
-        <Button onClick={openModal}>Apply for on-duty</Button>
+        <Button onClick={openModal} className="!px-3 !py-1.5 !text-xs sm:!px-4 sm:!py-2 sm:!text-sm">
+          Apply for on-duty
+        </Button>
       </div>
 
-      {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+      {error && <p className="mb-2.5 text-xs text-danger sm:mb-3 sm:text-sm">{error}</p>}
 
       <Table
         isLoading={isLoading}

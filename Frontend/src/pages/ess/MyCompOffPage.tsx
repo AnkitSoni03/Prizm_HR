@@ -87,19 +87,23 @@ export function MyCompOffPage() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-muted">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">
+        <p className="text-xs text-ink-muted sm:text-sm">
           You have <span className="font-semibold text-ink">{availableCount}</span> comp-off{' '}
           {availableCount === 1 ? 'credit' : 'credits'} ready to use.
         </p>
-        <Button onClick={openModal} disabled={!coLeaveType || availableCount === 0}>
+        <Button
+          onClick={openModal}
+          disabled={!coLeaveType || availableCount === 0}
+          className="!px-3 !py-1.5 !text-xs sm:!px-4 sm:!py-2 sm:!text-sm"
+        >
           Use a comp-off credit
         </Button>
       </div>
 
-      {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+      {error && <p className="mb-2.5 text-xs text-danger sm:mb-3 sm:text-sm">{error}</p>}
       {!coLeaveType && !isLoading && !error && (
-        <p className="mb-3 text-sm text-ink-muted">
+        <p className="mb-2.5 text-xs text-ink-muted sm:mb-3 sm:text-sm">
           Comp-off isn&apos;t configured as a leave type for your company yet.
         </p>
       )}

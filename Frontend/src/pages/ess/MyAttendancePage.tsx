@@ -219,6 +219,7 @@ export function MyAttendancePage() {
       value: presentCount,
       icon: CalendarCheck,
       classes: 'bg-success/10 text-success',
+      accentBorder: 'border-t-success',
       hint: workingDaysCount > 0 ? `${Math.round((presentCount / workingDaysCount) * 100)}% of working days` : undefined,
     },
     {
@@ -226,24 +227,28 @@ export function MyAttendancePage() {
       value: halfDayCount,
       icon: Clock3,
       classes: 'bg-warning/10 text-warning',
+      accentBorder: 'border-t-warning',
     },
     {
       label: 'On Leave',
       value: leaveCount,
       icon: PlaneTakeoff,
       classes: 'bg-primary-light text-primary',
+      accentBorder: 'border-t-primary',
     },
     {
       label: 'Absent',
       value: absentCount,
       icon: CalendarX2,
       classes: 'bg-danger/10 text-danger',
+      accentBorder: 'border-t-danger',
     },
     {
       label: 'Avg Hours/Day',
       value: `${avgHoursPerDay.toFixed(1)}h`,
       icon: Timer,
       classes: 'bg-primary-light text-primary',
+      accentBorder: 'border-t-primary',
     },
   ];
 
@@ -252,7 +257,7 @@ export function MyAttendancePage() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">
         <Tabs
           items={[
             { key: 'history', label: 'History' },
@@ -261,13 +266,17 @@ export function MyAttendancePage() {
           active={activeTab}
           onChange={(key) => switchTab(key as Tab)}
         />
-        <Button variant="secondary" onClick={() => openModal(formatDate(new Date()))}>
+        <Button
+          variant="secondary"
+          onClick={() => openModal(formatDate(new Date()))}
+          className="!px-3 !py-1.5 !text-xs sm:!px-4 sm:!py-2 sm:!text-sm"
+        >
           Request a correction
         </Button>
       </div>
 
       {activeTab === 'history' && (
-        <div className="mb-3 flex flex-wrap items-end gap-3">
+        <div className="mb-2.5 flex flex-wrap items-end gap-2.5 sm:mb-3 sm:gap-3">
           <div className="w-full sm:w-48">
             <Input
               id="attendance-month"
@@ -285,7 +294,11 @@ export function MyAttendancePage() {
             />
           </div>
           {month !== '' && (
-            <Button variant="secondary" onClick={() => setMonth('')}>
+            <Button
+              variant="secondary"
+              onClick={() => setMonth('')}
+              className="!px-3 !py-1.5 !text-xs sm:!px-4 sm:!py-2 sm:!text-sm"
+            >
               Full history
             </Button>
           )}
@@ -296,19 +309,19 @@ export function MyAttendancePage() {
 
       {showVisuals && (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:mb-4 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
             {summaryCards.map((card) => (
               <div
                 key={card.label}
-                className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md"
+                className={`flex items-center gap-2.5 rounded-xl border border-t-2 border-border bg-card p-3 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] sm:gap-3 sm:p-4 ${card.accentBorder}`}
               >
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${card.classes}`}>
-                  <card.icon className="h-4 w-4" strokeWidth={1.75} />
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${card.classes}`}>
+                  <card.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-lg font-bold text-ink">{card.value}</p>
-                  <p className="truncate text-xs text-ink-muted">{card.label}</p>
-                  {card.hint && <p className="truncate text-[10px] text-ink-muted">{card.hint}</p>}
+                  <p className="truncate text-base font-bold text-ink sm:text-lg">{card.value}</p>
+                  <p className="truncate text-[11px] text-ink-muted sm:text-xs">{card.label}</p>
+                  {card.hint && <p className="truncate text-[9px] text-ink-muted sm:text-[10px]">{card.hint}</p>}
                 </div>
               </div>
             ))}

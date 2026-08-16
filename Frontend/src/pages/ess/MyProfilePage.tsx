@@ -470,7 +470,13 @@ export function MyProfilePage() {
               a notification either way. You can edit the title or delete it any time before it's verified.
             </p>
             <div className="flex justify-end">
-              <Button type="submit" variant="secondary" isLoading={isUploadingDoc} disabled={!docType || !docFile}>
+              <Button
+                type="submit"
+                variant="secondary"
+                isLoading={isUploadingDoc}
+                disabled={!docType || !docFile}
+                className="px-3 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm"
+              >
                 Upload Document
               </Button>
             </div>

@@ -11,7 +11,7 @@ interface TabsProps {
 
 export function Tabs({ items, active, onChange }: TabsProps) {
   return (
-    <div className="mb-4 overflow-x-auto border-b border-border">
+    <div className="no-scrollbar mb-4 overflow-x-auto border-b border-border">
       <div className="flex w-max min-w-full gap-1">
         {items.map((item) => (
           <button

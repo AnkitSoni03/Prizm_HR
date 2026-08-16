@@ -31,13 +31,13 @@ export function Table<T>({
   if (scrollOnMobile) {
     return (
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-xs">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-xs sm:text-sm">
           <thead className="border-b border-border bg-page">
             <tr>
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className="whitespace-nowrap px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted"
+                  className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:px-4 sm:py-2.5 sm:text-xs"
                 >
                   {column.header}
                 </th>
@@ -49,7 +49,7 @@ export function Table<T>({
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i}>
                   {columns.map((column) => (
-                    <td key={column.key} className="px-4 py-3">
+                    <td key={column.key} className="px-3 py-2.5 sm:px-4 sm:py-3">
                       <Skeleton className="h-4 w-3/4" />
                     </td>
                   ))}
@@ -57,7 +57,7 @@ export function Table<T>({
               ))}
             {!isLoading && rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-6 text-center text-sm text-ink-muted">
+                <td colSpan={columns.length} className="px-3 py-5 text-center text-ink-muted sm:px-4 sm:py-6 sm:text-sm">
                   {emptyMessage}
                 </td>
               </tr>
@@ -68,7 +68,7 @@ export function Table<T>({
                   {columns.map((column) => (
                     <td
                       key={column.key}
-                      className={['whitespace-nowrap px-4 py-2.5 align-middle text-ink', column.className]
+                      className={['whitespace-nowrap px-3 py-2 align-middle text-ink sm:px-4 sm:py-2.5', column.className]
                         .filter(Boolean)
                         .join(' ')}
                     >
@@ -136,28 +136,28 @@ export function Table<T>({
         </table>
       </div>
 
-      <div className="space-y-3 md:hidden">
+      <div className="space-y-2.5 md:hidden">
         {isLoading &&
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-border bg-card p-4">
+            <div key={i} className="rounded-xl border border-border bg-card p-3">
               <Skeleton className="mb-2 h-4 w-1/3" />
               <Skeleton className="h-4 w-full" />
             </div>
           ))}
         {!isLoading && rows.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-ink-muted">
+          <div className="rounded-xl border border-dashed border-border bg-card px-4 py-5 text-center text-xs text-ink-muted">
             {emptyMessage}
           </div>
         )}
         {!isLoading &&
           rows.map((row) => (
-            <div key={rowKey(row)} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div key={rowKey(row)} className="rounded-xl border border-border bg-card p-3 shadow-sm">
               {columns.map((column) => (
-                <div key={column.key} className="flex items-start justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
-                  <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <div key={column.key} className="flex items-start justify-between gap-2.5 py-1 first:pt-0 last:pb-0">
+                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                     {column.header}
                   </span>
-                  <span className="text-right text-sm text-ink">{column.render(row)}</span>
+                  <span className="text-right text-[13px] text-ink">{column.render(row)}</span>
                 </div>
               ))}
             </div>

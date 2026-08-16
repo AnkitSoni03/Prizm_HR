@@ -9,10 +9,10 @@
 
 :root {
   --bg-page: #f7f9fc;
-  --bg-sidebar: #0a2533;
+  --bg-sidebar: #0d1a30;
   --bg-card: #ffffff;
   --bg-muted: #eef2f8;
-  --border-color: #b1afaf;
+  --border-color: #d8dee6;
 
   --brand: #3354a4;
   --brand-hover: #1e3c72;
@@ -152,6 +152,18 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background-color: var(--ink-muted);
+  }
+
+  /* For scroll containers where the scrollbar itself is just visual noise
+     (e.g. a short horizontal tab strip that only barely overflows) —
+     scrolling still works via touch/trackpad/wheel, the bar is just hidden. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 
   h1,
