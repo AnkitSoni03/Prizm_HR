@@ -133,7 +133,7 @@ export function PhotoUploadField({
               type="button"
               onClick={handleOpenCamera}
               disabled={isBusy}
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-page disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-page disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
             >
               <Camera className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} />
               Take Photo
@@ -142,7 +142,7 @@ export function PhotoUploadField({
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={isBusy}
-              className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-page disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
+              className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:bg-page disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
             >
               <ImagePlus className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} />
               Choose from Gallery
@@ -156,7 +156,7 @@ export function PhotoUploadField({
                 }}
                 disabled={isBusy}
                 aria-label="Remove photo"
-                className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:opacity-60 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm"
               >
                 <X className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={1.75} />
                 Remove

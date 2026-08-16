@@ -458,11 +458,12 @@ export function MyProfilePage() {
                 id="my-doc-type"
                 label="Type"
                 required
+                compact
                 value={docType}
                 onChange={(event) => setDocType(event.target.value)}
                 placeholder="e.g. PAN Card"
               />
-              <FileUploadField file={docFile} onSelect={setDocFile} disabled={isUploadingDoc} />
+              <FileUploadField file={docFile} onSelect={setDocFile} disabled={isUploadingDoc} compact />
             </div>
             <p className="text-[11px] text-ink-muted sm:text-xs">
               Once uploaded, it'll show as "Pending" until an admin or a document verifier reviews it — you'll get

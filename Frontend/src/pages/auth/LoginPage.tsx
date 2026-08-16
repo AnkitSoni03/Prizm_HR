@@ -63,21 +63,34 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <div className="relative flex shrink-0 items-center justify-center overflow-hidden bg-sidebar px-8 py-12 md:w-1/2 md:py-0">
-        <div className="pointer-events-none absolute inset-0">
+    // The gradient lives on this outer wrapper (mobile only, via max-md:) so
+    // it paints continuously behind both sections below — the two sections
+    // themselves go transparent on mobile so the gradient shows through
+    // instead of being covered by a second, separately-colored solid fill.
+    <div className="relative flex min-h-screen flex-col overflow-x-hidden max-md:bg-gradient-to-b max-md:from-sidebar max-md:to-page md:flex-row">
+      {/* Mobile-only ambient glow, positioned against the whole page instead
+          of being clipped inside the logo section's own box — that per-section
+          clipping is what was drawing a hard edge between the two "halves"
+          on mobile. Sits behind both sections (z-10 on each below). */}
+      <div className="pointer-events-none absolute inset-0 md:hidden">
+        <div className="absolute -left-16 -top-10 h-64 w-64 rounded-full bg-primary/25 blur-3xl" />
+        <div className="absolute -right-20 top-52 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+      </div>
+
+      <div className="relative z-10 flex shrink-0 items-center justify-center overflow-hidden bg-transparent px-8 pb-2 pt-8 sm:py-12 md:w-1/2 md:bg-sidebar md:py-0">
+        <div className="pointer-events-none absolute inset-0 hidden md:block">
           <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
           <div className="absolute -bottom-32 -right-16 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
         </div>
 
         <div className="relative z-10 flex max-w-sm flex-col items-center gap-4 text-center md:items-start md:text-left">
-          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-60 w-60 object-contain sm:h-72 sm:w-72" />
+          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-28 w-28 object-contain sm:h-72 sm:w-72" />
         </div>
       </div>
 
-      <div className="flex flex-1 items-center justify-center bg-page px-4 py-12">
+      <div className="relative z-10 flex flex-1 items-center justify-center bg-transparent px-4 pb-12 pt-2 sm:py-12 md:bg-page">
         <div className="w-full max-w-sm">
-          <div className="mb-8 text-center md:text-left">
+          <div className="mb-6 text-center sm:mb-8 md:text-left">
             <p className="text-lg font-semibold text-ink">Sign in</p>
             <p className="text-sm text-ink-muted">Enter your credentials to access your account</p>
           </div>
