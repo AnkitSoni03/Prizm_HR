@@ -42,17 +42,19 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
         >
           <Menu className="h-5 w-5" strokeWidth={1.75} />
         </button>
-        <h1 className="truncate text-sm font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
+        <h1 className="truncate text-[13px] font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
       </div>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2 md:gap-4">
         <NotificationBell />
 
+        {/* Theme toggle, profile, and logout move into the mobile Sidebar
+            drawer below md — kept here only for desktop. */}
         <button
           type="button"
           onClick={toggleTheme}
           aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="rounded-lg p-2 text-ink-muted transition-colors hover:bg-page hover:text-ink"
+          className="hidden rounded-lg p-2 text-ink-muted transition-colors hover:bg-page hover:text-ink md:block"
         >
           {theme === 'dark' ? <Sun className="h-4 w-4" strokeWidth={1.75} /> : <Moon className="h-4 w-4" strokeWidth={1.75} />}
         </button>
@@ -73,11 +75,11 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
           // Employee record, so no name either) render the same block
           // as a non-interactive span.
           return user?.employeeId ? (
-            <Link to="/ess/profile" className="flex items-center gap-2.5 rounded-lg transition-opacity hover:opacity-80">
+            <Link to="/ess/profile" className="hidden items-center gap-2.5 rounded-lg transition-opacity hover:opacity-80 md:flex">
               {content}
             </Link>
           ) : (
-            <div className="flex items-center gap-2.5">{content}</div>
+            <div className="hidden items-center gap-2.5 md:flex">{content}</div>
           );
         })()}
 
@@ -85,7 +87,7 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
           type="button"
           onClick={handleLogout}
           disabled={isLoggingOut}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:cursor-not-allowed disabled:opacity-70"
+          className="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-muted transition-colors hover:bg-page hover:text-danger disabled:cursor-not-allowed disabled:opacity-70 md:flex"
         >
           {isLoggingOut ? (
             <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />

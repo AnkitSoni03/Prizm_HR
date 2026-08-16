@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { LogOut, Loader2, Moon, Sun, X } from 'lucide-react';
 import type { NavItem } from '../../routes/navConfig';
 import { useAuth } from '../../context/auth-context';
+import { useTheme } from '../../context/theme-context';
+import { Avatar } from '../ui/Avatar';
+
+// A shade under a second so it registers as a real transition (session
+// teardown feels intentional) without becoming an actual annoyance to wait
+// through on every logout — mirrors Topbar's own delay for the desktop path.
+const LOGOUT_DELAY_MS = 700;
 
 interface SidebarProps {
   navItems: NavItem[];
@@ -26,12 +34,25 @@ function readStoredWidth(): number {
 }
 
 export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps) {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const visibleNavItems = navItems.filter((item) => !item.permission || hasPermission(item.permission));
 
+  function handleLogout() {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setTimeout(() => {
+      logout();
+      onClose();
+      navigate('/login', { replace: true });
+    }, LOGOUT_DELAY_MS);
+  }
+
   // Resizable width only ever applies at desktop sizes (the "big display" the
-  // user asked to customize) — mobile keeps its own slide-over drawer sizing
-  // (w-[78vw] max-w-64 below) untouched, so this never fights that layout.
+  // user asked to customize) — mobile keeps its own full-width slide-over
+  // drawer (w-full below) untouched, so this never fights that layout.
   const [width, setWidth] = useState(() => (typeof window === 'undefined' ? DEFAULT_WIDTH : readStoredWidth()));
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
@@ -92,20 +113,64 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
 
       <aside
         className={[
-          'fixed inset-y-0 left-0 z-40 flex h-screen w-[78vw] max-w-64 shrink-0 flex-col bg-sidebar shadow-2xl ease-in-out',
+          'fixed inset-y-0 left-0 z-40 flex h-screen w-full shrink-0 flex-col bg-sidebar shadow-2xl ease-in-out',
           isDragging ? '' : 'transition-transform duration-200',
           isOpen ? 'translate-x-0' : '-translate-x-full',
           // md:relative (not md:static) so the drag handle below — an
           // absolutely-positioned child — anchors to the sidebar's own right
           // edge instead of escaping to the nearest positioned ancestor.
-          'md:relative md:max-w-none md:translate-x-0 md:shadow-none',
+          // Full-width only applies below md — the resizable desktop rail
+          // (width set inline below) takes back over at md and up.
+          'md:relative md:w-auto md:max-w-none md:translate-x-0 md:shadow-none',
         ].join(' ')}
         style={isDesktop ? { width: `${width}px` } : undefined}
       >
-        <div className="flex flex-col items-center gap-2 border-b border-white/10 px-5 py-5 text-center sm:py-6">
-          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-12 w-12 shrink-0 rounded-xl object-cover sm:h-14 sm:w-14" />
-          <p className="truncate text-xs text-gray-400">{portalLabel}</p>
+        <div className="relative flex flex-col items-center gap-1.5 border-b border-white/10 px-5 py-4 text-center sm:gap-2 sm:py-5">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 transition-colors active:scale-95 hover:bg-white/10 hover:text-white md:hidden"
+          >
+            <X className="h-5 w-5" strokeWidth={1.75} />
+          </button>
+          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-11 w-11 shrink-0 rounded-xl object-cover sm:h-14 sm:w-14" />
+          <p className="truncate text-[11px] text-gray-400 sm:text-xs">{portalLabel}</p>
         </div>
+
+        {/* Mobile-only profile card — on desktop this same info lives in the
+            Topbar instead, so this block is hidden at md and up. */}
+        {(() => {
+          const displayName = user?.name ?? user?.email ?? 'Account';
+          const inner = (
+            <>
+              <Avatar src={user?.photoUrl} alt={displayName} size="lg" className="ring-2 ring-white/15" />
+              <span className="min-w-0 flex-1 text-left leading-tight">
+                <span className="block truncate text-sm font-semibold text-white">{displayName}</span>
+                {user?.designation ? (
+                  <span className="block truncate text-xs font-medium text-primary">{user.designation}</span>
+                ) : (
+                  <span className="block truncate text-xs text-gray-400">{user?.email}</span>
+                )}
+              </span>
+            </>
+          );
+          return (
+            <div className="border-b border-white/10 px-4 py-3 md:hidden">
+              {user?.employeeId ? (
+                <Link
+                  to="/ess/profile"
+                  onClick={onClose}
+                  className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 transition-colors active:scale-[0.98] hover:bg-white/10"
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5">{inner}</div>
+              )}
+            </div>
+          );
+        })()}
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {visibleNavItems.map((item) => {
@@ -115,7 +180,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
               return (
                 <div
                   key={item.path}
-                  className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-600"
+                  className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2 text-[13px] text-gray-600 sm:py-2.5 sm:text-sm"
                   title="Coming soon"
                 >
                   <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
@@ -135,7 +200,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                 onClick={onClose}
                 className={({ isActive }) =>
                   [
-                    'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150',
+                    'relative flex items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-150 sm:py-2.5 sm:text-sm',
                     isActive
                       ? 'bg-nav-active text-white shadow-glow'
                       : 'text-gray-300 hover:translate-x-0.5 hover:bg-white/5 hover:text-white active:scale-[0.98]',
@@ -156,8 +221,57 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4">
-          <p className="text-[11px] text-gray-500">© {new Date().getFullYear()} Sri Sai Group</p>
+        {/* Mobile-only quick actions — theme toggle + logout live in the
+            Topbar on desktop; folded in here so the drawer is fully
+            self-contained on mobile. */}
+        <div className="space-y-2 border-t border-white/10 px-4 py-3 md:hidden">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="flex w-full items-center justify-between rounded-xl bg-white/5 px-3.5 py-2.5 text-[13px] font-medium text-gray-200 transition-colors hover:bg-white/10"
+          >
+            <span className="flex items-center gap-2.5">
+              {theme === 'dark' ? (
+                <Moon className="h-4 w-4 text-primary" strokeWidth={1.75} />
+              ) : (
+                <Sun className="h-4 w-4 text-amber-400" strokeWidth={1.75} />
+              )}
+              Dark mode
+            </span>
+            {/* Sliding pill switch — circle travels left/right on toggle. */}
+            <span
+              className={[
+                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200',
+                theme === 'dark' ? 'bg-primary' : 'bg-white/15',
+              ].join(' ')}
+            >
+              <span
+                className={[
+                  'inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out',
+                  theme === 'dark' ? 'translate-x-[22px]' : 'translate-x-1',
+                ].join(' ')}
+              />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13px] font-medium text-gray-300 transition-colors hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isLoggingOut ? (
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
+            ) : (
+              <LogOut className="h-4 w-4" strokeWidth={1.75} />
+            )}
+            {isLoggingOut ? 'Logging out…' : 'Logout'}
+          </button>
+        </div>
+
+        <div className="border-t border-white/10 px-5 py-3">
+          <p className="text-[10px] text-gray-500 sm:text-[11px]">© {new Date().getFullYear()} Sri Sai Group</p>
         </div>
 
         {/* Desktop-only drag-to-resize handle — double-click resets to the default width. */}
