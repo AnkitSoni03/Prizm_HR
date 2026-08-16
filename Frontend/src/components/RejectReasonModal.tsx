@@ -31,7 +31,7 @@ export function RejectReasonModal({ title, onClose, onConfirm }: RejectReasonMod
   }
 
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={onClose} widthClassName="max-w-sm" compact>
       <div className="space-y-4">
         <div>
           <label htmlFor="reject-reason" className="mb-1.5 block text-sm font-medium text-ink">

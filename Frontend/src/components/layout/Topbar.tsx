@@ -1,4 +1,4 @@
-import { LogOut, Loader2, Menu, Moon, Sun } from 'lucide-react';
+import { AlignLeft, LogOut, Loader2, Moon, Sun } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/auth-context';
@@ -40,7 +40,7 @@ export function Topbar({ title, onOpenMobileMenu }: TopbarProps) {
           aria-label="Open menu"
           className="shrink-0 rounded-lg p-2 text-ink-muted transition-colors active:scale-95 hover:bg-page hover:text-ink md:hidden"
         >
-          <Menu className="h-5 w-5" strokeWidth={1.75} />
+          <AlignLeft className="h-5 w-5" strokeWidth={1.75} />
         </button>
         <h1 className="truncate text-[13px] font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
       </div>

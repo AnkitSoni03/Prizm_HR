@@ -60,7 +60,7 @@ export function HolidayReminderModal() {
   }
 
   return (
-    <Modal title="Holiday Reminder" onClose={handleDismiss} widthClassName="max-w-sm">
+    <Modal title="Holiday Reminder" onClose={handleDismiss} widthClassName="max-w-sm" compact>
       <div className="flex flex-col items-center gap-4 py-2 text-center">
         <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary">
           <PartyPopper className="h-7 w-7" strokeWidth={1.75} />

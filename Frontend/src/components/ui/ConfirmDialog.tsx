@@ -25,7 +25,7 @@ export function ConfirmDialog({
   const Icon = variant === 'danger' ? AlertTriangle : HelpCircle;
 
   return (
-    <Modal title={title} onClose={onCancel} widthClassName="max-w-sm">
+    <Modal title={title} onClose={onCancel} widthClassName="max-w-sm" compact>
       <div className="flex gap-3.5">
         <div
           className={[

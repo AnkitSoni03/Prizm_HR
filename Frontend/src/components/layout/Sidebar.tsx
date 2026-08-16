@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { LogOut, Loader2, Moon, Sun, X } from 'lucide-react';
+import { GripVertical, LogOut, Loader2, Moon, Sun, X } from 'lucide-react';
 import type { NavItem } from '../../routes/navConfig';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
@@ -284,11 +284,33 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDoubleClick={handleDoubleClick}
-          className={[
-            'absolute inset-y-0 right-0 z-10 hidden w-1.5 cursor-col-resize touch-none md:block',
-            isDragging ? 'bg-primary' : 'bg-transparent hover:bg-primary/50',
-          ].join(' ')}
-        />
+          className="group absolute inset-y-0 right-0 z-10 hidden w-2.5 cursor-col-resize touch-none items-center justify-center md:flex"
+        >
+          {/* Always-visible line on the sidebar's own border — not just on
+              hover/drag — so it reads as adjustable at a glance. */}
+          <span
+            className={[
+              'absolute inset-y-0 right-0 w-px transition-colors duration-150',
+              isDragging ? 'bg-primary' : 'bg-white/15 group-hover:bg-primary/70',
+            ].join(' ')}
+          />
+          {/* Grip affordance, centered vertically, hinting the edge can be
+              dragged left/right to resize. */}
+          <span
+            className={[
+              'relative flex h-9 w-2.5 items-center justify-center rounded-full transition-colors duration-150',
+              isDragging ? 'bg-primary' : 'bg-white/10 group-hover:bg-primary/70',
+            ].join(' ')}
+          >
+            <GripVertical
+              className={[
+                'h-3.5 w-3.5 transition-colors duration-150',
+                isDragging ? 'text-white' : 'text-gray-400 group-hover:text-white',
+              ].join(' ')}
+              strokeWidth={2}
+            />
+          </span>
+        </div>
       </aside>
     </>
   );

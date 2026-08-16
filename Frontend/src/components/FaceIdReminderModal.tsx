@@ -40,7 +40,7 @@ export function FaceIdReminderModal() {
   }
 
   return (
-    <Modal title="Face ID Registration Required" onClose={() => setShow(false)} widthClassName="max-w-sm">
+    <Modal title="Face ID Registration Required" onClose={() => setShow(false)} widthClassName="max-w-sm" compact>
       <div className="flex flex-col items-center gap-4 py-2 text-center">
         <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary">
           <ScanFace className="h-7 w-7" strokeWidth={1.75} />

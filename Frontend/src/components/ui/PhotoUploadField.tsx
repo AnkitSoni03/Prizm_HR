@@ -37,7 +37,7 @@ export function PhotoUploadField({
   onSelect,
   onRemove,
   isBusy = false,
-  helperText = 'Optional. JPG or PNG.',
+  helperText = '',
   headerContent,
 }: PhotoUploadFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
