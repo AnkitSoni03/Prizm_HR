@@ -1,11 +1,16 @@
 import { apiClient } from '../client';
 import type { HolidayAuditUser } from './holidays';
+import type { RosterPolicyGroup } from './rosterGroups';
 
 export interface CompanyPolicy {
   id: string;
   companyId: string;
   title: string;
   body: string | null;
+  // Empty = visible company-wide (as before this dimension existed). One or
+  // more = only visible to those Rosters' employees, on top of company-wide
+  // ones — see companyPolicy.service.js::listCompanyPolicies.
+  rosterGroups?: RosterPolicyGroup[];
   // Internal GCS object path — not directly browsable (the bucket is
   // private). Use fileDownloadUrl instead, a short-lived (~15 min) signed
   // URL minted fresh by the backend on every read.
@@ -30,6 +35,10 @@ interface ListParams {
   // Set by the Group Admin portal's read-only company drill-in — see
   // companyPolicy.controller.js's list handler.
   companyId?: string;
+  // Set by ESS's own "Company Policies" view (the caller's own Roster) to
+  // filter to company-wide + that Roster's policies only. Admin management
+  // views omit this and see every policy regardless of Roster.
+  rosterGroupId?: string;
 }
 
 export async function listCompanyPolicies(params: ListParams = {}): Promise<CompanyPolicyListResult> {
@@ -39,14 +48,18 @@ export async function listCompanyPolicies(params: ListParams = {}): Promise<Comp
   return data;
 }
 
-export async function createCompanyPolicy(input: { title: string; body?: string }): Promise<CompanyPolicy> {
+export async function createCompanyPolicy(input: {
+  title: string;
+  body?: string;
+  rosterGroupIds?: string[];
+}): Promise<CompanyPolicy> {
   const { data } = await apiClient.post<{ data: CompanyPolicy }>('/company-policies', input);
   return data.data;
 }
 
 export async function updateCompanyPolicy(
   id: string,
-  input: { title?: string; body?: string }
+  input: { title?: string; body?: string; rosterGroupIds?: string[] }
 ): Promise<CompanyPolicy> {
   const { data } = await apiClient.patch<{ data: CompanyPolicy }>(`/company-policies/${id}`, input);
   return data.data;

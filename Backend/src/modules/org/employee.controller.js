@@ -29,6 +29,7 @@ async function list(req, res, next) {
       companyId,
       brandId: req.query.brandId,
       departmentId: req.query.departmentId,
+      rosterGroupId: req.query.rosterGroupId,
       status: req.query.status,
       search: req.query.search,
     });
@@ -56,18 +57,24 @@ async function create(req, res, next) {
       departmentId,
       designationId,
       managerId,
+      rosterGroupId,
       userId,
       dateOfJoining,
+      dateOfBirth,
       employmentType,
       workState,
     } = req.body;
 
     // brandId is conditionally required (validated in the service against
     // company.usesBrands) — not every company operates with Brands.
-    if (!name || !employeeCode || !departmentId || !employmentType) {
-      return res
-        .status(400)
-        .json({ error: 'name, employeeCode, departmentId and employmentType are required' });
+    // employeeCode/departmentId/employmentType are all optional — Super
+    // Admin's minimal "name only" flow leaves them unset on purpose
+    // (employeeCode stays null — no auto-generated placeholder — until
+    // Company Admin/Brand Admin sets a real one via PATCH; employmentType
+    // defaults to full_time; department is assigned later by Company Admin);
+    // Company Admin's own form still always sends them.
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
     }
     // A brand-scoped caller (Brand Admin) must target their own brand
     // explicitly — rbac.middleware.js's requirePermission already rejects a
@@ -90,8 +97,10 @@ async function create(req, res, next) {
       departmentId,
       designationId,
       managerId,
+      rosterGroupId,
       userId,
       dateOfJoining,
+      dateOfBirth,
       employmentType,
       workState,
     });
@@ -146,6 +155,7 @@ async function remove(req, res, next) {
       companyId: req.auth.companyId,
       id: req.params.id,
       scopedBrandIds: req.auth.scopedBrandIds,
+      groupId: req.auth.groupId,
     });
     res.status(204).send();
   } catch (err) {

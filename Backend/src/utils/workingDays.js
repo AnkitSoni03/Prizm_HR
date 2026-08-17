@@ -7,20 +7,31 @@ function dayOfWeek(dateStr) {
   return new Date(`${dateStr}T00:00:00`).getDay();
 }
 
-// A company/brand holiday covering this date — brand-specific rows and
-// company-wide rows (brand_id NULL) both apply. A holiday is a date range
-// (date..endDate, inclusive — a single-day holiday just has date === endDate),
-// so this checks containment, not an exact match.
-async function isHoliday({ companyId, brandId, dateStr }) {
-  const holiday = await db.Holiday.findOne({
+// A company/brand/Roster holiday covering this date. A holiday is a date
+// range (date..endDate, inclusive — a single-day holiday just has date ===
+// endDate), so this checks containment, not an exact match. brandId and
+// rosterGroupId are two independent scoping dimensions: a matching holiday
+// row must satisfy BOTH "brand-wide-or-this-brand" AND "Roster-wide-or-this-
+// Roster" — so a Roster-scoped holiday (e.g. extra Durga Puja days assigned
+// to a Kolkata Roster) only fires for that Roster's employees, while a plain
+// company-wide holiday (brandId null, no Roster links) still fires for
+// everyone. Roster scoping is a many-to-many join (roster_group_holidays),
+// not a column, so this findAll-then-filter-in-JS shape (rather than a pure
+// SQL WHERE) is needed to inspect each candidate's linked Rosters — holidays
+// matching a given date are always few, so this is cheap.
+async function isHoliday({ companyId, brandId, rosterGroupId, dateStr }) {
+  const holidays = await db.Holiday.findAll({
     where: {
       companyId,
       date: { [Op.lte]: dateStr },
       endDate: { [Op.gte]: dateStr },
       [Op.or]: [{ brandId: null }, ...(brandId ? [{ brandId }] : [])],
     },
+    include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
   });
-  return !!holiday;
+  return holidays.some(
+    (h) => h.rosterGroups.length === 0 || (rosterGroupId && h.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId)))
+  );
 }
 
 // Weekly off per the employee's roster/shift for this date (shift_rosters
@@ -41,8 +52,8 @@ async function isWeeklyOff({ employeeId, dateStr }) {
 
 // Shared by leave day-counting and comp-off auto-detection
 // (PHASE4_MODELS.md: "reuse one shared 'is this a working day' utility").
-async function isWorkingDay({ employeeId, companyId, brandId, dateStr }) {
-  if (await isHoliday({ companyId, brandId, dateStr })) return false;
+async function isWorkingDay({ employeeId, companyId, brandId, rosterGroupId, dateStr }) {
+  if (await isHoliday({ companyId, brandId, rosterGroupId, dateStr })) return false;
   if (await isWeeklyOff({ employeeId, dateStr })) return false;
   return true;
 }

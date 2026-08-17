@@ -5,6 +5,7 @@ import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createPayrollAdjustment } from '../../../api/companyAdmin/payrollAdjustments';
 import type { Employee } from '../../../api/tenancy';
+import { formatEmployeeLabel } from '../../../utils/employeeDisplay';
 
 interface PayrollAdjustmentFormModalProps {
   employees: Employee[];
@@ -67,7 +68,7 @@ export function PayrollAdjustmentFormModal({ employees, onClose, onSaved }: Payr
           value={employeeId}
           onChange={(event) => setEmployeeId(event.target.value)}
           placeholder="Select an employee"
-          options={employees.map((e) => ({ value: e.id, label: `${e.name ?? e.employeeCode} (${e.employeeCode})` }))}
+          options={employees.map((e) => ({ value: e.id, label: formatEmployeeLabel(e) }))}
         />
         <div className="grid grid-cols-2 gap-3">
           <Select

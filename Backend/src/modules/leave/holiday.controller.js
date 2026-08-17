@@ -10,6 +10,7 @@ async function list(req, res, next) {
       limit,
       offset,
       brandId: req.query.brandId,
+      rosterGroupId: req.query.rosterGroupId,
       from: req.query.from,
       to: req.query.to,
     });
@@ -21,7 +22,7 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { brandId, date, toDate, name, type } = req.body;
+    const { brandId, rosterGroupIds, date, toDate, name, type } = req.body;
     if (!date || !name) {
       return res.status(400).json({ error: 'date and name are required' });
     }
@@ -31,6 +32,7 @@ async function create(req, res, next) {
     const holiday = await service.createHoliday({
       companyId: req.auth.companyId,
       brandId,
+      rosterGroupIds,
       date,
       toDate,
       name,

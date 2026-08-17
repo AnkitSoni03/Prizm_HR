@@ -22,6 +22,9 @@ router.get(
   requirePermission('user:invite'),
   controller.getAdminInvitation
 );
-router.delete('/:id', requireSuperAdmin, requirePermission('company:delete'), controller.remove);
+// Not requireSuperAdmin: Group Admin holds company:delete too (as of the
+// delete-rights grant), scoped to their own Group by controller.remove —
+// same shape as update just above.
+router.delete('/:id', requirePermission('company:delete'), controller.remove);
 
 module.exports = router;

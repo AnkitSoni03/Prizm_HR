@@ -26,7 +26,7 @@ export function EmployeeMultiSelect({
   const filtered = employees.filter((employee) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
-    return employee.name.toLowerCase().includes(q) || employee.employeeCode.toLowerCase().includes(q);
+    return employee.name.toLowerCase().includes(q) || (employee.employeeCode?.toLowerCase().includes(q) ?? false);
   });
 
   function toggle(id: string) {
@@ -81,7 +81,8 @@ export function EmployeeMultiSelect({
                 className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
               />
               <span>
-                {employee.name} <span className="text-ink-muted">({employee.employeeCode})</span>
+                {employee.name}
+                {employee.employeeCode && <span className="text-ink-muted"> ({employee.employeeCode})</span>}
               </span>
             </label>
           ))

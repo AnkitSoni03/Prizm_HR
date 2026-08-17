@@ -3,6 +3,7 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { datesBetween } = require('../../utils/dateRange');
+const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
 
 // Sanity cap on a single "from/to" holiday creation — a real multi-day
 // holiday (Diwali, a year-end shutdown, ...) never runs longer than this;
@@ -27,9 +28,10 @@ const AUDIT_INCLUDES = [
     attributes: ['id', 'email'],
     include: [{ model: db.Employee, as: 'employee', attributes: ['name'] }],
   },
+  { model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id', 'name'] },
 ];
 
-async function listHolidays({ limit, offset, brandId, from, to }) {
+async function listHolidays({ limit, offset, brandId, rosterGroupId, from, to }) {
   const { Op } = db.Sequelize;
   const where = {};
   if (brandId) where.brandId = brandId;
@@ -47,7 +49,18 @@ async function listHolidays({ limit, offset, brandId, from, to }) {
     order: [['date', 'ASC']],
     include: AUDIT_INCLUDES,
   });
-  return { rows, count };
+  // rosterGroupId filters in JS, not SQL — a holiday with zero Roster links
+  // is company/brand-wide (always included); one with links is included only
+  // when it's linked to the requested Roster. Mirrors utils/workingDays.js
+  // ::isHoliday's own matching rule, used here so a Roster's own detail page
+  // (or an ESS employee's scoped view) sees exactly the same holidays that
+  // rule would actually apply for them.
+  const filtered = rosterGroupId
+    ? rows.filter(
+        (h) => h.rosterGroups.length === 0 || h.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId))
+      )
+    : rows;
+  return { rows: filtered, count };
 }
 
 // scopedBrandIds mirrors rbac.middleware.js's requirePermission output: null
@@ -70,14 +83,23 @@ async function getHolidayForWrite({ companyId, id, scopedBrandIds }) {
   return holiday;
 }
 
+async function syncHolidayRosterGroups(holidayId, rosterGroupIds) {
+  await db.RosterGroupHoliday.destroy({ where: { holidayId } });
+  if (rosterGroupIds && rosterGroupIds.length > 0) {
+    await db.RosterGroupHoliday.bulkCreate(rosterGroupIds.map((rosterGroupId) => ({ holidayId, rosterGroupId })));
+  }
+}
+
 // One row = one holiday *event*, however many days long — date..endDate,
 // inclusive. `toDate` is optional and defaults to `date` itself (a plain
 // one-day holiday). Every consumer that needs to know "is this calendar day
 // a holiday" (workingDays.js::isHoliday, leave/comp-off day-counting,
 // holidayReminder.job.js) checks range containment instead of an exact
 // match, so a multi-day row is transparently a holiday on every day inside
-// it.
-async function createHoliday({ companyId, brandId, date, toDate, name, type, createdBy, scopedBrandIds }) {
+// it. rosterGroupIds is optional — omitted/empty means company/brand-wide,
+// same as before this dimension existed; assigning one or more Roster Groups
+// scopes it to just those Groups' employees, on top of the brand dimension.
+async function createHoliday({ companyId, brandId, rosterGroupIds, date, toDate, name, type, createdBy, scopedBrandIds }) {
   // A brand-scoped caller (Brand Admin) with no brandId in the request
   // still only ever means "my own brand" — rbac.middleware.js's
   // requirePermission already rejects a *different* brandId, but an
@@ -90,10 +112,11 @@ async function createHoliday({ companyId, brandId, date, toDate, name, type, cre
     const brand = await db.Brand.findOne({ where: { id: resolvedBrandId, companyId } });
     if (!brand) throw new HttpError(400, 'Brand not found for this company');
   }
+  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
 
   const endDate = validateRange(date, toDate || date);
 
-  return db.Holiday.create({
+  const holiday = await db.Holiday.create({
     companyId,
     brandId: resolvedBrandId || null,
     date,
@@ -102,6 +125,9 @@ async function createHoliday({ companyId, brandId, date, toDate, name, type, cre
     type: type || 'public',
     createdBy: createdBy || null,
   });
+
+  if (rosterGroupIds !== undefined) await syncHolidayRosterGroups(holiday.id, rosterGroupIds);
+  return db.Holiday.findOne({ where: { id: holiday.id }, include: AUDIT_INCLUDES });
 }
 
 // Shared by create and update — throws 400 on an inverted or over-long
@@ -118,7 +144,9 @@ function validateRange(date, endDate) {
 
 async function updateHoliday({ companyId, id, updates, updatedBy, scopedBrandIds }) {
   const holiday = await getHolidayForWrite({ companyId, id, scopedBrandIds });
-  const { date, toDate, name, type } = updates;
+  const { date, toDate, name, type, rosterGroupIds } = updates;
+
+  if (rosterGroupIds !== undefined) await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
 
   const nextDate = date !== undefined ? date : holiday.date;
   const nextEndDate = toDate !== undefined ? toDate : holiday.endDate;
@@ -130,7 +158,9 @@ async function updateHoliday({ companyId, id, updates, updatedBy, scopedBrandIds
     ...(type !== undefined && { type }),
     updatedBy: updatedBy || null,
   });
-  return holiday;
+
+  if (rosterGroupIds !== undefined) await syncHolidayRosterGroups(id, rosterGroupIds);
+  return db.Holiday.findOne({ where: { id }, include: AUDIT_INCLUDES });
 }
 
 async function deleteHoliday({ companyId, id, scopedBrandIds }) {

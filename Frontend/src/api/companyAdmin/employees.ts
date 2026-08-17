@@ -8,6 +8,7 @@ export interface EmployeeListParams {
   companyId?: string;
   brandId?: string;
   departmentId?: string;
+  rosterGroupId?: string;
   status?: string;
   limit?: number;
   offset?: number;
@@ -35,7 +36,9 @@ export async function createEmployee(input: {
   departmentId: string;
   designationId: string | null;
   managerId: string | null;
+  rosterGroupId?: string | null;
   dateOfJoining: string;
+  dateOfBirth?: string;
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   workState?: string;
 }): Promise<Employee> {
@@ -46,12 +49,15 @@ export async function createEmployee(input: {
 export async function updateEmployee(
   id: string,
   input: Partial<{
+    employeeCode: string | null;
     designationId: string | null;
     employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
     status: Employee['status'];
     dateOfJoining: string | null;
+    dateOfBirth: string | null;
     managerId: string | null;
     workState: string | null;
+    rosterGroupId: string | null;
   }>
 ): Promise<Employee> {
   const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}`, input);

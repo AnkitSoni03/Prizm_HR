@@ -97,6 +97,16 @@ export function HolidaysPage() {
             },
             { key: 'date', header: 'Date', render: (h) => formatDisplayDateRange(h.date, h.endDate) },
             {
+              key: 'roster',
+              header: 'Applies To',
+              render: (h) =>
+                h.rosterGroups && h.rosterGroups.length > 0 ? (
+                  <span className="text-ink">{h.rosterGroups.map((rg) => rg.name).join(', ')}</span>
+                ) : (
+                  <span className="text-ink-muted">Company-wide</span>
+                ),
+            },
+            {
               key: 'day',
               header: 'Days',
               render: (h) => {

@@ -48,10 +48,7 @@ export function CompaniesPage() {
 
   const canCreateGroup = hasPermission('group:create');
   const canDeleteGroup = hasPermission('group:delete');
-  const canCreateCompany = hasPermission('company:create');
-  const canDeleteCompany = hasPermission('company:delete');
   const canEditGroup = hasPermission('group:update');
-  const canEditCompany = hasPermission('company:update');
 
   return (
     <div>
@@ -79,17 +76,14 @@ export function CompaniesPage() {
       )}
 
       {!isLoading && groups.length > 0 && (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {groups.map((group) => (
             <GroupCard
               key={group.id}
               group={group}
               plans={plans}
-              canCreateCompany={canCreateCompany}
               canDeleteGroup={canDeleteGroup}
-              canDeleteCompany={canDeleteCompany}
               canEditGroup={canEditGroup}
-              canEditCompany={canEditCompany}
               onDeleted={loadGroups}
               onSaved={loadGroups}
             />

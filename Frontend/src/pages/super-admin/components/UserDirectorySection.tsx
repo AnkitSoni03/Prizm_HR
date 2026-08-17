@@ -5,6 +5,7 @@ import { Button } from '../../../components/ui/Button';
 import { Pagination } from '../../../components/ui/Pagination';
 import { Avatar } from '../../../components/ui/Avatar';
 import type { Employee } from '../../../api/tenancy';
+import { EmployeeDetailModal } from './EmployeeDetailModal';
 
 export interface DirectorySection {
   key: string;
@@ -31,6 +32,7 @@ function statusTone(status: Employee['status']) {
 export function UserDirectorySection({ section }: { section: DirectorySection }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
   const visible = isExpanded
     ? section.employees.slice(offset, offset + PAGE_SIZE)
@@ -58,21 +60,23 @@ export function UserDirectorySection({ section }: { section: DirectorySection })
 
       <div className="space-y-2">
         {visible.map((employee) => (
-          <div
+          <button
             key={employee.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-page px-4 py-2.5"
+            type="button"
+            onClick={() => setSelectedEmployee(employee)}
+            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-page px-4 py-2.5 text-left transition-colors hover:border-primary/40 hover:bg-primary-light/40"
           >
             <div className="flex items-center gap-2.5">
               <Avatar src={employee.photoDownloadUrl} size="sm" />
               <div>
                 <p className="text-sm font-medium text-ink">{employee.name ?? '—'}</p>
                 <p className="text-xs text-ink-muted">
-                  {employee.employeeCode} · {employee.employmentType.replace('_', ' ')}
+                  {employee.employeeCode ?? 'No code yet'} · {employee.employmentType.replace('_', ' ')}
                 </p>
               </div>
             </div>
             <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -84,6 +88,16 @@ export function UserDirectorySection({ section }: { section: DirectorySection })
 
       {isExpanded && (
         <Pagination total={section.employees.length} limit={PAGE_SIZE} offset={offset} onOffsetChange={setOffset} />
+      )}
+
+      {selectedEmployee && (
+        <EmployeeDetailModal
+          employee={selectedEmployee}
+          groupName={section.groupName}
+          companyName={section.companyName}
+          brandName={section.brandName}
+          onClose={() => setSelectedEmployee(null)}
+        />
       )}
     </div>
   );

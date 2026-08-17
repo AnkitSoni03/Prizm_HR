@@ -29,7 +29,7 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, startTime, endTime, isNightShift, weeklyOffDays } = req.body;
+    const { name, startTime, endTime, isNightShift, weeklyOffDays, rosterGroupIds } = req.body;
     if (!name || !startTime || !endTime) {
       return res.status(400).json({ error: 'name, startTime and endTime are required' });
     }
@@ -46,6 +46,7 @@ async function create(req, res, next) {
       endTime,
       isNightShift,
       weeklyOffDays,
+      rosterGroupIds,
     });
     res.status(201).json({ data: shift });
   } catch (err) {

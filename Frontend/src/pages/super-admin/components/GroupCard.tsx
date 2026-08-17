@@ -1,69 +1,51 @@
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Layers, Pencil, Trash2 } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
-import { Button } from '../../../components/ui/Button';
-import { CreateCompanyModal } from './CreateCompanyModal';
 import { EditGroupModal } from './EditGroupModal';
-import { CompanyCard } from './CompanyCard';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
-import { deleteGroup, listCompanies, type Company, type Group, type Plan } from '../../../api/tenancy';
+import { deleteGroup, type Group, type Plan } from '../../../api/tenancy';
 
 interface GroupCardProps {
   group: Group;
   plans: Plan[];
-  canCreateCompany: boolean;
   canDeleteGroup: boolean;
-  canDeleteCompany: boolean;
   canEditGroup: boolean;
-  canEditCompany: boolean;
   onDeleted: () => void;
   onSaved: () => void;
 }
 
-export function GroupCard({
-  group,
-  plans,
-  canCreateCompany,
-  canDeleteGroup,
-  canDeleteCompany,
-  canEditGroup,
-  canEditCompany,
-  onDeleted,
-  onSaved,
-}: GroupCardProps) {
+// A clickable summary card only, same pattern as CompanyCard — Companies
+// underneath this Group live on the dedicated detail page at
+// /super-admin/groups/:id (GroupDetailPage) instead of expanding inline here.
+export function GroupCard({ group, plans, canDeleteGroup, canEditGroup, onDeleted, onSaved }: GroupCardProps) {
+  const navigate = useNavigate();
   const confirm = useConfirm();
   const showToast = useToast();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [companies, setCompanies] = useState<Company[] | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const planName = plans.find((plan) => plan.id === group.planId)?.name ?? '—';
+  const detailPath = `/super-admin/groups/${group.id}`;
 
-  const planName = (planId: string | null) => plans.find((plan) => plan.id === planId)?.name ?? '—';
+  function goToDetail() {
+    navigate(detailPath);
+  }
 
-  async function loadCompanies() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setCompanies(await listCompanies(group.id));
-    } catch {
-      setError('Could not load companies.');
-    } finally {
-      setIsLoading(false);
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      goToDetail();
     }
   }
 
-  function toggleExpand() {
-    const next = !isExpanded;
-    setIsExpanded(next);
-    if (next && companies === null) {
-      loadCompanies();
-    }
+  function handleOpenEdit(event: MouseEvent) {
+    event.stopPropagation();
+    setIsEditModalOpen(true);
   }
 
-  async function handleDelete() {
+  async function handleDelete(event: MouseEvent) {
+    event.stopPropagation();
     const confirmed = await confirm({
       title: 'Delete group',
       message: `Delete group "${group.name}"? This cannot be undone.`,
@@ -80,29 +62,23 @@ export function GroupCard({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex w-full items-center justify-between px-5 py-4">
-        <button
-          type="button"
-          onClick={toggleExpand}
-          className="flex flex-1 items-center gap-3 text-left"
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
-          ) : (
-            <ChevronRight className="h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
-          )}
-          <div>
-            <p className="text-sm font-semibold text-ink">{group.name}</p>
-            <p className="text-xs text-ink-muted">Plan: {planName(group.planId)}</p>
-          </div>
-        </button>
-        <div className="flex items-center gap-3">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={goToDetail}
+      onKeyDown={handleKeyDown}
+      className="flex cursor-pointer flex-col items-start gap-3 rounded-xl border border-border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary/40 hover:shadow-md"
+    >
+      <div className="flex w-full items-start justify-between gap-2">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Layers className="h-5 w-5" strokeWidth={1.75} />
+        </div>
+        <div className="flex items-center gap-2">
           <Badge tone={group.status === 'active' ? 'success' : 'danger'}>{group.status}</Badge>
           {canEditGroup && (
             <button
               type="button"
-              onClick={() => setIsEditModalOpen(true)}
+              onClick={handleOpenEdit}
               aria-label={`Edit ${group.name}`}
               title="Edit Group"
               className="rounded-md p-1.5 text-ink-muted hover:bg-primary/10 hover:text-primary"
@@ -122,55 +98,20 @@ export function GroupCard({
           )}
         </div>
       </div>
-
-      {isExpanded && (
-        <div className="border-t border-border px-5 py-4">
-          {isLoading && <p className="text-sm text-ink-muted">Loading companies…</p>}
-          {error && <p className="text-sm text-danger">{error}</p>}
-          {!isLoading && !error && companies?.length === 0 && (
-            <p className="text-sm text-ink-muted">No companies yet.</p>
-          )}
-          {!isLoading && companies && companies.length > 0 && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {companies.map((company) => (
-                <CompanyCard
-                  key={company.id}
-                  company={company}
-                  plans={plans}
-                  canDeleteCompany={canDeleteCompany}
-                  canEdit={canEditCompany}
-                  onDeleted={loadCompanies}
-                  onSaved={loadCompanies}
-                />
-              ))}
-            </div>
-          )}
-
-          {canCreateCompany && (
-            <Button variant="secondary" className="mt-4" onClick={() => setIsModalOpen(true)}>
-              <Plus className="h-4 w-4" strokeWidth={1.75} />
-              Add Company
-            </Button>
-          )}
-        </div>
-      )}
-
-      {isModalOpen && (
-        <CreateCompanyModal
-          groupId={group.id}
-          plans={plans}
-          onClose={() => setIsModalOpen(false)}
-          onCreated={loadCompanies}
-        />
-      )}
+      <div>
+        <p className="text-sm font-semibold text-ink">{group.name}</p>
+        <p className="mt-1 text-xs text-ink-muted">Plan: {planName}</p>
+      </div>
 
       {isEditModalOpen && (
-        <EditGroupModal
-          group={group}
-          plans={plans}
-          onClose={() => setIsEditModalOpen(false)}
-          onSaved={onSaved}
-        />
+        <div onClick={(event) => event.stopPropagation()}>
+          <EditGroupModal
+            group={group}
+            plans={plans}
+            onClose={() => setIsEditModalOpen(false)}
+            onSaved={onSaved}
+          />
+        </div>
       )}
     </div>
   );

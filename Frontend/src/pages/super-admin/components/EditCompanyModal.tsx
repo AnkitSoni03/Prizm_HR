@@ -41,10 +41,12 @@ export function EditCompanyModal({ company, plans, onClose, onSaved }: EditCompa
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   // Group Admin/Company Admin both hold company:update (see
-  // company.controller.js::update) so they can reach this modal too, but
-  // neither holds user:invite or company:suspend — those stay Super-Admin-
-  // only, so the invitation panel and status control are hidden rather than
-  // shown-but-guaranteed-to-fail.
+  // company.controller.js::update) so they can reach this modal too. Company
+  // Admin holds neither user:invite nor company:suspend, so the invitation
+  // panel and status control stay hidden for them rather than
+  // shown-but-guaranteed-to-fail. Group Admin now holds company:suspend too
+  // (scoped to their own Group server-side) — the status control shows for
+  // them as well, same as Super Admin.
   const canManageInvitation = hasPermission('user:invite');
   const canChangeStatus = hasPermission('company:suspend');
 

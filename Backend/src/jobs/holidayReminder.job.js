@@ -23,16 +23,19 @@ async function sendHolidayReminders({ asOf = new Date() } = {}) {
 
   const holidays = await db.Holiday.findAll({
     where: { date: tomorrow, reminderSentAt: null },
+    include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
   });
 
   let notified = 0;
 
   for (const holiday of holidays) {
     try {
+      const rosterGroupIds = holiday.rosterGroups.map((rg) => rg.id);
       const employees = await db.Employee.findAll({
         where: {
           companyId: holiday.companyId,
           ...(holiday.brandId ? { brandId: holiday.brandId } : {}),
+          ...(rosterGroupIds.length > 0 ? { rosterGroupId: { [Op.in]: rosterGroupIds } } : {}),
           isActive: true,
           userId: { [Op.not]: null },
         },

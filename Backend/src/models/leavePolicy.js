@@ -8,6 +8,18 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       LeavePolicy.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
       LeavePolicy.belongsTo(models.LeaveType, { foreignKey: 'leaveTypeId', as: 'leaveType' });
+      // Many-to-many: assigned from the policy's own form ("Assign to
+      // Roster(s)") — a policy with zero links is the company-wide default
+      // for its leave type; one linked to Roster Group(s) is that Group's
+      // override, capped at one policy per leave type per Roster Group (see
+      // roster_group_leave_policies' unique index). See
+      // leaveBalance.service.js::resolveLeavePolicy.
+      LeavePolicy.belongsToMany(models.RosterGroup, {
+        through: models.RosterGroupLeavePolicy,
+        foreignKey: 'leavePolicyId',
+        otherKey: 'rosterGroupId',
+        as: 'rosterGroups',
+      });
     }
   }
 

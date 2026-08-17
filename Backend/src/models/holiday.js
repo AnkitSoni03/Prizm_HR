@@ -10,6 +10,16 @@ module.exports = (sequelize, DataTypes) => {
       Holiday.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       Holiday.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' });
       Holiday.belongsTo(models.User, { foreignKey: 'updatedBy', as: 'updater' });
+      // Many-to-many: assigned from the Holiday's own form ("Assign to
+      // Roster(s)") — a holiday with zero links applies company/brand-wide
+      // as before; one linked to specific Roster Group(s) only fires for
+      // those. See utils/workingDays.js::isHoliday.
+      Holiday.belongsToMany(models.RosterGroup, {
+        through: models.RosterGroupHoliday,
+        foreignKey: 'holidayId',
+        otherKey: 'rosterGroupId',
+        as: 'rosterGroups',
+      });
     }
   }
 

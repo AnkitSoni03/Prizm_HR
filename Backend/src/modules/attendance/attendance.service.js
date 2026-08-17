@@ -16,13 +16,33 @@ const { createLeaveRequest, approveLeaveRequest } = require('../leave/leaveReque
 const { dateOnly, addDays } = require('../../utils/dateRange');
 
 // Roster overrides the default employee_shift assignment for a specific
-// date (CLAUDE.md rule 7).
+// date (CLAUDE.md rule 7). Below that, an employee's Roster (if any)
+// supplies a lower-priority default shift — an optional add-on, only
+// consulted when neither a published per-date roster nor an explicit
+// employee_shifts row resolves anything. A Roster has at most one Shift
+// (enforced at assignment time — shift.service.js::assertRosterGroupsShiftFree
+// rejects a conflicting second one — so this is always a plain single-row
+// lookup, never a pick-one-of-many tie-break).
 async function resolveShiftForDate({ employeeId, dateStr }) {
   const roster = await getActiveRosterEntry({ employeeId, rosterDate: dateStr });
   if (roster && roster.shift) return roster.shift;
 
   const assignment = await getActiveEmployeeShift({ employeeId, date: dateStr });
-  return assignment ? assignment.shift : null;
+  if (assignment && assignment.shift) return assignment.shift;
+
+  const employee = await db.Employee.findOne({
+    where: { id: employeeId },
+    attributes: ['id', 'rosterGroupId'],
+  });
+  if (employee && employee.rosterGroupId) {
+    const link = await db.RosterGroupShift.findOne({
+      where: { rosterGroupId: employee.rosterGroupId },
+      include: [{ model: db.Shift, as: 'shift' }],
+    });
+    if (link && link.shift) return link.shift;
+  }
+
+  return null;
 }
 
 function scheduledEndDateTime(businessDate, shift) {

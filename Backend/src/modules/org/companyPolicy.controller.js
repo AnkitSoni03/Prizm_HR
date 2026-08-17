@@ -16,7 +16,12 @@ async function list(req, res, next) {
     });
     await assertCompanyInCallerGroup({ groupId: req.auth.groupId, companyId });
 
-    const { rows, count } = await service.listCompanyPolicies({ companyId, limit, offset });
+    const { rows, count } = await service.listCompanyPolicies({
+      companyId,
+      rosterGroupId: req.query.rosterGroupId,
+      limit,
+      offset,
+    });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);
@@ -25,7 +30,7 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { title, body } = req.body;
+    const { title, body, rosterGroupIds } = req.body;
     if (!title) {
       return res.status(400).json({ error: 'title is required' });
     }
@@ -34,6 +39,7 @@ async function create(req, res, next) {
       companyId: req.auth.companyId,
       title,
       body,
+      rosterGroupIds,
       createdBy: req.auth.userId,
     });
     res.status(201).json({ data: policy });

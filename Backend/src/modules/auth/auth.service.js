@@ -524,14 +524,16 @@ async function getCurrentUser({ userId, companyId }) {
   let name = null;
   let photoUrl = null;
   let designation = null;
+  let rosterGroupId = null;
   if (user.employeeId) {
     const employee = await db.Employee.findByPk(user.employeeId, {
-      attributes: ['name', 'photoUrl'],
+      attributes: ['name', 'photoUrl', 'rosterGroupId'],
       include: [{ model: db.Designation, as: 'designation', attributes: ['title'] }],
     });
     if (employee) {
       name = employee.name;
       designation = employee.designation ? employee.designation.title : null;
+      rosterGroupId = employee.rosterGroupId;
       if (employee.photoUrl) {
         try {
           photoUrl = await getSignedDownloadUrl(employee.photoUrl);
@@ -551,6 +553,10 @@ async function getCurrentUser({ userId, companyId }) {
     roles,
     permissions,
     companyUsesBrands: company ? company.usesBrands : null,
+    // Only ever set for an ESS caller (employeeId linked) — lets the
+    // frontend filter its own "Company Policies" view to company-wide +
+    // this employee's own Roster, without a separate lookup.
+    rosterGroupId,
     photoUrl,
   };
 }

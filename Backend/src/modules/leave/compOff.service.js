@@ -22,7 +22,12 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
   const employee = await db.Employee.findOne({ where: { id: employeeId }, transaction });
   if (!employee) return null;
 
-  const holiday = await isHoliday({ companyId: employee.companyId, brandId: employee.brandId, dateStr });
+  const holiday = await isHoliday({
+    companyId: employee.companyId,
+    brandId: employee.brandId,
+    rosterGroupId: employee.rosterGroupId,
+    dateStr,
+  });
   const weeklyOff = holiday ? false : await isWeeklyOff({ employeeId, dateStr });
   if (!holiday && !weeklyOff) return null;
 

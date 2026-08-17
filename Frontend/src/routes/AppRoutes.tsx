@@ -9,6 +9,7 @@ import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
 import { SuperAdminDashboard } from '../pages/super-admin/SuperAdminDashboard';
 import { CompaniesPage } from '../pages/super-admin/CompaniesPage';
 import { CompanyDetailPage } from '../pages/super-admin/CompanyDetailPage';
+import { GroupDetailPage } from '../pages/super-admin/GroupDetailPage';
 import { UsersPage } from '../pages/super-admin/UsersPage';
 import { SettingsPage as SuperAdminSettingsPage } from '../pages/super-admin/SettingsPage';
 import { CompanyAdminDashboard } from '../pages/company-admin/CompanyAdminDashboard';
@@ -33,6 +34,11 @@ import {
   HolidaysPage as CompanyAdminHolidaysPage,
   HolidaysPage as BrandAdminHolidaysPage,
 } from '../pages/company-admin/HolidaysPage';
+import {
+  RosterGroupsPage as CompanyAdminRosterGroupsPage,
+  RosterGroupsPage as BrandAdminRosterGroupsPage,
+} from '../pages/company-admin/RosterGroupsPage';
+import { LeavePolicySettingsPage as CompanyAdminLeavePolicySettingsPage } from '../pages/company-admin/LeavePolicySettingsPage';
 import {
   OrganizationPage as CompanyAdminOrganizationPage,
   OrganizationPage as BrandAdminOrganizationPage,
@@ -75,8 +81,10 @@ import {
   GROUP_ADMIN_NAV,
   SUPER_ADMIN_NAV,
 } from './navConfig';
+import { useAuth } from '../context/auth-context';
 
 export function AppRoutes() {
+  const { user } = useAuth();
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -115,6 +123,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="company:read">
             <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Company Detail">
               <CompanyDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/super-admin/groups/:id"
+        element={
+          <ProtectedRoute permission="group:read">
+            <Layout navItems={SUPER_ADMIN_NAV} portalLabel="Super Admin" title="Group Detail">
+              <GroupDetailPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -179,7 +198,7 @@ export function AppRoutes() {
         path="/company-admin/shifts-rosters"
         element={
           <ProtectedRoute permission="shift:read">
-            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Shifts & Rosters">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Shifts">
               <ShiftsRostersPage />
             </Layout>
           </ProtectedRoute>
@@ -247,6 +266,28 @@ export function AppRoutes() {
           <ProtectedRoute permission="holiday:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Holidays">
               <CompanyAdminHolidaysPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/roster-groups"
+        element={
+          <ProtectedRoute permission="roster_group:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Roster">
+              <CompanyAdminRosterGroupsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/leave-policies"
+        element={
+          <ProtectedRoute permission="leave_policy:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Leave Policy Settings">
+              <CompanyAdminLeavePolicySettingsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -377,7 +418,7 @@ export function AppRoutes() {
         path="/brand-admin/shifts-rosters"
         element={
           <ProtectedRoute permission="shift_roster:read">
-            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Shifts & Rosters">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Shifts">
               <BrandShiftsRostersPage />
             </Layout>
           </ProtectedRoute>
@@ -434,6 +475,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="holiday:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Holidays">
               <BrandAdminHolidaysPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/roster-groups"
+        element={
+          <ProtectedRoute permission="roster_group:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Roster">
+              <BrandAdminRosterGroupsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -565,7 +617,7 @@ export function AppRoutes() {
         element={
           <ProtectedRoute permission="company_policy:read">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Company Policies">
-              <EssPoliciesPage />
+              <EssPoliciesPage extraParams={{ rosterGroupId: user?.rosterGroupId ?? undefined }} />
             </Layout>
           </ProtectedRoute>
         }

@@ -1,4 +1,27 @@
 import { apiClient } from './client';
+import type { RosterPolicyGroup } from './companyAdmin/rosterGroups';
+
+export interface PlatformCompanyTrendPoint {
+  month: string;
+  joined: number;
+  exited: number;
+}
+
+export interface PlatformDashboardSummary {
+  groupCount: number;
+  companyCount: number;
+  brandCount: number;
+  employeeCount: number;
+  companyStatusBreakdown: Record<'trial' | 'active' | 'grace' | 'suspended' | 'terminated', number>;
+  companyTrend: PlatformCompanyTrendPoint[];
+}
+
+// Platform-wide, unscoped — Super Admin only (requireSuperAdmin, a
+// structural gate, not a permission code — see dashboard.routes.js).
+export async function getPlatformDashboardSummary(): Promise<PlatformDashboardSummary> {
+  const { data } = await apiClient.get<{ data: PlatformDashboardSummary }>('/dashboard/platform-summary');
+  return data.data;
+}
 
 export interface Group {
   id: string;
@@ -46,6 +69,9 @@ export interface Shift {
   endTime: string;
   isNightShift: boolean;
   weeklyOffDays: number[];
+  // Empty = no Roster uses this shift yet. A Roster can have at most one
+  // Shift — enforced server-side (409 on a conflicting second assignment).
+  rosterGroups?: RosterPolicyGroup[];
   createdAt: string;
   updatedAt: string;
 }
@@ -95,13 +121,24 @@ export interface Employee {
   id: string;
   companyId: string;
   brandId: string | null;
-  departmentId: string;
+  // Optional: Super Admin's minimal "name only" employee creation leaves
+  // this unset — Company Admin assigns it later via transfer.
+  departmentId: string | null;
   designationId: string | null;
   managerId: string | null;
+  // Optional add-on: null keeps this employee on company/brand-wide
+  // holidays, the company-wide leave policy, and their own employee_shifts
+  // default — exactly as if Roster Groups didn't exist.
+  rosterGroupId: string | null;
   userId: string | null;
   name: string;
-  employeeCode: string;
+  // Optional: Super Admin's minimal "name only" employee creation leaves
+  // this unset — Company Admin/Brand Admin assign a real code later.
+  employeeCode: string | null;
   dateOfJoining: string | null;
+  // Optional — captured by Company Admin/Brand Admin when filling in an
+  // employee's details, not required at creation.
+  dateOfBirth: string | null;
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   // Free text — used for Professional Tax slab lookup only (see
   // Backend/src/config/statutoryDefaults.js). An unrecognized/blank value
@@ -285,128 +322,10 @@ export async function getBrandAdminInvitation(id: string): Promise<AdminInvitati
   return data.data;
 }
 
-export async function listShifts(companyId: string): Promise<Shift[]> {
-  const { data } = await apiClient.get<{ data: Shift[] }>('/attendance/shifts', {
-    params: { companyId, limit: 100 },
-  });
-  return data.data;
-}
-
-export async function createShift(input: {
-  companyId: string;
-  name: string;
-  startTime: string;
-  endTime: string;
-  isNightShift: boolean;
-  weeklyOffDays: number[];
-}): Promise<Shift> {
-  const { data } = await apiClient.post<{ data: Shift }>('/attendance/shifts', input);
-  return data.data;
-}
-
-export async function updateShift(
-  id: string,
-  input: {
-    companyId: string;
-    name: string;
-    startTime: string;
-    endTime: string;
-    isNightShift: boolean;
-    weeklyOffDays: number[];
-  }
-): Promise<Shift> {
-  const { data } = await apiClient.patch<{ data: Shift }>(`/attendance/shifts/${id}`, input);
-  return data.data;
-}
-
-export async function deleteShift(id: string, companyId: string): Promise<void> {
-  await apiClient.delete(`/attendance/shifts/${id}`, { params: { companyId } });
-}
-
-export async function listShiftRosters(input: { companyId: string; brandId?: string }): Promise<ShiftRoster[]> {
-  const { data } = await apiClient.get<{ data: ShiftRoster[] }>('/attendance/rosters', {
-    params: { companyId: input.companyId, brandId: input.brandId, limit: 100 },
-  });
-  return data.data;
-}
-
-// Used for the Brand/Company readiness badge — fetches only the count, not
-// the rows, so a Company card can cheaply check roster status as soon as
-// the Brand list (or, for a brand-less company, the company itself) loads.
-// Omitting brandId scopes to every roster in the company — safe for a
-// brand-less company since every roster there is company-level by
-// construction (brand creation is disabled once usesBrands is false).
-export async function getRosterCount(input: { companyId: string; brandId?: string }): Promise<number> {
-  const { data } = await apiClient.get<{ pagination: { total: number } }>('/attendance/rosters', {
-    params: { companyId: input.companyId, brandId: input.brandId, limit: 1 },
-  });
-  return data.pagination.total;
-}
-
-export async function createShiftRoster(input: {
-  companyId: string;
-  brandId?: string;
-  shiftId: string;
-  rosterDate: string;
-}): Promise<ShiftRoster> {
-  const { data } = await apiClient.post<{ data: ShiftRoster }>('/attendance/rosters', input);
-  return data.data;
-}
-
-export async function listDepartments(companyId: string): Promise<Department[]> {
-  const { data } = await apiClient.get<{ data: Department[] }>('/departments', {
-    params: { companyId, limit: 100 },
-  });
-  return data.data;
-}
-
-export async function createDepartment(input: {
-  companyId: string;
-  name: string;
-  code: string;
-}): Promise<Department> {
-  const { data } = await apiClient.post<{ data: Department }>('/departments', input);
-  return data.data;
-}
-
-export async function updateDepartment(
-  id: string,
-  input: { companyId: string; name: string; code: string }
-): Promise<Department> {
-  const { data } = await apiClient.patch<{ data: Department }>(`/departments/${id}`, input);
-  return data.data;
-}
-
-export async function deleteDepartment(id: string, companyId: string): Promise<void> {
-  await apiClient.delete(`/departments/${id}`, { params: { companyId } });
-}
-
-export async function listDesignations(companyId: string): Promise<Designation[]> {
-  const { data } = await apiClient.get<{ data: Designation[] }>('/designations', {
-    params: { companyId, limit: 100 },
-  });
-  return data.data;
-}
-
-export async function createDesignation(input: {
-  companyId: string;
-  title: string;
-  level: number | null;
-}): Promise<Designation> {
-  const { data } = await apiClient.post<{ data: Designation }>('/designations', input);
-  return data.data;
-}
-
-export async function updateDesignation(
-  id: string,
-  input: { companyId: string; title: string; level: number | null }
-): Promise<Designation> {
-  const { data } = await apiClient.patch<{ data: Designation }>(`/designations/${id}`, input);
-  return data.data;
-}
-
-export async function deleteDesignation(id: string, companyId: string): Promise<void> {
-  await apiClient.delete(`/designations/${id}`, { params: { companyId } });
+// Blocked (409) server-side if any employees are still assigned to this
+// brand — the caller must reassign/remove them first.
+export async function deleteBrand(id: string): Promise<void> {
+  await apiClient.delete(`/brands/${id}`);
 }
 
 // brandId omitted (companyId supplied instead) lists every employee in the
@@ -434,19 +353,31 @@ export async function listEmployeesPage(input: {
   return { rows: data.data, total: data.pagination.total };
 }
 
+// employeeCode/departmentId/dateOfJoining/employmentType are all optional —
+// Super Admin's minimal "name only" flow (see EmployeeFormModal.tsx) omits
+// them entirely; the backend auto-generates employeeCode and defaults
+// employmentType to full_time. Company Admin sets up the rest afterward.
 export async function createEmployee(input: {
   companyId: string;
   name: string;
-  employeeCode: string;
+  employeeCode?: string;
   brandId?: string;
-  departmentId: string;
-  designationId: string | null;
-  managerId: string | null;
-  dateOfJoining: string;
-  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
+  departmentId?: string;
+  designationId?: string | null;
+  managerId?: string | null;
+  dateOfJoining?: string;
+  employmentType?: 'full_time' | 'part_time' | 'contract' | 'probation';
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
   return data.data;
+}
+
+// Permanent, irreversible hard-delete (employee.service.js::
+// deleteEmployeePermanently) — a deliberate, explicit exception to this
+// project's usual soft-delete-only rule, not a plain deactivate. Removes the
+// employee and everything that belongs to them.
+export async function deleteEmployee(id: string): Promise<void> {
+  await apiClient.delete(`/employees/${id}`);
 }
 
 // Optional, file-based (not a URL field) — any previous photo is deleted

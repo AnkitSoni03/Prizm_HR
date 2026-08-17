@@ -9,6 +9,12 @@ module.exports = (sequelize, DataTypes) => {
       Shift.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
       Shift.hasMany(models.EmployeeShift, { foreignKey: 'shiftId', as: 'employeeShifts' });
       Shift.hasMany(models.ShiftRoster, { foreignKey: 'shiftId', as: 'rosterEntries' });
+      Shift.belongsToMany(models.RosterGroup, {
+        through: models.RosterGroupShift,
+        foreignKey: 'shiftId',
+        otherKey: 'rosterGroupId',
+        as: 'rosterGroups',
+      });
     }
   }
 

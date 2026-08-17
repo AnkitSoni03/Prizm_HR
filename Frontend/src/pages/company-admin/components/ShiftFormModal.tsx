@@ -1,9 +1,12 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import axios from 'axios';
 import { CheckCircle2, Plus, Trash2 } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { createShift, updateShift } from '../../../api/companyAdmin/attendance';
+import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import type { Shift } from '../../../api/tenancy';
 
 interface ShiftFormModalProps {
@@ -19,6 +22,7 @@ interface ShiftRow {
   startTime: string;
   endTime: string;
   weeklyOffDays: number[];
+  rosterGroupIds: string[];
 }
 
 const WEEKDAYS = [
@@ -32,7 +36,16 @@ const WEEKDAYS = [
 ];
 
 function blankRow(id: number): ShiftRow {
-  return { id, name: '', startTime: '09:00', endTime: '18:00', weeklyOffDays: [] };
+  return { id, name: '', startTime: '09:00', endTime: '18:00', weeklyOffDays: [], rosterGroupIds: [] };
+}
+
+// Surfaces the backend's specific message (e.g. the 409 "Roster ... already
+// has a different Shift assigned" conflict) instead of a generic fallback.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
+    return err.response.data.error;
+  }
+  return fallback;
 }
 
 // Flags two kinds of same-time collisions: a row matching an already-saved
@@ -76,6 +89,7 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
           startTime: shift.startTime.slice(0, 5),
           endTime: shift.endTime.slice(0, 5),
           weeklyOffDays: shift.weeklyOffDays,
+          rosterGroupIds: shift.rosterGroups?.map((rg) => rg.id) ?? [],
         }
       : blankRow(0),
   ]);
@@ -83,6 +97,13 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{ created: string[]; failed: string[] } | null>(null);
+  const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
+
+  useEffect(() => {
+    listRosterGroups()
+      .then(setRosterGroups)
+      .catch(() => setRosterGroups([]));
+  }, []);
 
   function addRow() {
     setRows((prev) => [...prev, blankRow(nextRowId)]);
@@ -138,11 +159,12 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
           endTime: row.endTime,
           isNightShift: false,
           weeklyOffDays: row.weeklyOffDays,
+          rosterGroupIds: row.rosterGroupIds,
         });
         onSaved();
         onClose();
-      } catch {
-        setError('Could not update the shift. Please try again.');
+      } catch (err) {
+        setError(extractErrorMessage(err, 'Could not update the shift. Please try again.'));
         setIsSubmitting(false);
       }
       return;
@@ -158,11 +180,12 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
           endTime: row.endTime,
           isNightShift: false,
           weeklyOffDays: row.weeklyOffDays,
+          rosterGroupIds: row.rosterGroupIds,
         });
         onSaved();
         onClose();
-      } catch {
-        setError('Could not create the shift. Please try again.');
+      } catch (err) {
+        setError(extractErrorMessage(err, 'Could not create the shift. Please try again.'));
         setIsSubmitting(false);
       }
       return;
@@ -176,6 +199,7 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
           endTime: row.endTime,
           isNightShift: false,
           weeklyOffDays: row.weeklyOffDays,
+          rosterGroupIds: row.rosterGroupIds,
         })
       )
     );
@@ -276,6 +300,11 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
                   ))}
                 </div>
               </div>
+              <RosterMultiSelect
+                rosterGroups={rosterGroups}
+                selectedIds={row.rosterGroupIds}
+                onChange={(ids) => updateRow(row.id, { rosterGroupIds: ids })}
+              />
             </div>
           ))}
 

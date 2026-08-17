@@ -27,15 +27,23 @@ async function getBrandForRead(id) {
   return brand;
 }
 
-// Brand create/update/delete are Super-Admin-only (CLAUDE.md: "Only Super
-// Admin creates Groups, Companies, Brands"), and Super Admin's own users row
-// has company_id NULL — so writes look up/verify the TARGET company
-// explicitly instead of relying on the caller's own tenant context.
-async function getBrandForWrite({ callerCompanyId, id }) {
+// Brand create/update are Super-Admin-only (CLAUDE.md: "Only Super Admin
+// creates Groups, Companies, Brands"), and Super Admin's own users row has
+// company_id NULL — so writes look up/verify the TARGET company explicitly
+// instead of relying on the caller's own tenant context. Delete is also
+// available to Group Admin (as of the delete-rights grant) — callerGroupId
+// scopes that case: Group Admin's own companyId is null too (same as Super
+// Admin's), so the brand's owning Company must be looked up to confirm it
+// actually belongs to the caller's Group.
+async function getBrandForWrite({ callerCompanyId, callerGroupId, id }) {
   const brand = await db.Brand.findByPk(id);
   if (!brand) throw new HttpError(404, 'Brand not found');
   if (callerCompanyId !== null && brand.companyId !== callerCompanyId) {
     throw new HttpError(404, 'Brand not found');
+  }
+  if (callerCompanyId === null && callerGroupId) {
+    const company = await db.Company.findOne({ where: { id: brand.companyId, groupId: callerGroupId } });
+    if (!company) throw new HttpError(404, 'Brand not found');
   }
   return brand;
 }
@@ -50,8 +58,8 @@ async function createBrand({ companyId, name, code, address, city, state }) {
   return db.Brand.create({ companyId, name, code, address, city, state });
 }
 
-async function updateBrand({ callerCompanyId, id, updates }) {
-  const brand = await getBrandForWrite({ callerCompanyId, id });
+async function updateBrand({ callerCompanyId, callerGroupId, id, updates }) {
+  const brand = await getBrandForWrite({ callerCompanyId, callerGroupId, id });
   const { name, code, address, city, state, isActive } = updates;
 
   await brand.update({
@@ -82,8 +90,8 @@ async function getBrandAdminInvitation(id) {
   return { email: invitation.email, status: user ? user.status : 'invited' };
 }
 
-async function deleteBrand({ callerCompanyId, id }) {
-  const brand = await getBrandForWrite({ callerCompanyId, id });
+async function deleteBrand({ callerCompanyId, callerGroupId, id }) {
+  const brand = await getBrandForWrite({ callerCompanyId, callerGroupId, id });
 
   const activeEmployeeCount = await db.Employee.count({ where: { brandId: id } });
   if (activeEmployeeCount > 0) {

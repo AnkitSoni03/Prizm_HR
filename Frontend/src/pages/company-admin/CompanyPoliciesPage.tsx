@@ -20,9 +20,10 @@ import { getFileKind } from '../../utils/fileKind';
 import { pickPolicyIcon } from '../../utils/policyIcon';
 
 interface CompanyPoliciesPageProps {
-  // Set by the Group Admin portal's read-only company drill-in — same
-  // pattern as ApprovalsPage.tsx's extraParams.
-  extraParams?: { companyId?: string };
+  // companyId: set by the Group Admin portal's read-only company drill-in —
+  // same pattern as ApprovalsPage.tsx's extraParams. rosterGroupId: set by
+  // ESS's own route to filter to company-wide + the caller's own Roster.
+  extraParams?: { companyId?: string; rosterGroupId?: string };
 }
 
 const FILE_KIND_LABEL: Record<ReturnType<typeof getFileKind>, string> = {
@@ -72,7 +73,7 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPolicies();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraParams.companyId]);
+  }, [extraParams.companyId, extraParams.rosterGroupId]);
 
   async function handleDelete(policy: CompanyPolicy) {
     const confirmed = await confirm({

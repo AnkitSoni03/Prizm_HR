@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject, extractOriginalFileName } = require('../../utils/gcs');
+const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
 
 // Mirrors holiday.service.js's audit-include shape exactly (creator/updater
 // eager-loaded so both the admin-facing management page and the read-only
@@ -21,6 +22,7 @@ const AUDIT_INCLUDES = [
     attributes: ['id', 'email'],
     include: [{ model: db.Employee, as: 'employee', attributes: ['name'] }],
   },
+  { model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id', 'name'] },
 ];
 
 // `fileUrl` stores an internal GCS object path, not a browsable URL — the
@@ -52,8 +54,13 @@ async function withDownloadUrl(policy) {
 // explicit (not left to the tenant-scope hook alone) so a Group Admin's
 // company drill-in (whose own companyId is null — see CLAUDE.md's
 // "tenant-scope hook + system-level rows" gotcha) can still scope this,
-// same pattern as shift.service.js::listShifts.
-async function listCompanyPolicies({ companyId, limit, offset }) {
+// same pattern as shift.service.js::listShifts. rosterGroupId (singular)
+// filters the result: a policy with zero Roster links is company-wide
+// (always included); one with links is included only when linked to the
+// requested Roster — same rule as holiday.service.js::listHolidays, used by
+// ESS's own "Company Policies" view to show company-wide + the caller's own
+// Roster only.
+async function listCompanyPolicies({ companyId, rosterGroupId, limit, offset }) {
   const where = companyId ? { companyId } : {};
   const { rows, count } = await db.CompanyPolicy.findAndCountAll({
     where,
@@ -62,7 +69,12 @@ async function listCompanyPolicies({ companyId, limit, offset }) {
     order: [['id', 'DESC']],
     include: AUDIT_INCLUDES,
   });
-  return { rows: await Promise.all(rows.map(withDownloadUrl)), count };
+  const filtered = rosterGroupId
+    ? rows.filter(
+        (p) => p.rosterGroups.length === 0 || p.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId))
+      )
+    : rows;
+  return { rows: await Promise.all(filtered.map(withDownloadUrl)), count };
 }
 
 async function getCompanyPolicyForWrite({ companyId, id }) {
@@ -71,30 +83,49 @@ async function getCompanyPolicyForWrite({ companyId, id }) {
   return policy;
 }
 
+async function syncCompanyPolicyRosterGroups(companyPolicyId, rosterGroupIds) {
+  await db.RosterGroupCompanyPolicy.destroy({ where: { companyPolicyId } });
+  if (rosterGroupIds && rosterGroupIds.length > 0) {
+    await db.RosterGroupCompanyPolicy.bulkCreate(
+      rosterGroupIds.map((rosterGroupId) => ({ companyPolicyId, rosterGroupId }))
+    );
+  }
+}
+
 // fileUrl is deliberately not a create/update input — it's an internal GCS
 // object path, only ever set by uploadPolicyAttachment below. Accepting it
 // as freeform client input would let a caller point fileDownloadUrl
-// generation at an arbitrary object path in the bucket.
-async function createCompanyPolicy({ companyId, title, body, createdBy }) {
+// generation at an arbitrary object path in the bucket. rosterGroupIds is
+// optional — omitted/empty means company-wide visible to everyone (as
+// before this dimension existed).
+async function createCompanyPolicy({ companyId, title, body, rosterGroupIds, createdBy }) {
+  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+
   const policy = await db.CompanyPolicy.create({
     companyId,
     title,
     body: body || null,
     createdBy: createdBy || null,
   });
-  return withDownloadUrl(policy);
+
+  if (rosterGroupIds !== undefined) await syncCompanyPolicyRosterGroups(policy.id, rosterGroupIds);
+  return withDownloadUrl(await db.CompanyPolicy.findOne({ where: { id: policy.id }, include: AUDIT_INCLUDES }));
 }
 
 async function updateCompanyPolicy({ companyId, id, updates, updatedBy }) {
   const policy = await getCompanyPolicyForWrite({ companyId, id });
-  const { title, body } = updates;
+  const { title, body, rosterGroupIds } = updates;
+
+  if (rosterGroupIds !== undefined) await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
 
   await policy.update({
     ...(title !== undefined && { title }),
     ...(body !== undefined && { body }),
     updatedBy: updatedBy || null,
   });
-  return withDownloadUrl(policy);
+
+  if (rosterGroupIds !== undefined) await syncCompanyPolicyRosterGroups(id, rosterGroupIds);
+  return withDownloadUrl(await db.CompanyPolicy.findOne({ where: { id }, include: AUDIT_INCLUDES }));
 }
 
 async function deleteCompanyPolicy({ companyId, id }) {
@@ -135,7 +166,7 @@ async function uploadPolicyAttachment({ companyId, id, buffer, originalName, mim
   await uploadBuffer({ buffer, destination, contentType: mimeType });
 
   await policy.update({ fileUrl: destination, updatedBy: updatedBy || null });
-  return withDownloadUrl(policy);
+  return withDownloadUrl(await db.CompanyPolicy.findOne({ where: { id: policy.id }, include: AUDIT_INCLUDES }));
 }
 
 module.exports = {

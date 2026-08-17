@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { createHoliday, updateHoliday, type Holiday } from '../../../api/companyAdmin/holidays';
+import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 
 interface HolidayFormModalProps {
   holiday?: Holiday;
@@ -15,8 +17,18 @@ export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModal
   const [date, setDate] = useState(holiday?.date ?? '');
   const [toDate, setToDate] = useState(holiday?.endDate ?? holiday?.date ?? '');
   const [name, setName] = useState(holiday?.name ?? '');
+  const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
+  const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
+    holiday?.rosterGroups?.map((rg) => rg.id) ?? []
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listRosterGroups()
+      .then(setRosterGroups)
+      .catch(() => setRosterGroups([]));
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -24,9 +36,9 @@ export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModal
     setIsSubmitting(true);
     try {
       if (isEdit) {
-        await updateHoliday(holiday.id, { date, toDate: toDate || date, name });
+        await updateHoliday(holiday.id, { date, toDate: toDate || date, name, rosterGroupIds });
       } else {
-        await createHoliday({ date, toDate: toDate || undefined, name });
+        await createHoliday({ date, toDate: toDate || undefined, name, rosterGroupIds });
       }
       onSaved();
       onClose();
@@ -75,6 +87,7 @@ export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModal
           onChange={(event) => setName(event.target.value)}
           placeholder="Independence Day"
         />
+        <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

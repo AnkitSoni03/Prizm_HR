@@ -9,6 +9,7 @@ import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments, listDesignations } from '../../api/companyAdmin/org';
+import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
 import type { Brand, Department, Designation, Employee } from '../../api/tenancy';
 import { EmployeeFormModal } from './components/EmployeeFormModal';
 import { EmployeeDetailModal } from './components/EmployeeDetailModal';
@@ -33,10 +34,12 @@ function statusTone(status: Employee['status']) {
 export function EmployeesPage() {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission('employee:create');
+  const canReadRosterGroups = hasPermission('roster_group:read');
 
   const [brands, setBrands] = useState<Brand[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
+  const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -57,6 +60,13 @@ export function EmployeesPage() {
       })
       .catch(() => setError('Could not load brand/department/designation lookups.'));
   }, []);
+
+  useEffect(() => {
+    if (!canReadRosterGroups) return;
+    listRosterGroups()
+      .then(setRosterGroups)
+      .catch(() => {});
+  }, [canReadRosterGroups]);
 
   async function loadEmployees() {
     setIsLoading(true);
@@ -213,6 +223,7 @@ export function EmployeesPage() {
           departments={departments}
           designations={designations}
           employees={employees}
+          rosterGroups={rosterGroups}
           onClose={() => setIsCreateModalOpen(false)}
           onCreated={loadEmployees}
           onDepartmentCreated={(department) => setDepartments((prev) => [...prev, department])}
@@ -227,6 +238,7 @@ export function EmployeesPage() {
           departments={departments}
           designations={designations}
           employees={employees}
+          rosterGroups={rosterGroups}
           onClose={() => setSelectedEmployee(null)}
           onUpdated={() => {
             loadEmployees();

@@ -11,13 +11,18 @@ import { useToast } from '../../../context/toast-context';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
+import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
+import { formatEmployeeLabel } from '../../../utils/employeeDisplay';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
   departments: Department[];
   designations: Designation[];
   employees: Employee[];
+  // Optional — omitted entirely by call sites that don't manage Roster
+  // Groups (e.g. Super Admin's employee-creation flow).
+  rosterGroups?: RosterPolicyGroup[];
   onClose: () => void;
   onCreated: () => void;
   // Lets the parent's cached lookup lists pick up a department/designation
@@ -41,6 +46,7 @@ export function EmployeeFormModal({
   departments,
   designations,
   employees,
+  rosterGroups = [],
   onClose,
   onCreated,
   onDepartmentCreated,
@@ -64,7 +70,9 @@ export function EmployeeFormModal({
   const [designationId, setDesignationId] = useState('');
   const [newDesignationTitle, setNewDesignationTitle] = useState('');
   const [managerId, setManagerId] = useState('');
+  const [rosterGroupId, setRosterGroupId] = useState('');
   const [dateOfJoining, setDateOfJoining] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [employmentType, setEmploymentType] = useState<
     'full_time' | 'part_time' | 'contract' | 'probation'
   >('full_time');
@@ -100,7 +108,9 @@ export function EmployeeFormModal({
         departmentId: resolvedDepartmentId,
         designationId: resolvedDesignationId || null,
         managerId: managerId || null,
+        rosterGroupId: rosterGroupId || null,
         dateOfJoining,
+        dateOfBirth: dateOfBirth || undefined,
         employmentType,
         workState: workState || undefined,
       });
@@ -255,6 +265,13 @@ export function EmployeeFormModal({
             }
             options={EMPLOYMENT_TYPES}
           />
+          <Input
+            id="employee-dob"
+            label="Date of Birth (optional)"
+            type="date"
+            value={dateOfBirth}
+            onChange={(event) => setDateOfBirth(event.target.value)}
+          />
         </div>
         <Select
           id="employee-manager"
@@ -264,9 +281,21 @@ export function EmployeeFormModal({
           placeholder="No manager"
           options={employees.map((employee) => ({
             value: employee.id,
-            label: `${employee.name} (${employee.employeeCode})`,
+            label: formatEmployeeLabel(employee),
           }))}
         />
+        <Select
+          id="employee-roster-group"
+          label="Roster Group (optional)"
+          value={rosterGroupId}
+          onChange={(event) => setRosterGroupId(event.target.value)}
+          placeholder="None — company/brand-wide defaults"
+          options={rosterGroups.map((rg) => ({ value: rg.id, label: rg.name }))}
+        />
+        <p className="-mt-2 text-xs text-ink-muted">
+          Assigns this employee's default shift, region-specific holidays, and leave policy from
+          the group in one go.
+        </p>
         <Select
           id="employee-work-state"
           label="Work State"

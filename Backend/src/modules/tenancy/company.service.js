@@ -143,9 +143,9 @@ async function getCompanyAdminInvitation(companyId) {
   return { email: invitation.email, status: user ? user.status : 'invited' };
 }
 
-// Delete is Super-Admin-only, same as createCompany — no caller-scope check
-// needed since neither Group Admin nor Company Admin ever holds
-// company:delete (matches brand:delete's precedent).
+// Scope (Super Admin sees everything; Group Admin only their own Group) is
+// enforced by company.controller.js::remove before this is ever called —
+// same split as updateCompany, kept here dumb/unscoped on purpose.
 async function deleteCompany({ id }) {
   const company = await db.Company.findByPk(id);
   if (!company) throw new HttpError(404, 'Company not found');

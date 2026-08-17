@@ -27,6 +27,7 @@ import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import { FileUploadField } from '../../../components/ui/FileUploadField';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 import { Avatar } from '../../../components/ui/Avatar';
+import { formatEmployeeLabel } from '../../../utils/employeeDisplay';
 import {
   listEmployeeDocuments,
   uploadEmployeeDocument,
@@ -49,17 +50,11 @@ import {
 } from '../../../api/companyAdmin/leaveBalance';
 import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
-import type { Brand, Department, Designation, Employee, Shift } from '../../../api/tenancy';
+import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
+import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
 import { holidayAuditName } from '../../../api/companyAdmin/holidays';
-import { formatDisplayDateTime, formatDisplayDate } from '../../../utils/dateDisplay';
-import {
-  listShifts,
-  listEmployeeShiftAssignments,
-  assignEmployeeShift,
-  deleteEmployeeShiftAssignment,
-  type EmployeeShiftAssignment,
-} from '../../../api/companyAdmin/attendance';
+import { formatDisplayDateTime } from '../../../utils/dateDisplay';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -67,6 +62,9 @@ interface EmployeeDetailModalProps {
   departments: Department[];
   designations: Designation[];
   employees: Employee[];
+  // Optional — omitted entirely by call sites that don't manage Roster
+  // Groups (e.g. Super Admin's BrandCard, ESS's document-verification view).
+  rosterGroups?: RosterPolicyGroup[];
   onClose: () => void;
   onUpdated: () => void;
   // Separate from onUpdated (which also closes this modal, e.g. after
@@ -119,6 +117,7 @@ export function EmployeeDetailModal({
   departments,
   designations,
   employees,
+  rosterGroups = [],
   onClose,
   onUpdated,
   onPhotoChanged,
@@ -137,18 +136,19 @@ export function EmployeeDetailModal({
   const canInviteEss = hasPermission('user:invite');
   const canReadLeaveBalance = hasPermission('leave_balance:read');
   const canAdjustLeaveBalance = hasPermission('leave_balance:adjust');
-  const canCreateEmployeeShift = hasPermission('employee_shift:create');
-  const canReadEmployeeShift = hasPermission('employee_shift:read');
-  const canDeleteEmployeeShift = hasPermission('employee_shift:delete');
 
   const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'leaveBalance' | 'powers'>(initialTab);
 
   const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
 
+  // Optional — Super Admin's minimal "name only" creation leaves this
+  // unset; this is where Company Admin/Brand Admin assign or correct it.
+  const [employeeCode, setEmployeeCode] = useState(employee.employeeCode ?? '');
   const [designationId, setDesignationId] = useState(employee.designationId ?? '');
   const [managerId, setManagerId] = useState(employee.managerId ?? '');
   const [dateOfJoining, setDateOfJoining] = useState(employee.dateOfJoining ?? '');
+  const [dateOfBirth, setDateOfBirth] = useState(employee.dateOfBirth ?? '');
   const [employmentType, setEmploymentType] = useState(employee.employmentType);
   const [status, setStatus] = useState(employee.status);
   const [workState, setWorkState] = useState(employee.workState ?? '');
@@ -156,7 +156,7 @@ export function EmployeeDetailModal({
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const [transferBrandId, setTransferBrandId] = useState(employee.brandId ?? '');
-  const [transferDepartmentId, setTransferDepartmentId] = useState(employee.departmentId);
+  const [transferDepartmentId, setTransferDepartmentId] = useState(employee.departmentId ?? '');
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
 
@@ -221,60 +221,25 @@ export function EmployeeDetailModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee.id]);
 
-  const [shiftOptions, setShiftOptions] = useState<Shift[]>([]);
-  useEffect(() => {
-    if (!canCreateEmployeeShift) return;
-    listShifts().then(setShiftOptions).catch(() => {});
-  }, [canCreateEmployeeShift]);
+  // Assigning a Roster is now the one thing that drives an employee's shift
+  // (via the Roster's own linked Shift — see shift.service.js/
+  // attendance.service.js::resolveShiftForDate) — manual per-employee
+  // default-shift assignment (employee_shifts) no longer has any UI, here or
+  // on the Shifts page's "Assign Default Shift" button (removed).
+  const [assignRosterGroupId, setAssignRosterGroupId] = useState(employee.rosterGroupId ?? '');
+  const [isAssigningRoster, setIsAssigningRoster] = useState(false);
+  const [assignRosterError, setAssignRosterError] = useState<string | null>(null);
 
-  const [shiftHistory, setShiftHistory] = useState<EmployeeShiftAssignment[] | null>(null);
-  useEffect(() => {
-    if (!canReadEmployeeShift) return;
-    listEmployeeShiftAssignments(employee.id)
-      .then(setShiftHistory)
-      .catch(() => setShiftHistory([]));
-  }, [canReadEmployeeShift, employee.id]);
-
-  const [assignShiftId, setAssignShiftId] = useState('');
-  const [assignEffectiveFrom, setAssignEffectiveFrom] = useState('');
-  const [isAssigningShift, setIsAssigningShift] = useState(false);
-  const [assignShiftError, setAssignShiftError] = useState<string | null>(null);
-
-  async function handleAssignShift(event: FormEvent) {
+  async function handleAssignRoster(event: FormEvent) {
     event.preventDefault();
-    if (!assignShiftId || !assignEffectiveFrom) return;
-    setAssignShiftError(null);
-    setIsAssigningShift(true);
+    setAssignRosterError(null);
+    setIsAssigningRoster(true);
     try {
-      const created = await assignEmployeeShift(employee.id, {
-        shiftId: assignShiftId,
-        effectiveFrom: assignEffectiveFrom,
-      });
-      setShiftHistory((prev) => (prev ? [created, ...prev] : [created]));
-      refreshShiftSummary();
-      setAssignShiftId('');
-      setAssignEffectiveFrom('');
+      await updateEmployee(employee.id, { rosterGroupId: assignRosterGroupId || null });
+      onUpdated();
     } catch (err) {
-      setAssignShiftError(extractError(err, 'Could not assign this shift. Please try again.'));
-    } finally {
-      setIsAssigningShift(false);
-    }
-  }
-
-  async function handleDeleteShiftAssignment(assignment: EmployeeShiftAssignment) {
-    const confirmed = await confirm({
-      title: 'Delete shift assignment',
-      message: `Delete the ${assignment.shift?.name ?? 'shift'} assignment effective ${formatDisplayDate(assignment.effectiveFrom)}? This cannot be undone.`,
-      confirmLabel: 'Delete',
-      variant: 'danger',
-    });
-    if (!confirmed) return;
-    try {
-      await deleteEmployeeShiftAssignment(employee.id, assignment.id);
-      setShiftHistory((prev) => (prev ? prev.filter((a) => a.id !== assignment.id) : prev));
-      refreshShiftSummary();
-    } catch {
-      showToast('Could not delete this shift assignment. Please try again.');
+      setAssignRosterError(extractError(err, 'Could not assign this Roster. Please try again.'));
+      setIsAssigningRoster(false);
     }
   }
 
@@ -541,10 +506,12 @@ export function EmployeeDetailModal({
     setIsSavingDetails(true);
     try {
       await updateEmployee(employee.id, {
+        employeeCode: employeeCode.trim() || null,
         designationId: designationId || null,
         employmentType,
         status,
         dateOfJoining: dateOfJoining || null,
+        dateOfBirth: dateOfBirth || null,
         managerId: managerId || null,
         workState: workState || null,
       });
@@ -713,7 +680,7 @@ export function EmployeeDetailModal({
           )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-xl border border-border bg-page px-4 py-3 text-sm">
             <p className="text-ink-muted">Employee Code</p>
-            <p className="text-ink">{employee.employeeCode}</p>
+            <p className="text-ink">{employee.employeeCode ?? 'Not set'}</p>
             {usesBrands && (
               <>
                 <p className="text-ink-muted">Brand</p>
@@ -758,21 +725,13 @@ export function EmployeeDetailModal({
 
           {shiftSummary && (
             <div className="space-y-3 border-t border-border pt-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Shift &amp; Roster</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Roster</p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="rounded-lg border border-border bg-page px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Default Shift</p>
-                  {shiftSummary.defaultShift ? (
-                    <p className="mt-1 text-sm text-ink">
-                      {shiftSummary.defaultShift.name} · {shiftSummary.defaultShift.startTime.slice(0, 5)}–
-                      {shiftSummary.defaultShift.endTime.slice(0, 5)}
-                      {shiftSummary.defaultShift.isNightShift && (
-                        <span className="ml-1.5 text-xs text-ink-muted">(Night Shift)</span>
-                      )}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-sm text-ink-muted">Not assigned yet</p>
-                  )}
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Assigned Roster</p>
+                  <p className="mt-1 text-sm text-ink">
+                    {rosterGroups.find((rg) => rg.id === employee.rosterGroupId)?.name ?? 'None — company/brand-wide defaults'}
+                  </p>
                 </div>
                 <div className="rounded-lg border border-border bg-page px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Today&apos;s Roster</p>
@@ -780,83 +739,39 @@ export function EmployeeDetailModal({
                     <p className="mt-1 text-sm text-ink">
                       {shiftSummary.todayRoster.shift.name} · {shiftSummary.todayRoster.shift.startTime.slice(0, 5)}–
                       {shiftSummary.todayRoster.shift.endTime.slice(0, 5)}
-                      {shiftSummary.defaultShift && shiftSummary.todayRoster.shift.id !== shiftSummary.defaultShift.id && (
-                        <span className="ml-1.5 text-xs text-warning">(overrides default)</span>
-                      )}
                     </p>
                   ) : (
-                    <p className="mt-1 text-sm text-ink-muted">Following default shift</p>
+                    <p className="mt-1 text-sm text-ink-muted">Following Roster / default shift</p>
                   )}
                 </div>
               </div>
 
-              {canCreateEmployeeShift && (
-                <form onSubmit={handleAssignShift} className="space-y-3">
-                  {assignShiftError && <p className="text-sm text-danger">{assignShiftError}</p>}
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Select
-                      id="employee-assign-shift"
-                      label="Shift"
-                      value={assignShiftId}
-                      onChange={(event) => setAssignShiftId(event.target.value)}
-                      disabled={shiftOptions.length === 0}
-                      placeholder={shiftOptions.length === 0 ? 'Create a shift first' : 'Select a shift'}
-                      options={shiftOptions.map((shift) => ({
-                        value: shift.id,
-                        label: `${shift.name} (${shift.startTime.slice(0, 5)}–${shift.endTime.slice(0, 5)})`,
-                      }))}
-                    />
-                    <Input
-                      id="employee-assign-shift-from"
-                      label="Effective From"
-                      type="date"
-                      value={assignEffectiveFrom}
-                      onChange={(event) => setAssignEffectiveFrom(event.target.value)}
-                    />
-                  </div>
+              {canUpdate && (
+                <form onSubmit={handleAssignRoster} className="space-y-3">
+                  {assignRosterError && <p className="text-sm text-danger">{assignRosterError}</p>}
+                  <Select
+                    id="employee-assign-roster"
+                    label="Roster"
+                    value={assignRosterGroupId}
+                    onChange={(event) => setAssignRosterGroupId(event.target.value)}
+                    placeholder="None — company/brand-wide defaults"
+                    options={rosterGroups.map((rg) => ({ value: rg.id, label: rg.name }))}
+                  />
                   <p className="text-xs text-ink-muted">
-                    Applies from this date onward and stays in effect until you assign a new one — no need to
-                    set it again for every day. A published roster entry for a specific date still overrides it.
+                    Whatever Shift, Holidays, Company Policies, and Leave Policy this Roster has assigned to it
+                    automatically applies to this employee.
                   </p>
                   <div className="flex justify-end">
                     <Button
                       type="submit"
                       variant="secondary"
-                      isLoading={isAssigningShift}
-                      disabled={!assignShiftId || !assignEffectiveFrom}
+                      isLoading={isAssigningRoster}
+                      disabled={assignRosterGroupId === (employee.rosterGroupId ?? '')}
                     >
-                      Assign Shift
+                      Assign Roster
                     </Button>
                   </div>
                 </form>
-              )}
-
-              {canReadEmployeeShift && shiftHistory && shiftHistory.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium text-ink-muted">History</p>
-                  <div className="max-h-40 overflow-y-auto rounded-xl border border-border">
-                    {shiftHistory.map((assignment) => (
-                      <div
-                        key={assignment.id}
-                        className="flex items-center justify-between border-b border-border px-3 py-2 text-xs last:border-b-0"
-                      >
-                        <span className="text-ink">
-                          {assignment.shift?.name ?? 'Shift'} — from {formatDisplayDate(assignment.effectiveFrom)}
-                        </span>
-                        {canDeleteEmployeeShift && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteShiftAssignment(assignment)}
-                            aria-label="Delete this shift assignment"
-                            className="shrink-0 rounded-md p-1 text-ink-muted hover:bg-danger/10 hover:text-danger"
-                          >
-                            <Trash2 className="h-3 w-3" strokeWidth={1.75} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
               )}
             </div>
           )}
@@ -865,6 +780,14 @@ export function EmployeeDetailModal({
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Edit Details</p>
             {detailsError && <p className="text-sm text-danger">{detailsError}</p>}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Input
+                id="employee-code-edit"
+                label="Employee Code"
+                value={employeeCode}
+                onChange={(event) => setEmployeeCode(event.target.value)}
+                disabled={!canUpdate}
+                placeholder="Not set"
+              />
               <Select
                 id="employee-designation-edit"
                 label="Designation"
@@ -883,7 +806,7 @@ export function EmployeeDetailModal({
                 placeholder="No manager"
                 options={employees
                   .filter((e) => e.id !== employee.id)
-                  .map((e) => ({ value: e.id, label: `${e.name} (${e.employeeCode})` }))}
+                  .map((e) => ({ value: e.id, label: formatEmployeeLabel(e) }))}
               />
               <Input
                 id="employee-doj-edit"
@@ -891,6 +814,14 @@ export function EmployeeDetailModal({
                 type="date"
                 value={dateOfJoining}
                 onChange={(event) => setDateOfJoining(event.target.value)}
+                disabled={!canUpdate}
+              />
+              <Input
+                id="employee-dob-edit"
+                label="Date of Birth"
+                type="date"
+                value={dateOfBirth}
+                onChange={(event) => setDateOfBirth(event.target.value)}
                 disabled={!canUpdate}
               />
               <Select

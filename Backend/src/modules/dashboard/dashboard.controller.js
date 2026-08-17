@@ -47,4 +47,13 @@ async function groupSummary(req, res, next) {
   }
 }
 
-module.exports = { summary, brandSummary, groupSummary };
+async function platformSummary(req, res, next) {
+  try {
+    const data = await service.getPlatformDashboardSummary();
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { summary, brandSummary, groupSummary, platformSummary };

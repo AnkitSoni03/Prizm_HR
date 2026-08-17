@@ -5,7 +5,7 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { isWorkingDay } = require('../../utils/workingDays');
 const { datesBetween, addDays } = require('../../utils/dateRange');
-const { getOrCreateBalance } = require('./leaveBalance.service');
+const { getOrCreateBalance, resolveLeavePolicy } = require('./leaveBalance.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
@@ -61,7 +61,7 @@ async function getLeaveRequestForDecision({ companyId, id }) {
         model: db.Employee,
         as: 'employee',
         where: { companyId },
-        attributes: ['id', 'brandId', 'managerId', 'userId'],
+        attributes: ['id', 'brandId', 'managerId', 'userId', 'rosterGroupId'],
       },
       { model: db.LeaveType, as: 'leaveType' },
     ],
@@ -101,7 +101,7 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
     throw new HttpError(400, 'Comp-off requests must be a single day — submit one request per day');
   }
 
-  const policy = await db.LeavePolicy.findOne({ where: { companyId, leaveTypeId } });
+  const policy = await resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId: employee.rosterGroupId });
   if (policy && policy.applicableAfterDays > 0 && employee.dateOfJoining) {
     const eligibleFrom = addDays(employee.dateOfJoining, policy.applicableAfterDays);
     if (fromDate < eligibleFrom) {
@@ -111,7 +111,9 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
 
   const candidateDates = datesBetween(fromDate, toDate);
   const workingFlags = await Promise.all(
-    candidateDates.map((dateStr) => isWorkingDay({ employeeId, companyId, brandId: employee.brandId, dateStr }))
+    candidateDates.map((dateStr) =>
+      isWorkingDay({ employeeId, companyId, brandId: employee.brandId, rosterGroupId: employee.rosterGroupId, dateStr })
+    )
   );
   const days = workingFlags.filter(Boolean).length;
   if (days === 0) {
@@ -247,6 +249,7 @@ async function approveLeaveRequest({ companyId, id, approverId, approverUserId, 
         employeeId: request.employeeId,
         companyId,
         brandId: request.employee.brandId,
+        rosterGroupId: request.employee.rosterGroupId,
         dateStr: date,
       });
       if (!working) continue;

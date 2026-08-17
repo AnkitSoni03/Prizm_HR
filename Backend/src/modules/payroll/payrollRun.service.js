@@ -73,7 +73,7 @@ async function createDraftRun({ companyId, periodMonth, periodYear }) {
 // half_day (0.5), or an approved leave whose leave type is paid covers it;
 // otherwise it's LOP. Segment-scoped: only dates within [segStart, segEnd]
 // are considered — see processRun's segment loop for why.
-async function computeSegmentPayability({ employeeId, companyId, brandId, segStart, segEnd }) {
+async function computeSegmentPayability({ employeeId, companyId, brandId, rosterGroupId, segStart, segEnd }) {
   const dates = datesBetween(segStart, segEnd);
   let workingDays = 0;
   let payableDays = 0;
@@ -98,7 +98,7 @@ async function computeSegmentPayability({ employeeId, companyId, brandId, segSta
   }
 
   for (const date of dates) {
-    if (!(await isWorkingDay({ employeeId, companyId, brandId, dateStr: date }))) continue;
+    if (!(await isWorkingDay({ employeeId, companyId, brandId, rosterGroupId, dateStr: date }))) continue;
     workingDays += 1;
 
     const status = attendanceByDate.get(date);
@@ -113,11 +113,11 @@ async function computeSegmentPayability({ employeeId, companyId, brandId, segSta
 // Working days across the WHOLE run period — the shared proration
 // denominator for every segment (see processRun's function-level comment
 // for why this must not be the segment's own working-day count).
-async function computePeriodWorkingDays({ employeeId, companyId, brandId, periodStart, periodEnd }) {
+async function computePeriodWorkingDays({ employeeId, companyId, brandId, rosterGroupId, periodStart, periodEnd }) {
   const dates = datesBetween(periodStart, periodEnd);
   let workingDays = 0;
   for (const date of dates) {
-    if (await isWorkingDay({ employeeId, companyId, brandId, dateStr: date })) workingDays += 1;
+    if (await isWorkingDay({ employeeId, companyId, brandId, rosterGroupId, dateStr: date })) workingDays += 1;
   }
   return workingDays;
 }
@@ -232,6 +232,7 @@ async function processRun({ companyId, id, actorUserId }) {
         employeeId: employee.id,
         companyId,
         brandId: employee.brandId,
+        rosterGroupId: employee.rosterGroupId,
         periodStart: run.payPeriodStart,
         periodEnd: run.payPeriodEnd,
       });
@@ -260,6 +261,7 @@ async function processRun({ companyId, id, actorUserId }) {
           employeeId: employee.id,
           companyId,
           brandId: employee.brandId,
+          rosterGroupId: employee.rosterGroupId,
           segStart,
           segEnd,
         });

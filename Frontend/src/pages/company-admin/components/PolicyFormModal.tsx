@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Paperclip } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { useToast } from '../../../context/toast-context';
 import {
   createCompanyPolicy,
@@ -10,6 +11,7 @@ import {
   uploadPolicyAttachment,
   type CompanyPolicy,
 } from '../../../api/companyAdmin/companyPolicies';
+import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 
 interface PolicyFormModalProps {
@@ -26,9 +28,19 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
   const [title, setTitle] = useState(policy?.title ?? '');
   const [body, setBody] = useState(policy?.body ?? '');
   const [file, setFile] = useState<File | null>(null);
+  const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
+  const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
+    policy?.rosterGroups?.map((rg) => rg.id) ?? []
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+
+  useEffect(() => {
+    listRosterGroups()
+      .then(setRosterGroups)
+      .catch(() => setRosterGroups([]));
+  }, []);
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;
@@ -48,8 +60,8 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
     setIsSubmitting(true);
     try {
       const saved = isEdit
-        ? await updateCompanyPolicy(policy.id, { title, body })
-        : await createCompanyPolicy({ title, body });
+        ? await updateCompanyPolicy(policy.id, { title, body, rosterGroupIds })
+        : await createCompanyPolicy({ title, body, rosterGroupIds });
 
       // Uploading the attachment is a separate, non-blocking step — the
       // policy itself already exists at this point either way.
@@ -97,6 +109,7 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
             className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base text-ink placeholder:text-ink-muted transition-all duration-150 hover:border-primary/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-sm"
           />
         </div>
+        <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <div>
           <label htmlFor="policy-file" className="mb-1.5 block text-sm font-medium text-ink">
             Attachment (optional)

@@ -6,6 +6,7 @@ const departmentRoutes = require('./department.routes');
 const designationRoutes = require('./designation.routes');
 const employeeRoutes = require('./employee.routes');
 const companyPolicyRoutes = require('./companyPolicy.routes');
+const rosterGroupRoutes = require('./rosterGroup.routes');
 
 const router = Router();
 
@@ -14,5 +15,6 @@ router.use('/departments', departmentRoutes);
 router.use('/designations', designationRoutes);
 router.use('/employees', employeeRoutes);
 router.use('/company-policies', companyPolicyRoutes);
+router.use('/roster-groups', rosterGroupRoutes);
 
 module.exports = router;

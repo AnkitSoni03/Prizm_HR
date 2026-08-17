@@ -32,7 +32,7 @@ async function assertBelongsToCompany(model, id, companyId, label) {
   if (!row) throw new HttpError(400, `${label} not found for this company`);
 }
 
-async function listEmployees({ limit, offset, companyId, brandId, departmentId, status, search }) {
+async function listEmployees({ limit, offset, companyId, brandId, departmentId, rosterGroupId, status, search }) {
   const where = {};
   // Explicit companyId filter for callers whose tenant-scope hook is a
   // no-op (Super Admin's context is null — see CLAUDE.md's "tenant-scope
@@ -43,6 +43,7 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
   if (companyId) where.companyId = companyId;
   if (brandId) where.brandId = brandId;
   if (departmentId) where.departmentId = departmentId;
+  if (rosterGroupId) where.rosterGroupId = rosterGroupId;
   if (status) where.status = status;
   // Used by the Super Admin "Users" directory (no companyId filter — every
   // employee on the platform) to search by name or code without the
@@ -139,9 +140,28 @@ async function getEmployeeForRead(id) {
 // touch an employee whose own brandId is one of theirs. Reported as 404
 // rather than 403 so a Brand Admin probing another brand's employee ids
 // can't distinguish "not found" from "not yours".
-async function getEmployeeForWrite({ companyId, id, scopedBrandIds }) {
-  const employee = await db.Employee.findOne({ where: { id, companyId } });
+// companyId is null for both Super Admin and Group Admin (neither has a
+// company of their own — same shape as brand.service.js::getBrandForWrite).
+// The old `where: { id, companyId }` silently 404'd every write for Super
+// Admin: with companyId null, Sequelize compiles that to `company_id IS
+// NULL`, which no real employee ever matches. Looking up by id alone and
+// only enforcing the company match when companyId is actually set fixes
+// update/transfer/delete/setActive/assignPowers/photo-upload for Super
+// Admin, while a company-scoped caller (whose companyId is never null) keeps
+// the exact same enforcement as before. groupId is the Group Admin-specific
+// case: with companyId null they'd otherwise skip scoping entirely (able to
+// touch ANY employee platform-wide) — the employee's own Company's groupId
+// must match instead.
+async function getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId }) {
+  const employee = await db.Employee.findByPk(id);
   if (!employee) throw new HttpError(404, 'Employee not found');
+  if (companyId !== null && companyId !== undefined && String(employee.companyId) !== String(companyId)) {
+    throw new HttpError(404, 'Employee not found');
+  }
+  if ((companyId === null || companyId === undefined) && groupId) {
+    const company = await db.Company.findOne({ where: { id: employee.companyId, groupId } });
+    if (!company) throw new HttpError(404, 'Employee not found');
+  }
   if (
     scopedBrandIds &&
     !scopedBrandIds.some((brandId) => String(brandId) === String(employee.brandId))
@@ -159,8 +179,10 @@ async function createEmployee({
   departmentId,
   designationId,
   managerId,
+  rosterGroupId,
   userId,
   dateOfJoining,
+  dateOfBirth,
   employmentType,
   workState,
 }) {
@@ -174,9 +196,13 @@ async function createEmployee({
   }
 
   if (brandId) await assertBelongsToCompany(db.Brand, brandId, companyId, 'Brand');
-  await assertBelongsToCompany(db.Department, departmentId, companyId, 'Department');
+  // Department is no longer required at creation either — Super Admin's
+  // minimal "name only" flow leaves it unset; Company Admin assigns it
+  // later via transferEmployee, same deferred-setup shape as Roster.
+  if (departmentId) await assertBelongsToCompany(db.Department, departmentId, companyId, 'Department');
   if (designationId) await assertBelongsToCompany(db.Designation, designationId, companyId, 'Designation');
   if (managerId) await assertBelongsToCompany(db.Employee, managerId, companyId, 'Manager');
+  if (rosterGroupId) await assertBelongsToCompany(db.RosterGroup, rosterGroupId, companyId, 'Roster Group');
 
   // Roster is no longer a precondition for creating an employee — it can be
   // assigned any time afterward via shift_rosters (create/bulk-assign +
@@ -184,18 +210,23 @@ async function createEmployee({
   // (resolveShiftForDate: published roster > employee_shifts default), it's
   // just not a gate on onboarding anymore.
 
+  // No auto-generated fallback: Super Admin's minimal "name only" flow
+  // leaves this null on purpose — Company Admin/Brand Admin assign a real
+  // code later (employeeCode is part of updateEmployee's UPDATABLE_FIELDS).
   try {
     const employee = await db.Employee.create({
       companyId,
       name,
-      employeeCode,
+      employeeCode: employeeCode || null,
       brandId: brandId || null,
-      departmentId,
+      departmentId: departmentId || null,
       designationId: designationId || null,
       managerId: managerId || null,
+      rosterGroupId: rosterGroupId || null,
       userId: userId || null,
       dateOfJoining: dateOfJoining || null,
-      employmentType,
+      dateOfBirth: dateOfBirth || null,
+      employmentType: employmentType || 'full_time',
       workState: workState || null,
       status: 'onboarding',
     });
@@ -211,7 +242,11 @@ async function createEmployee({
 // brandId/departmentId are deliberately excluded here — changing those goes
 // through transferEmployee (gated by the separate employee:transfer
 // permission) so the two permission codes stay meaningful.
-const UPDATABLE_FIELDS = ['designationId', 'employmentType', 'status', 'dateOfJoining', 'managerId', 'userId', 'workState'];
+// employeeCode included: Super Admin's "name only" creation leaves it null,
+// so Company Admin/Brand Admin need a way to set (or later correct) it —
+// same PATCH /employees/:id endpoint every other field here already uses,
+// gated by the employee:update permission they already hold.
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'managerId', 'userId', 'workState', 'rosterGroupId'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
@@ -223,8 +258,16 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
 
   if (patch.managerId) await assertBelongsToCompany(db.Employee, patch.managerId, companyId, 'Manager');
   if (patch.designationId) await assertBelongsToCompany(db.Designation, patch.designationId, companyId, 'Designation');
+  if (patch.rosterGroupId) await assertBelongsToCompany(db.RosterGroup, patch.rosterGroupId, companyId, 'Roster Group');
 
-  await employee.update(patch);
+  try {
+    await employee.update(patch);
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      throw new HttpError(409, 'employeeCode already in use for this company');
+    }
+    throw err;
+  }
   return withPhotoUrl(employee);
 }
 
@@ -301,8 +344,8 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
 //      Notification) are hard-deleted — nothing else references those.
 //      (Refresh tokens are stateless JWTs now, not DB rows — deleting the
 //      User row itself is enough; there's nothing left to clean up here.)
-async function deleteEmployeePermanently({ companyId, id, scopedBrandIds }) {
-  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupId }) {
+  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId });
 
   // paranoid: false — a soft-deleted row is still physically present and
   // will still be swept up by the DB cascade below, so its GCS object (or

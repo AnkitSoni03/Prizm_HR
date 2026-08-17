@@ -25,8 +25,43 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
 
   let processed = 0;
   for (const policy of policies) {
+    // A policy's Roster scoping is a many-to-many join now, not a column —
+    // it can be linked to zero (company-wide default), one, or several
+    // Rosters at once.
+    const links = await db.RosterGroupLeavePolicy.findAll({
+      where: { leavePolicyId: policy.id },
+      attributes: ['rosterGroupId'],
+    });
+    const linkedRosterGroupIds = links.map((l) => l.rosterGroupId);
+
+    const employeeWhere = { companyId: policy.companyId, status: { [Op.in]: ['active', 'onboarding', 'on_notice'] } };
+
+    if (linkedRosterGroupIds.length > 0) {
+      // Roster-scoped policy: employees in any of its linked Rosters.
+      employeeWhere.rosterGroupId = { [Op.in]: linkedRosterGroupIds };
+    } else {
+      // Company-wide default: every employee EXCEPT those whose own Roster
+      // has ITS OWN override for this same leaveTypeId (from a different
+      // policy row) — those employees get their accrual from that other
+      // policy's own pass through this loop instead, never both. Roster
+      // scoping guarantees at most one policy per (Roster, leaveType) — see
+      // leavePolicy.service.js::assertNoLeaveTypeConflict — so "has an
+      // override" is unambiguous regardless of which policy provides it.
+      const overriddenLinks = await db.RosterGroupLeavePolicy.findAll({
+        where: { leaveTypeId: policy.leaveTypeId },
+        attributes: ['rosterGroupId'],
+      });
+      const overriddenRosterGroupIds = overriddenLinks.map((l) => l.rosterGroupId);
+      if (overriddenRosterGroupIds.length > 0) {
+        employeeWhere[Op.or] = [
+          { rosterGroupId: null },
+          { rosterGroupId: { [Op.notIn]: overriddenRosterGroupIds } },
+        ];
+      }
+    }
+
     const employees = await db.Employee.findAll({
-      where: { companyId: policy.companyId, status: { [Op.in]: ['active', 'onboarding', 'on_notice'] } },
+      where: employeeWhere,
       attributes: ['id', 'dateOfJoining'],
     });
 

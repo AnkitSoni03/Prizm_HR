@@ -9,6 +9,7 @@ import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments, listDesignations } from '../../api/companyAdmin/org';
+import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
 import type { Brand, Department, Designation, Employee } from '../../api/tenancy';
 import { EmployeeFormModal } from '../company-admin/components/EmployeeFormModal';
 import { EmployeeDetailModal } from '../company-admin/components/EmployeeDetailModal';
@@ -33,8 +34,7 @@ function statusTone(status: Employee['status']) {
 // Reuses Company Admin's EmployeeFormModal/EmployeeDetailModal directly
 // (rather than the old trimmed-down brand-admin modal) now that Brand Admin
 // holds employee:create/update/transfer/delete — same power as Company
-// Admin, scoped to their own brand. `brands={[ownBrand]}` (same trick
-// ShiftsRostersPage.tsx already uses for RosterFormModal) makes the Brand
+// Admin, scoped to their own brand. `brands={[ownBrand]}` makes the Brand
 // picker in both modals resolve to a single, non-changeable option, which
 // lines up with the backend's employee.service.js rejecting any transfer
 // that would move an employee outside the caller's own brand.
@@ -42,10 +42,12 @@ export function EmployeesPage() {
   const { user, hasPermission } = useAuth();
   const brandId = user?.roles.find((role) => role.name === 'Brand Admin')?.brandId ?? null;
   const canCreate = hasPermission('employee:create');
+  const canReadRosterGroups = hasPermission('roster_group:read');
 
   const [ownBrand, setOwnBrand] = useState<Brand | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
+  const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -65,6 +67,13 @@ export function EmployeesPage() {
       })
       .catch(() => setError('Could not load brand/department/designation lookups.'));
   }, [brandId]);
+
+  useEffect(() => {
+    if (!canReadRosterGroups) return;
+    listRosterGroups()
+      .then(setRosterGroups)
+      .catch(() => {});
+  }, [canReadRosterGroups]);
 
   async function loadEmployees() {
     if (!brandId) {
@@ -206,6 +215,7 @@ export function EmployeesPage() {
           departments={departments}
           designations={designations}
           employees={employees}
+          rosterGroups={rosterGroups}
           onClose={() => setIsCreateModalOpen(false)}
           onCreated={loadEmployees}
           onDepartmentCreated={(department) => setDepartments((prev) => [...prev, department])}
@@ -220,6 +230,7 @@ export function EmployeesPage() {
           departments={departments}
           designations={designations}
           employees={employees}
+          rosterGroups={rosterGroups}
           onClose={() => setSelectedEmployee(null)}
           onUpdated={() => {
             loadEmployees();

@@ -225,7 +225,7 @@ export function MyProfilePage() {
               headerContent={
                 <div className="min-w-0">
                   <h2 className="truncate text-base font-semibold text-ink sm:text-lg">{profile.name}</h2>
-                  <p className="text-xs text-ink-muted sm:text-sm">{profile.employeeCode}</p>
+                  <p className="text-xs text-ink-muted sm:text-sm">{profile.employeeCode ?? 'No code yet'}</p>
                 </div>
               }
               previewUrl={profile.photoDownloadUrl}

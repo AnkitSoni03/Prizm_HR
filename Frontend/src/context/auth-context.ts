@@ -23,6 +23,11 @@ export interface AuthUser {
   // caller's company operates with Brands or directly at the Company level.
   companyUsesBrands: boolean | null;
   // Resolved from the caller's own linked Employee record (employeeId), if
+  // any — lets ESS pages (e.g. Company Policies) filter to company-wide +
+  // this employee's own Roster without a separate lookup. null for pure
+  // admin accounts and for an employee with no Roster assigned.
+  rosterGroupId: string | null;
+  // Resolved from the caller's own linked Employee record (employeeId), if
   // any — most pure admin accounts have none and this is simply null,
   // falling back to the generic avatar icon.
   photoUrl: string | null;

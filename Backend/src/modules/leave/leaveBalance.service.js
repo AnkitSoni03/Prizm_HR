@@ -22,6 +22,38 @@ function monthsAccruedForYear({ year, dateOfJoining, asOf = toBusinessLocal() })
   return Math.max(0, Math.min(12, months));
 }
 
+// A Roster-scoped policy (if the employee has a Roster and one exists for
+// it) always wins over the company-wide default — an employee's leave
+// quota/accrual/eligibility is governed by exactly one policy row, never
+// both. Roster scoping is a many-to-many join
+// (roster_group_leave_policies), constrained to at most one policy per
+// (Roster, leaveType) — see leavePolicy.service.js::assertNoLeaveTypeConflict
+// — so this lookup is still a plain findOne once routed through the join
+// table. Shared by getOrCreateBalance below and leaveRequest.service.js's
+// applicable-after-days eligibility check, so both agree on which policy
+// governs a given employee.
+async function resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId, transaction }) {
+  if (rosterGroupId) {
+    const link = await db.RosterGroupLeavePolicy.findOne({
+      where: { rosterGroupId, leaveTypeId },
+      include: [{ model: db.LeavePolicy, as: 'leavePolicy', where: { companyId } }],
+      transaction,
+    });
+    if (link) return link.leavePolicy;
+  }
+  // Company-wide default: the LeavePolicy for this leaveType with zero
+  // Roster links (enforced as "at most one" in
+  // leavePolicy.service.js::assertNoLeaveTypeConflict, not by a DB
+  // constraint — see the migration that removed the old single-column
+  // unique index for why that constraint can no longer live on this table).
+  const candidates = await db.LeavePolicy.findAll({
+    where: { companyId, leaveTypeId },
+    include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
+    transaction,
+  });
+  return candidates.find((p) => p.rosterGroups.length === 0) || null;
+}
+
 // Lazily creates the employee's leave_balances row for (leaveTypeId, year)
 // from the company's leave_policies row the first time it's needed, rather
 // than requiring a separate backfill step per PHASE4_MODELS.md's "at policy
@@ -32,9 +64,17 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, year, transaction }
   let balance = await db.LeaveBalance.findOne({ where: { employeeId, leaveTypeId, year }, transaction });
   if (balance) return balance;
 
-  const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId }, transaction });
+  const [leaveType, employee] = await Promise.all([
+    db.LeaveType.findOne({ where: { id: leaveTypeId }, transaction }),
+    db.Employee.findOne({ where: { id: employeeId }, transaction }),
+  ]);
   const policy = leaveType
-    ? await db.LeavePolicy.findOne({ where: { companyId: leaveType.companyId, leaveTypeId }, transaction })
+    ? await resolveLeavePolicy({
+        companyId: leaveType.companyId,
+        leaveTypeId,
+        rosterGroupId: employee ? employee.rosterGroupId : null,
+        transaction,
+      })
     : null;
 
   let allotted = 0;
@@ -46,7 +86,6 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, year, transaction }
       // (leaveAccrual.job.js) resets this same amount every month.
       allotted = Number(policy.annualQuota);
     } else {
-      const employee = await db.Employee.findOne({ where: { id: employeeId }, transaction });
       const monthlyAmount = Number(policy.annualQuota) / 12;
       const months = monthsAccruedForYear({ year, dateOfJoining: employee ? employee.dateOfJoining : null });
       allotted = Math.round(monthlyAmount * months * 100) / 100;
@@ -98,4 +137,10 @@ async function adjustLeaveBalance({ companyId, employeeId, leaveTypeId, year, al
   return balance;
 }
 
-module.exports = { getOrCreateBalance, listLeaveBalances, adjustLeaveBalance, monthsAccruedForYear };
+module.exports = {
+  getOrCreateBalance,
+  listLeaveBalances,
+  adjustLeaveBalance,
+  monthsAccruedForYear,
+  resolveLeavePolicy,
+};

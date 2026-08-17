@@ -36,7 +36,7 @@ function tilesFor(summary: DashboardSummary): Tile[] {
 const QUICK_ACTIONS = [
   { label: 'Employees', to: '/company-admin/employees', icon: Users },
   { label: 'Organization', to: '/company-admin/organization', icon: Building2 },
-  { label: 'Shifts & Rosters', to: '/company-admin/shifts-rosters', icon: CalendarCheck },
+  { label: 'Shifts', to: '/company-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Approvals', to: '/company-admin/approvals', icon: ClipboardCheck },
 ];
 

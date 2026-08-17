@@ -127,6 +127,62 @@ async function getDashboardSummary({ companyId, brandId }) {
   };
 }
 
+// Same 6-bucket shape as buildEmployeeTrend, but counting Companies created
+// per month by createdAt — the platform-wide "onboarding pace" the
+// EmployeeTrendChart component already knows how to render (reused as-is,
+// just fed a single-series `joined`/`exited`-shaped point with `exited`
+// always 0 — mirrors that component's own field names rather than adding a
+// second chart component for one series).
+function buildCompanyTrend(companies) {
+  const now = toBusinessLocal();
+  const buckets = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    buckets.push({ year: d.getFullYear(), month: d.getMonth(), joined: 0, exited: 0 });
+  }
+  const bucketFor = (year, month) => buckets.find((b) => b.year === year && b.month === month);
+
+  for (const company of companies) {
+    const d = new Date(company.createdAt);
+    const bucket = bucketFor(d.getFullYear(), d.getMonth());
+    if (bucket) bucket.joined += 1;
+  }
+
+  return buckets.map((b) => ({ month: MONTH_LABELS[b.month], joined: b.joined, exited: b.exited }));
+}
+
+// Platform-wide, unscoped — every Group/Company/Brand/Employee regardless of
+// tenant (Super Admin only, gated by requireSuperAdmin at the route level,
+// not a permission code — same structural gate CLAUDE.md documents for
+// signup-invite). companyStatusBreakdown feeds a status-colored bar (trial/
+// active/grace/suspended/terminated), not the categorical palette other
+// dashboard charts use — these are literal states, not identity series.
+async function getPlatformDashboardSummary() {
+  const [groupCount, companyCount, brandCount, employeeCount, companiesByStatus, companiesForTrend] =
+    await Promise.all([
+      db.Group.count(),
+      db.Company.count(),
+      db.Brand.count(),
+      db.Employee.count(),
+      db.Company.findAll({ attributes: ['status', [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'count']], group: ['status'] }),
+      db.Company.findAll({ attributes: ['id', 'createdAt'] }),
+    ]);
+
+  const statusCounts = { trial: 0, active: 0, grace: 0, suspended: 0, terminated: 0 };
+  for (const row of companiesByStatus) {
+    statusCounts[row.status] = Number(row.get('count'));
+  }
+
+  return {
+    groupCount,
+    companyCount,
+    brandCount,
+    employeeCount,
+    companyStatusBreakdown: statusCounts,
+    companyTrend: buildCompanyTrend(companiesForTrend),
+  };
+}
+
 // Group Admin has no companyId of their own (see auth.middleware.js) — this
 // aggregates across every Company in their Group instead of a single one.
 async function getGroupDashboardSummary({ groupId }) {
@@ -164,4 +220,4 @@ async function getGroupDashboardSummary({ groupId }) {
   };
 }
 
-module.exports = { getDashboardSummary, getGroupDashboardSummary };
+module.exports = { getDashboardSummary, getGroupDashboardSummary, getPlatformDashboardSummary };

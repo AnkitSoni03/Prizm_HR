@@ -45,6 +45,7 @@ async function update(req, res, next) {
   try {
     const brand = await service.updateBrand({
       callerCompanyId: req.auth.companyId,
+      callerGroupId: req.auth.groupId,
       id: req.params.id,
       updates: req.body,
     });
@@ -65,7 +66,11 @@ async function getAdminInvitation(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    await service.deleteBrand({ callerCompanyId: req.auth.companyId, id: req.params.id });
+    await service.deleteBrand({
+      callerCompanyId: req.auth.companyId,
+      callerGroupId: req.auth.groupId,
+      id: req.params.id,
+    });
     res.status(204).send();
   } catch (err) {
     next(err);

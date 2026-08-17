@@ -1,4 +1,5 @@
 import { apiClient } from '../client';
+import type { RosterPolicyGroup } from './rosterGroups';
 
 export interface HolidayAuditUser {
   id: string;
@@ -10,6 +11,11 @@ export interface Holiday {
   id: string;
   companyId: string;
   brandId: string | null;
+  // Empty = applies company/brand-wide regardless of Roster (as before
+  // Rosters existed). One or more = only applies to those Rosters'
+  // employees, on top of the brand dimension — see
+  // holiday.service.js::createHoliday / utils/workingDays.js::isHoliday.
+  rosterGroups?: RosterPolicyGroup[];
   date: string;
   // Inclusive end of the holiday's date range — equal to `date` for a
   // plain single-day holiday.
@@ -32,7 +38,7 @@ export interface HolidayListResult {
 }
 
 export async function listHolidays(
-  params: { limit?: number; offset?: number; from?: string; to?: string } = {}
+  params: { limit?: number; offset?: number; from?: string; to?: string; rosterGroupId?: string } = {}
 ): Promise<HolidayListResult> {
   const { data } = await apiClient.get<HolidayListResult>('/leave/holidays', {
     params: { limit: 100, ...params },
@@ -43,15 +49,22 @@ export async function listHolidays(
 // toDate is optional — when set (and later than date), the holiday's
 // endDate covers that whole range as a single row, so a multi-day
 // festival/shutdown shows up on every one of its days for employees under
-// one entry, not a plain one-day holiday repeated.
-export async function createHoliday(input: { date: string; toDate?: string; name: string }): Promise<Holiday> {
+// one entry, not a plain one-day holiday repeated. rosterGroupIds, when set,
+// scopes the holiday to just those Rosters' employees instead of
+// company/brand-wide.
+export async function createHoliday(input: {
+  date: string;
+  toDate?: string;
+  name: string;
+  rosterGroupIds?: string[];
+}): Promise<Holiday> {
   const { data } = await apiClient.post<{ data: Holiday }>('/leave/holidays', input);
   return data.data;
 }
 
 export async function updateHoliday(
   id: string,
-  input: { date?: string; toDate?: string; name?: string }
+  input: { date?: string; toDate?: string; name?: string; rosterGroupIds?: string[] }
 ): Promise<Holiday> {
   const { data } = await apiClient.patch<{ data: Holiday }>(`/leave/holidays/${id}`, input);
   return data.data;

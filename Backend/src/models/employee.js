@@ -11,6 +11,7 @@ module.exports = (sequelize, DataTypes) => {
       Employee.belongsTo(models.Department, { foreignKey: 'departmentId', as: 'department' });
       Employee.belongsTo(models.Designation, { foreignKey: 'designationId', as: 'designation' });
       Employee.belongsTo(models.Employee, { foreignKey: 'managerId', as: 'manager' });
+      Employee.belongsTo(models.RosterGroup, { foreignKey: 'rosterGroupId', as: 'rosterGroup' });
       Employee.hasMany(models.Employee, { foreignKey: 'managerId', as: 'directReports' });
       // Optional, admin-assigned dedicated Role holding this employee's
       // hand-picked "powers" — see employee.service.js::assignEmployeePowers.
@@ -43,17 +44,29 @@ module.exports = (sequelize, DataTypes) => {
   Employee.init(
     {
       name: { type: DataTypes.STRING, allowNull: true },
-      employeeCode: { type: DataTypes.STRING, allowNull: false },
+      // Optional: Super Admin's minimal "name only" employee creation leaves
+      // this unset — Company Admin/Brand Admin assign it later (part of
+      // employee.service.js::UPDATABLE_FIELDS).
+      employeeCode: { type: DataTypes.STRING, allowNull: true },
       companyId: { type: DataTypes.BIGINT, allowNull: false },
       // Nullable: a company with companies.uses_brands = false operates
       // directly at the Company level and its employees have no Brand.
       brandId: { type: DataTypes.BIGINT, allowNull: true },
-      departmentId: { type: DataTypes.BIGINT, allowNull: false },
+      // Optional: Super Admin's minimal "name only" employee creation leaves
+      // this null — Company Admin assigns it later via transferEmployee.
+      departmentId: { type: DataTypes.BIGINT, allowNull: true },
       designationId: { type: DataTypes.BIGINT, allowNull: true },
       managerId: { type: DataTypes.BIGINT, allowNull: true },
+      // Optional add-on: null keeps this employee on company/brand-wide
+      // holidays, the company-wide leave policy, and their own
+      // employee_shifts default — exactly as before this column existed.
+      rosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
       customRoleId: { type: DataTypes.BIGINT, allowNull: true },
       userId: { type: DataTypes.BIGINT, allowNull: true },
       dateOfJoining: { type: DataTypes.DATEONLY, allowNull: true },
+      // Optional — captured by Company Admin/Brand Admin when filling in an
+      // employee's details, not required at creation.
+      dateOfBirth: { type: DataTypes.DATEONLY, allowNull: true },
       // Free text, not an ENUM — used for Professional Tax slab lookup only;
       // an unrecognized/blank value just falls back to the 'default' slab
       // (see statutoryDeduction.service.js).

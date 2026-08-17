@@ -14,6 +14,7 @@ import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import type { Employee } from '../../api/tenancy';
+import { formatEmployeeLabel } from '../../utils/employeeDisplay';
 import { PayrollSettingsForm } from './components/PayrollSettingsForm';
 import { SalaryComponentFormModal } from './components/SalaryComponentFormModal';
 import { SalaryStructureFormModal } from './components/SalaryStructureFormModal';
@@ -245,7 +246,7 @@ function StructuresTab({ canWrite }: { canWrite: boolean }) {
           value={selectedEmployeeId}
           onChange={(event) => handleSelectEmployee(event.target.value)}
           placeholder="Select an employee"
-          options={employees.map((e) => ({ value: e.id, label: `${e.name ?? e.employeeCode} (${e.employeeCode})` }))}
+          options={employees.map((e) => ({ value: e.id, label: formatEmployeeLabel(e) }))}
         />
       </div>
 

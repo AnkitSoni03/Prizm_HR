@@ -46,6 +46,7 @@ export async function createShift(input: {
   endTime: string;
   isNightShift: boolean;
   weeklyOffDays: number[];
+  rosterGroupIds?: string[];
 }): Promise<Shift> {
   const { data } = await apiClient.post<{ data: Shift }>('/attendance/shifts', input);
   return data.data;
@@ -59,6 +60,7 @@ export async function updateShift(
     endTime: string;
     isNightShift: boolean;
     weeklyOffDays: number[];
+    rosterGroupIds?: string[];
   }
 ): Promise<Shift> {
   const { data } = await apiClient.patch<{ data: Shift }>(`/attendance/shifts/${id}`, input);
