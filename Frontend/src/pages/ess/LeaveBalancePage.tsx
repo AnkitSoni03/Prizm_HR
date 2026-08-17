@@ -55,10 +55,10 @@ export function LeaveBalancePage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-6 sm:gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-ink">My Leave Balance</h2>
-          <p className="text-sm text-ink-muted">View your time off allocations</p>
+          <h2 className="text-base font-semibold text-ink sm:text-lg">My Leave Balance</h2>
+          <p className="text-xs text-ink-muted sm:text-sm">View your time off allocations</p>
         </div>
         <div className="w-full sm:w-32">
           <Select
@@ -71,22 +71,22 @@ export function LeaveBalancePage() {
         </div>
       </div>
 
-      {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+      {error && <p className="mb-3 text-xs text-danger sm:text-sm">{error}</p>}
 
       {isLoading && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-40 animate-pulse rounded-xl border border-border bg-card" />
+            <div key={i} className="h-36 animate-pulse rounded-xl border border-border bg-card sm:h-40" />
           ))}
         </div>
       )}
 
       {!isLoading && !error && leaveTypes.length === 0 && (
-        <p className="text-sm text-ink-muted">Your leave balances will appear here once set up.</p>
+        <p className="text-xs text-ink-muted sm:text-sm">Your leave balances will appear here once set up.</p>
       )}
 
       {!isLoading && leaveTypes.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {leaveTypes.map((type) => {
             const balance = balances.find((b) => b.leaveTypeId === type.id);
             const allotted = balance ? Number(balance.allotted) : 0;
@@ -98,36 +98,36 @@ export function LeaveBalancePage() {
             const accentClass = ACCENT_BY_CODE[type.code] ?? 'bg-primary/10 text-primary';
 
             return (
-              <div key={type.id} className="rounded-xl border border-border bg-card p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${accentClass}`}>
-                    <Icon className="h-5 w-5" strokeWidth={1.75} />
+              <div key={type.id} className="rounded-xl border border-border bg-card p-3.5 shadow-xs sm:p-5">
+                <div className="mb-3 flex items-center justify-between sm:mb-4">
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-xl sm:h-11 sm:w-11 ${accentClass}`}>
+                    <Icon className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={1.75} />
                   </div>
                 </div>
-                <p className="mb-3 text-sm font-semibold text-ink">{type.name}</p>
+                <p className="mb-2.5 truncate text-xs font-semibold text-ink sm:mb-3 sm:text-sm">{type.name}</p>
 
-                <div className="mb-3 grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-page py-2 text-center">
+                <div className="mb-2.5 grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-page py-1.5 text-center sm:mb-3 sm:py-2">
                   <div>
-                    <p className="text-lg font-semibold text-ink">{allotted}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-ink-muted">Total</p>
+                    <p className="text-base font-semibold text-ink sm:text-lg">{allotted}</p>
+                    <p className="text-[9px] uppercase tracking-wide text-ink-muted sm:text-[10px]">Total</p>
                   </div>
                   <div>
-                    <p className="text-lg font-semibold text-ink">{used}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-ink-muted">Used</p>
+                    <p className="text-base font-semibold text-ink sm:text-lg">{used}</p>
+                    <p className="text-[9px] uppercase tracking-wide text-ink-muted sm:text-[10px]">Used</p>
                   </div>
                   <div>
-                    <p className="text-lg font-semibold text-ink">{remaining}</p>
-                    <p className="text-[10px] uppercase tracking-wide text-ink-muted">Remaining</p>
+                    <p className="text-base font-semibold text-ink sm:text-lg">{remaining}</p>
+                    <p className="text-[9px] uppercase tracking-wide text-ink-muted sm:text-[10px]">Remaining</p>
                   </div>
                 </div>
 
-                <div className="mb-2 flex items-center justify-between text-xs text-ink-muted">
+                <div className="mb-1.5 flex items-center justify-between text-[11px] text-ink-muted sm:mb-2 sm:text-xs">
                   <span>Usage</span>
                   <span>{usagePercent}%</span>
                 </div>
-                <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-page">
+                <div className="mb-2.5 h-1.5 w-full overflow-hidden rounded-full bg-page sm:mb-3">
                   <div
-                    className={`h-full rounded-full ${status.tone === 'danger' ? 'bg-danger' : status.tone === 'warning' ? 'bg-warning' : 'bg-primary'}`}
+                    className={`h-full rounded-full transition-all duration-300 ${status.tone === 'danger' ? 'bg-danger' : status.tone === 'warning' ? 'bg-warning' : 'bg-primary'}`}
                     style={{ width: `${usagePercent}%` }}
                   />
                 </div>

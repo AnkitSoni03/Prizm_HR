@@ -219,7 +219,6 @@ export function MyAttendancePage() {
       value: presentCount,
       icon: CalendarCheck,
       classes: 'bg-success/10 text-success',
-      accentBorder: 'border-t-success',
       hint: workingDaysCount > 0 ? `${Math.round((presentCount / workingDaysCount) * 100)}% of working days` : undefined,
     },
     {
@@ -227,28 +226,24 @@ export function MyAttendancePage() {
       value: halfDayCount,
       icon: Clock3,
       classes: 'bg-warning/10 text-warning',
-      accentBorder: 'border-t-warning',
     },
     {
       label: 'On Leave',
       value: leaveCount,
       icon: PlaneTakeoff,
       classes: 'bg-primary-light text-primary',
-      accentBorder: 'border-t-primary',
     },
     {
       label: 'Absent',
       value: absentCount,
       icon: CalendarX2,
       classes: 'bg-danger/10 text-danger',
-      accentBorder: 'border-t-danger',
     },
     {
       label: 'Avg Hours/Day',
       value: `${avgHoursPerDay.toFixed(1)}h`,
       icon: Timer,
       classes: 'bg-primary-light text-primary',
-      accentBorder: 'border-t-primary',
     },
   ];
 
@@ -313,7 +308,7 @@ export function MyAttendancePage() {
             {summaryCards.map((card) => (
               <div
                 key={card.label}
-                className={`flex items-center gap-2.5 rounded-xl border border-t-2 border-border bg-card p-3 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] sm:gap-3 sm:p-4 ${card.accentBorder}`}
+                className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-3 shadow-xs sm:gap-3 sm:p-4"
               >
                 <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${card.classes}`}>
                   <card.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />

@@ -18,11 +18,11 @@ interface HeroStatTileProps {
 export function HeroStatTile({ label, value, icon: Icon, accentColor, hint }: HeroStatTileProps) {
   return (
     <div
-      className="group flex items-center gap-2.5 rounded-xl border-l-[3px] border-y border-r border-border p-2.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:gap-3 sm:p-3.5"
-      style={{ backgroundColor: `${accentColor}0d`, borderLeftColor: accentColor }}
+      className="flex items-center gap-2.5 rounded-xl border border-l-[6px] bg-card p-2.5 shadow-xs sm:gap-3 sm:p-3.5"
+      style={{ borderColor: accentColor }}
     >
       <span
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-105 sm:h-9 sm:w-9"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9"
         style={{ backgroundColor: `${accentColor}1f`, color: accentColor }}
       >
         <Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" strokeWidth={1.75} />
