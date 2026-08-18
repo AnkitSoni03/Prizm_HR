@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Baby, Clock, Star, Users, Waves, Wallet, type LucideIcon } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
+import { useAuth } from '../../context/auth-context';
 import { listLeaveTypes, listMyLeaveBalances, type LeaveBalance, type LeaveType } from '../../api/ess/leave';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -23,6 +24,12 @@ const ACCENT_BY_CODE: Record<string, string> = {
   PATERNITY: 'bg-primary/10 text-primary',
 };
 
+const ACCRUAL_LABELS: Record<'yearly' | 'monthly' | 'monthly_reset', string> = {
+  yearly: 'Full quota given upfront each year',
+  monthly: 'Grows by 1/12th every month',
+  monthly_reset: 'Resets to the flat amount every month',
+};
+
 function statusFor(allotted: number, used: number, remaining: number): { label: string; tone: 'success' | 'warning' | 'danger' } {
   if (remaining <= 0) return { label: 'Exhausted', tone: 'danger' };
   const usagePercent = allotted > 0 ? (used / allotted) * 100 : 0;
@@ -34,6 +41,7 @@ function statusFor(allotted: number, used: number, remaining: number): { label: 
 // it matches the dedicated sidebar item design (per your screenshot)
 // instead of a small inline grid squeezed above the apply/history list.
 export function LeaveBalancePage() {
+  const { user } = useAuth();
   const [year, setYear] = useState(CURRENT_YEAR);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [balances, setBalances] = useState<LeaveBalance[]>([]);
@@ -44,14 +52,14 @@ export function LeaveBalancePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
-    Promise.all([listLeaveTypes(), listMyLeaveBalances({ year })])
+    Promise.all([listLeaveTypes({ rosterGroupId: user?.rosterGroupId ?? 'none' }), listMyLeaveBalances({ year })])
       .then(([types, bal]) => {
         setLeaveTypes(types);
         setBalances(bal);
       })
       .catch(() => setError('Could not load your leave balances.'))
       .finally(() => setIsLoading(false));
-  }, [year]);
+  }, [year, user?.rosterGroupId]);
 
   return (
     <div>
@@ -82,7 +90,10 @@ export function LeaveBalancePage() {
       )}
 
       {!isLoading && !error && leaveTypes.length === 0 && (
-        <p className="text-xs text-ink-muted sm:text-sm">Your leave balances will appear here once set up.</p>
+        <p className="text-xs text-ink-muted sm:text-sm">
+          Your leave balances will appear here once a Roster with a Leave Policy is assigned to you. Contact HR if
+          you think this is a mistake.
+        </p>
       )}
 
       {!isLoading && leaveTypes.length > 0 && (
@@ -104,7 +115,15 @@ export function LeaveBalancePage() {
                     <Icon className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={1.75} />
                   </div>
                 </div>
-                <p className="mb-2.5 truncate text-xs font-semibold text-ink sm:mb-3 sm:text-sm">{type.name}</p>
+                <p className="truncate text-xs font-semibold text-ink sm:text-sm">{type.name}</p>
+                <p className="text-[10px] text-ink-muted sm:text-xs">
+                  {balance?.accrual ? ACCRUAL_LABELS[balance.accrual] : 'Accrual not set'}
+                </p>
+                <p className="mb-2.5 text-[10px] text-ink-muted sm:mb-3 sm:text-xs">
+                  {type.carryForward
+                    ? `Carries forward — up to ${type.maxCarryForwardDays != null ? `${type.maxCarryForwardDays} days` : 'unlimited'} into next year`
+                    : 'Does not carry forward — unused days expire at year end'}
+                </p>
 
                 <div className="mb-2.5 grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-page py-1.5 text-center sm:mb-3 sm:py-2">
                   <div>

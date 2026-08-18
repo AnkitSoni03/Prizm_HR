@@ -49,16 +49,15 @@ async function listHolidays({ limit, offset, brandId, rosterGroupId, from, to })
     order: [['date', 'ASC']],
     include: AUDIT_INCLUDES,
   });
-  // rosterGroupId filters in JS, not SQL — a holiday with zero Roster links
-  // is company/brand-wide (always included); one with links is included only
-  // when it's linked to the requested Roster. Mirrors utils/workingDays.js
-  // ::isHoliday's own matching rule, used here so a Roster's own detail page
-  // (or an ESS employee's scoped view) sees exactly the same holidays that
-  // rule would actually apply for them.
+  // rosterGroupId filters in JS, not SQL. Three states, mirroring
+  // companyPolicy.service.js::listCompanyPolicies: undefined = no filter,
+  // everything (admin management pages); 'none' = caller has no Roster —
+  // nothing (Roster is the sole determinant of what an employee sees, same
+  // rule as utils/workingDays.js::isHoliday); a real id = only holidays
+  // explicitly linked to that Roster.
+  if (rosterGroupId === 'none') return { rows: [], count: 0 };
   const filtered = rosterGroupId
-    ? rows.filter(
-        (h) => h.rosterGroups.length === 0 || h.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId))
-      )
+    ? rows.filter((h) => h.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId)))
     : rows;
   return { rows: filtered, count };
 }

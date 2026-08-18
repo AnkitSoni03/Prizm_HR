@@ -31,16 +31,21 @@ async function sendHolidayReminders({ asOf = new Date() } = {}) {
   for (const holiday of holidays) {
     try {
       const rosterGroupIds = holiday.rosterGroups.map((rg) => rg.id);
-      const employees = await db.Employee.findAll({
-        where: {
-          companyId: holiday.companyId,
-          ...(holiday.brandId ? { brandId: holiday.brandId } : {}),
-          ...(rosterGroupIds.length > 0 ? { rosterGroupId: { [Op.in]: rosterGroupIds } } : {}),
-          isActive: true,
-          userId: { [Op.not]: null },
-        },
-        attributes: ['id', 'userId'],
-      });
+      // Roster is the sole determinant of who a holiday applies to (see
+      // workingDays.js::isHoliday) — a holiday with zero Roster links is
+      // dormant and reaches nobody, rather than falling back to "everyone".
+      const employees = rosterGroupIds.length === 0
+        ? []
+        : await db.Employee.findAll({
+            where: {
+              companyId: holiday.companyId,
+              ...(holiday.brandId ? { brandId: holiday.brandId } : {}),
+              rosterGroupId: { [Op.in]: rosterGroupIds },
+              isActive: true,
+              userId: { [Op.not]: null },
+            },
+            attributes: ['id', 'userId'],
+          });
 
       for (const employee of employees) {
         await notifyUser({

@@ -14,7 +14,10 @@ import { UsersPage } from '../pages/super-admin/UsersPage';
 import { SettingsPage as SuperAdminSettingsPage } from '../pages/super-admin/SettingsPage';
 import { CompanyAdminDashboard } from '../pages/company-admin/CompanyAdminDashboard';
 import { EmployeesPage } from '../pages/company-admin/EmployeesPage';
-import { ShiftsRostersPage } from '../pages/company-admin/ShiftsRostersPage';
+import {
+  ShiftsRostersPage,
+  ShiftsRostersPage as EssShiftsPage,
+} from '../pages/company-admin/ShiftsRostersPage';
 import { ApprovalsPage } from '../pages/company-admin/ApprovalsPage';
 import { PayrollPage } from '../pages/company-admin/PayrollPage';
 import {
@@ -37,8 +40,16 @@ import {
 import {
   RosterGroupsPage as CompanyAdminRosterGroupsPage,
   RosterGroupsPage as BrandAdminRosterGroupsPage,
+  RosterGroupsPage as EssRosterGroupsPage,
 } from '../pages/company-admin/RosterGroupsPage';
-import { LeavePolicySettingsPage as CompanyAdminLeavePolicySettingsPage } from '../pages/company-admin/LeavePolicySettingsPage';
+import {
+  LeavePolicySettingsPage as CompanyAdminLeavePolicySettingsPage,
+  LeavePolicySettingsPage as EssLeavePolicySettingsPage,
+} from '../pages/company-admin/LeavePolicySettingsPage';
+import {
+  LeaveTypesPage as CompanyAdminLeaveTypesPage,
+  LeaveTypesPage as EssLeaveTypesPage,
+} from '../pages/company-admin/LeaveTypesPage';
 import {
   OrganizationPage as CompanyAdminOrganizationPage,
   OrganizationPage as BrandAdminOrganizationPage,
@@ -48,10 +59,6 @@ import {
   CompanyPoliciesPage as BrandAdminPoliciesPage,
   CompanyPoliciesPage as EssPoliciesPage,
 } from '../pages/company-admin/CompanyPoliciesPage';
-import {
-  ProvideLeavesPage as CompanyAdminProvideLeavesPage,
-  ProvideLeavesPage as EssProvideLeavesPage,
-} from '../pages/company-admin/ProvideLeavesPage';
 import { SettingsPage as CompanyAdminSettingsPage } from '../pages/company-admin/SettingsPage';
 import { GroupAdminDashboard } from '../pages/group-admin/GroupAdminDashboard';
 import { CompaniesPage as GroupCompaniesPage } from '../pages/group-admin/CompaniesPage';
@@ -283,6 +290,17 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/company-admin/leave-types"
+        element={
+          <ProtectedRoute permission="leave_type:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Leave Types">
+              <CompanyAdminLeaveTypesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/company-admin/leave-policies"
         element={
           <ProtectedRoute permission="leave_policy:read">
@@ -310,17 +328,6 @@ export function AppRoutes() {
           <ProtectedRoute permission="payroll_settings:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Payroll">
               <PayrollPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/company-admin/provide-leaves"
-        element={
-          <ProtectedRoute permission="leave_balance:adjust">
-            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Provide Leaves">
-              <CompanyAdminProvideLeavesPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -617,18 +624,7 @@ export function AppRoutes() {
         element={
           <ProtectedRoute permission="company_policy:read">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Company Policies">
-              <EssPoliciesPage extraParams={{ rosterGroupId: user?.rosterGroupId ?? undefined }} />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/ess/provide-leaves"
-        element={
-          <ProtectedRoute permission="leave_balance:adjust">
-            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Provide Leaves">
-              <EssProvideLeavesPage />
+              <EssPoliciesPage extraParams={{ rosterGroupId: user?.rosterGroupId ?? 'none' }} />
             </Layout>
           </ProtectedRoute>
         }
@@ -640,6 +636,50 @@ export function AppRoutes() {
           <ProtectedRoute permission="employee_document:verify">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Document Verification">
               <DocumentVerificationPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/roster-groups"
+        element={
+          <ProtectedRoute permission="roster_group:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Roster">
+              <EssRosterGroupsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/shifts"
+        element={
+          <ProtectedRoute permission="shift:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Shifts">
+              <EssShiftsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/leave-types"
+        element={
+          <ProtectedRoute permission="leave_type:create">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Leave Types">
+              <EssLeaveTypesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/leave-policies"
+        element={
+          <ProtectedRoute permission="leave_policy:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Leave Policy Settings">
+              <EssLeavePolicySettingsPage />
             </Layout>
           </ProtectedRoute>
         }

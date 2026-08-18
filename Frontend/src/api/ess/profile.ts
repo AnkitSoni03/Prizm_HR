@@ -17,21 +17,41 @@ export interface EmployeeProfile {
   departmentId: string;
   designationId: string | null;
   managerId: string | null;
+  rosterGroupId: string | null;
   name: string;
   employeeCode: string;
   dateOfJoining: string | null;
+  // Captured by Company Admin/Brand Admin when filling in an employee's
+  // details, not required at creation.
+  dateOfBirth: string | null;
+  // Free text — used for Professional Tax slab lookup only. An unrecognized
+  // or blank value just falls back to the 'default' PT slab.
+  workState: string | null;
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   status: 'onboarding' | 'active' | 'on_notice' | 'exited' | 'archived';
+  company?: { id: string; name: string };
   brand?: { id: string; name: string };
   department?: { id: string; name: string };
   designation?: { id: string; title: string } | null;
   manager?: { id: string; name: string; employeeCode: string } | null;
+  // Filled in only when managerId is null — whichever admin is actually
+  // responsible for you (your Brand's Brand Admin, else the Company Admin).
+  // Display-only fallback, not a real manager assignment — see
+  // employee.service.js::resolveEffectiveManager.
+  effectiveManager?: { id: string; name: string } | null;
+  // The Roster that now drives this employee's Shift/Holidays/Company
+  // Policies/Leave — null means none assigned yet (everything shows blank
+  // until one is, see LeaveBalancePage.tsx and HolidaysPage.tsx).
+  rosterGroup?: { id: string; name: string } | null;
   photoDownloadUrl?: string | null;
-  // Standing default shift (employee_shifts) — null if none was ever
-  // assigned. Resolved server-side as of today.
+  // Standing default shift (employee_shifts) — this mechanism has no admin
+  // UI left anywhere (Shift assignment now flows entirely through Roster),
+  // so this is null for virtually everyone going forward; kept only for any
+  // pre-existing assignment from before that change.
   defaultShift: EmployeeShiftSummary | null;
   // A published shift_rosters entry for today, if one exists — overrides
-  // defaultShift per CLAUDE.md rule 7 ("Roster > default shift").
+  // defaultShift/the Roster's own shift per CLAUDE.md rule 7 ("Roster >
+  // default shift").
   todayRoster: { id: string; rosterDate: string; shift: EmployeeShiftSummary | null } | null;
 }
 

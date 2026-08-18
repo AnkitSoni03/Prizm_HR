@@ -27,6 +27,44 @@ async function withPhotoUrl(employee) {
   }
 }
 
+// When an employee has no explicit managerId, the "who's my manager" gap is
+// filled in for display purposes only (My Profile, etc.) by whichever admin
+// is actually responsible for them: their own Brand's Brand Admin if they're
+// in a Brand, else the company's Company Admin. Purely cosmetic — this does
+// NOT touch employee.managerId itself or the manager-based leave/OD approval
+// routing (leaveRequest.service.js's requireDecisionAccess still only ever
+// matches a real managerId), since Company Admin/Brand Admin already hold
+// their own company/brand-wide approve grant independently — wiring this
+// into approval routing too would just be redundant, not additive.
+async function resolveEffectiveManager(employee) {
+  // orgName names whichever Brand/Company the admin is being resolved for
+  // ("ABC Admin") — never the admin's raw email, which isn't a meaningful
+  // display name to another employee.
+  async function findAdminUser(roleName, brandId, orgName) {
+    const userRole = await db.UserRole.findOne({
+      where: { companyId: employee.companyId, brandId: brandId ?? null },
+      include: [
+        { model: db.Role, as: 'role', where: { name: roleName }, attributes: [] },
+        {
+          model: db.User,
+          as: 'user',
+          attributes: ['id', 'email'],
+          include: [{ model: db.Employee, as: 'employee', attributes: ['id', 'name'] }],
+        },
+      ],
+      order: [['id', 'ASC']],
+    });
+    if (!userRole?.user) return null;
+    return { id: userRole.user.id, name: userRole.user.employee?.name ?? `${orgName} Admin` };
+  }
+
+  if (employee.brandId) {
+    const brandAdmin = await findAdminUser('Brand Admin', employee.brandId, employee.brand?.name ?? 'Brand');
+    if (brandAdmin) return brandAdmin;
+  }
+  return findAdminUser('Company Admin', null, employee.company?.name ?? 'Company');
+}
+
 async function assertBelongsToCompany(model, id, companyId, label) {
   const row = await model.findOne({ where: { id, companyId } });
   if (!row) throw new HttpError(400, `${label} not found for this company`);
@@ -82,10 +120,16 @@ async function getEmployeeForRead(id) {
   const employee = await db.Employee.findOne({
     where: { id },
     include: [
+      { model: db.Company, as: 'company', attributes: ['id', 'name'] },
       { model: db.Brand, as: 'brand', attributes: ['id', 'name'] },
       { model: db.Department, as: 'department', attributes: ['id', 'name'] },
       { model: db.Designation, as: 'designation', attributes: ['id', 'title'] },
       { model: db.Employee, as: 'manager', attributes: ['id', 'name', 'employeeCode'] },
+      // Same reasoning as brand/department/designation above — an Employee
+      // has no roster_group:read of their own to resolve this name
+      // client-side, and My Profile now needs to show it (Roster drives
+      // their shift/holidays/policies/leave entirely).
+      { model: db.RosterGroup, as: 'rosterGroup', attributes: ['id', 'name'] },
       // Lets EmployeeDetailModal.tsx pre-check which POWER_CATALOG keys are
       // already assigned when it opens, without a second round trip.
       {
@@ -120,9 +164,14 @@ async function getEmployeeForRead(id) {
     };
   }
 
+  // Only resolved when there's no real manager — findAdminUser's two
+  // queries are wasted work otherwise.
+  const effectiveManager = employee.managerId ? null : await resolveEffectiveManager(employee);
+
   const withPhoto = await withPhotoUrl(employee);
   return {
     ...withPhoto,
+    effectiveManager,
     defaultShift: shiftSummary(defaultAssignment?.shift ?? null),
     todayRoster: roster
       ? { id: roster.id, rosterDate: roster.rosterDate, shift: shiftSummary(roster.shift) }

@@ -12,5 +12,6 @@ router.get('/', requirePermission('leave_type:read'), controller.list);
 router.get('/:id', requirePermission('leave_type:read'), controller.get);
 router.post('/', requirePermission('leave_type:create'), controller.create);
 router.patch('/:id', requirePermission('leave_type:update'), controller.update);
+router.delete('/:id', requirePermission('leave_type:delete'), controller.remove);
 
 module.exports = router;

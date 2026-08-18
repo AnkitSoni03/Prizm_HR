@@ -187,12 +187,12 @@ export function EssDashboard() {
 
   useEffect(() => {
     if (!user?.employeeId) return;
-    listHolidays({ from: todayStr(), to: addDaysStr(180) })
+    listHolidays({ from: todayStr(), to: addDaysStr(180), rosterGroupId: user.rosterGroupId ?? 'none' })
       .then((holidays) => setUpcomingHolidays(holidays.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3)))
       .catch(() => {
         /* non-critical — the dashboard still works without this section */
       });
-  }, [user?.employeeId]);
+  }, [user?.employeeId, user?.rosterGroupId]);
 
   useEffect(() => {
     if (!user?.employeeId) return;

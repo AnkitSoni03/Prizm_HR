@@ -7,19 +7,24 @@ function dayOfWeek(dateStr) {
   return new Date(`${dateStr}T00:00:00`).getDay();
 }
 
-// A company/brand/Roster holiday covering this date. A holiday is a date
-// range (date..endDate, inclusive — a single-day holiday just has date ===
-// endDate), so this checks containment, not an exact match. brandId and
-// rosterGroupId are two independent scoping dimensions: a matching holiday
-// row must satisfy BOTH "brand-wide-or-this-brand" AND "Roster-wide-or-this-
-// Roster" — so a Roster-scoped holiday (e.g. extra Durga Puja days assigned
-// to a Kolkata Roster) only fires for that Roster's employees, while a plain
-// company-wide holiday (brandId null, no Roster links) still fires for
-// everyone. Roster scoping is a many-to-many join (roster_group_holidays),
-// not a column, so this findAll-then-filter-in-JS shape (rather than a pure
-// SQL WHERE) is needed to inspect each candidate's linked Rosters — holidays
-// matching a given date are always few, so this is cheap.
+// A Roster-scoped holiday covering this date. A holiday is a date range
+// (date..endDate, inclusive — a single-day holiday just has date === endDate),
+// so this checks containment, not an exact match. Roster is now the SOLE
+// determinant of which holidays apply to an employee — an employee with no
+// Roster assigned gets none at all (every day is a working day for them,
+// including LOP/comp-off math, until a Roster is assigned), and once
+// assigned, only holidays explicitly linked to THAT Roster apply; a holiday
+// with zero Roster links is dormant (a catalog entry an admin hasn't
+// attached to any Roster yet), not a "company-wide" fallback anymore. brandId
+// still narrows within that: a matching holiday row must ALSO satisfy
+// "brand-wide-or-this-brand". Roster scoping is a many-to-many join
+// (roster_group_holidays), not a column, so this findAll-then-filter-in-JS
+// shape (rather than a pure SQL WHERE) is needed to inspect each candidate's
+// linked Rosters — holidays matching a given date are always few, so this is
+// cheap.
 async function isHoliday({ companyId, brandId, rosterGroupId, dateStr }) {
+  if (!rosterGroupId) return false;
+
   const holidays = await db.Holiday.findAll({
     where: {
       companyId,
@@ -29,9 +34,7 @@ async function isHoliday({ companyId, brandId, rosterGroupId, dateStr }) {
     },
     include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
   });
-  return holidays.some(
-    (h) => h.rosterGroups.length === 0 || (rosterGroupId && h.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId)))
-  );
+  return holidays.some((h) => h.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId)));
 }
 
 // Weekly off per the employee's roster/shift for this date (shift_rosters

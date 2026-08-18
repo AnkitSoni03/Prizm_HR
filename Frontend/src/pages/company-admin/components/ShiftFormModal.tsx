@@ -12,6 +12,11 @@ import type { Shift } from '../../../api/tenancy';
 interface ShiftFormModalProps {
   shift?: Shift;
   shifts: Shift[];
+  // Pre-selects these Rosters on the first row — used when this modal is
+  // opened from inside a Roster's own detail view ("Add Shift" right there),
+  // so the admin doesn't have to re-pick the Roster they were just looking
+  // at. Ignored when editing an existing shift (its own rosterGroups win).
+  defaultRosterGroupIds?: string[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -79,7 +84,7 @@ function findTimeConflicts(rows: ShiftRow[], existingShifts: Shift[]): string[] 
   return messages;
 }
 
-export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormModalProps) {
+export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, onSaved }: ShiftFormModalProps) {
   const isEdit = !!shift;
   const [rows, setRows] = useState<ShiftRow[]>([
     shift
@@ -91,7 +96,7 @@ export function ShiftFormModal({ shift, shifts, onClose, onSaved }: ShiftFormMod
           weeklyOffDays: shift.weeklyOffDays,
           rosterGroupIds: shift.rosterGroups?.map((rg) => rg.id) ?? [],
         }
-      : blankRow(0),
+      : { ...blankRow(0), rosterGroupIds: defaultRosterGroupIds ?? [] },
   ]);
   const [nextRowId, setNextRowId] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);

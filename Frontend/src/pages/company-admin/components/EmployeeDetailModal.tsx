@@ -41,13 +41,6 @@ import {
   type EmployeeDocument,
   type DocumentUploadRequest,
 } from '../../../api/companyAdmin/employeeDocuments';
-import {
-  adjustLeaveBalance,
-  listLeaveBalances,
-  listLeaveTypes,
-  type LeaveBalance,
-  type LeaveType,
-} from '../../../api/companyAdmin/leaveBalance';
 import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
@@ -74,7 +67,7 @@ interface EmployeeDetailModalProps {
   // Which tab to open on. Defaults to 'details'; the ESS Document
   // Verification page (a power-holder with no employee:update) opens
   // straight to 'documents' since that's the only tab it cares about.
-  initialTab?: 'details' | 'documents' | 'leaveBalance' | 'powers';
+  initialTab?: 'details' | 'documents' | 'powers';
 }
 
 const EMPLOYMENT_TYPES = [
@@ -134,10 +127,8 @@ export function EmployeeDetailModal({
   const canUploadDocs = hasPermission('employee_document:upload');
   const canVerifyDocs = hasPermission('employee_document:verify');
   const canInviteEss = hasPermission('user:invite');
-  const canReadLeaveBalance = hasPermission('leave_balance:read');
-  const canAdjustLeaveBalance = hasPermission('leave_balance:adjust');
 
-  const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'leaveBalance' | 'powers'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'powers'>(initialTab);
 
   const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
@@ -381,36 +372,6 @@ export function EmployeeDetailModal({
     }
   }
 
-  const [leaveBalanceYear, setLeaveBalanceYear] = useState(new Date().getFullYear());
-  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
-  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
-  const [isLoadingLeaveBalances, setIsLoadingLeaveBalances] = useState(false);
-  const [leaveBalanceError, setLeaveBalanceError] = useState<string | null>(null);
-  const [draftAllotted, setDraftAllotted] = useState<Record<string, string>>({});
-  const [savingLeaveTypeId, setSavingLeaveTypeId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (activeTab !== 'leaveBalance' || !canReadLeaveBalance) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsLoadingLeaveBalances(true);
-    setLeaveBalanceError(null);
-    Promise.all([listLeaveTypes(), listLeaveBalances({ employeeId: employee.id, year: leaveBalanceYear })])
-      .then(([types, balances]) => {
-        setLeaveTypes(types);
-        setLeaveBalances(balances);
-        setDraftAllotted(
-          Object.fromEntries(
-            types.map((type) => {
-              const existing = balances.find((balance) => balance.leaveTypeId === type.id);
-              return [type.id, existing ? String(existing.allotted) : ''];
-            })
-          )
-        );
-      })
-      .catch(() => setLeaveBalanceError('Could not load leave balances.'))
-      .finally(() => setIsLoadingLeaveBalances(false));
-  }, [activeTab, canReadLeaveBalance, employee.id, leaveBalanceYear]);
-
   const [powerKeys, setPowerKeys] = useState<string[]>([]);
   const [isSavingPowers, setIsSavingPowers] = useState(false);
   const [powersError, setPowersError] = useState<string | null>(null);
@@ -449,28 +410,6 @@ export function EmployeeDetailModal({
       setPowersError(extractError(err, 'Could not save powers. Please try again.'));
     } finally {
       setIsSavingPowers(false);
-    }
-  }
-
-  async function handleAdjustLeaveBalance(event: FormEvent, leaveTypeId: string) {
-    event.preventDefault();
-    const raw = draftAllotted[leaveTypeId];
-    const allotted = Number(raw);
-    if (raw === undefined || raw === '' || Number.isNaN(allotted) || allotted < 0) return;
-    setLeaveBalanceError(null);
-    setSavingLeaveTypeId(leaveTypeId);
-    try {
-      const updated = await adjustLeaveBalance({
-        employeeId: employee.id,
-        leaveTypeId,
-        year: leaveBalanceYear,
-        allotted,
-      });
-      setLeaveBalances((prev) => [...prev.filter((balance) => balance.leaveTypeId !== leaveTypeId), updated]);
-    } catch (err) {
-      setLeaveBalanceError(extractError(err, 'Could not update this leave balance.'));
-    } finally {
-      setSavingLeaveTypeId(null);
     }
   }
 
@@ -656,11 +595,10 @@ export function EmployeeDetailModal({
           items={[
             { key: 'details', label: 'Details' },
             { key: 'documents', label: 'Documents' },
-            { key: 'leaveBalance', label: 'Leave Balance' },
             { key: 'powers', label: 'Powers' },
           ]}
           active={activeTab}
-          onChange={(key) => setActiveTab(key as 'details' | 'documents' | 'leaveBalance' | 'powers')}
+          onChange={(key) => setActiveTab(key as 'details' | 'documents' | 'powers')}
         />
       }
     >
@@ -1314,78 +1252,6 @@ export function EmployeeDetailModal({
                     </Button>
                   </div>
                 </form>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'leaveBalance' && (
-        <div className="space-y-4">
-          {!canReadLeaveBalance && (
-            <p className="text-sm text-ink-muted">You don&apos;t have access to leave balances.</p>
-          )}
-          {canReadLeaveBalance && (
-            <>
-              <div className="w-32">
-                <Select
-                  id="leave-balance-year"
-                  label="Year"
-                  value={String(leaveBalanceYear)}
-                  onChange={(event) => setLeaveBalanceYear(Number(event.target.value))}
-                  options={[leaveBalanceYear - 1, leaveBalanceYear, leaveBalanceYear + 1].map((y) => ({
-                    value: String(y),
-                    label: String(y),
-                  }))}
-                />
-              </div>
-              {leaveBalanceError && <p className="text-sm text-danger">{leaveBalanceError}</p>}
-              {isLoadingLeaveBalances && <p className="text-sm text-ink-muted">Loading…</p>}
-              {!isLoadingLeaveBalances && leaveTypes.length === 0 && (
-                <p className="text-sm text-ink-muted">No leave types set up for this company yet.</p>
-              )}
-              {!isLoadingLeaveBalances && leaveTypes.length > 0 && (
-                <div className="space-y-2">
-                  {leaveTypes.map((type) => {
-                    const balance = leaveBalances.find((b) => b.leaveTypeId === type.id);
-                    return (
-                      <div
-                        key={type.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border px-4 py-2.5"
-                      >
-                        <div>
-                          <p className="text-sm font-medium text-ink">{type.name}</p>
-                          <p className="text-xs text-ink-muted">
-                            {balance
-                              ? `${balance.allotted} total · ${balance.used} used · ${balance.balance} remaining`
-                              : 'Not yet assigned'}
-                          </p>
-                        </div>
-                        {canAdjustLeaveBalance && (
-                          <form
-                            onSubmit={(event) => handleAdjustLeaveBalance(event, type.id)}
-                            className="flex items-center gap-2"
-                          >
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              value={draftAllotted[type.id] ?? ''}
-                              onChange={(event) =>
-                                setDraftAllotted((prev) => ({ ...prev, [type.id]: event.target.value }))
-                              }
-                              placeholder="Total"
-                              className="w-20 rounded-lg border border-border px-2 py-1 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            />
-                            <Button type="submit" variant="secondary" isLoading={savingLeaveTypeId === type.id}>
-                              Save
-                            </Button>
-                          </form>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
               )}
             </>
           )}

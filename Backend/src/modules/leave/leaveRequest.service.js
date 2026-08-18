@@ -10,10 +10,6 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 
-function yearOf(dateStr) {
-  return Number(dateStr.slice(0, 4));
-}
-
 async function listLeaveRequests({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
   // Array form is how a manager's "my team's requests" scope is expressed
@@ -143,7 +139,7 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
   } else if (!leaveType.isPaid) {
     // LWP-style: no balance sufficiency check — negative balance allowed.
   } else {
-    const balance = await getOrCreateBalance({ employeeId, leaveTypeId, year: yearOf(fromDate) });
+    const balance = await getOrCreateBalance({ employeeId, leaveTypeId, dateStr: fromDate });
     if (Number(balance.balance) < days) {
       throw new HttpError(422, 'Insufficient leave balance');
     }
@@ -237,7 +233,7 @@ async function approveLeaveRequest({ companyId, id, approverId, approverUserId, 
       const balance = await getOrCreateBalance({
         employeeId: request.employeeId,
         leaveTypeId: request.leaveTypeId,
-        year: yearOf(request.fromDate),
+        dateStr: request.fromDate,
         transaction: t,
       });
       const used = Number(balance.used) + Number(request.days);

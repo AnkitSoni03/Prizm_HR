@@ -6,7 +6,10 @@ interface SelectOption {
 }
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label: string;
+  // Omit (or pass '') to suppress the built-in label — e.g. when the caller
+  // needs a custom header row above the field (a "+ Add" action next to the
+  // label, see LeavePolicyFormModal.tsx).
+  label?: string;
   options: SelectOption[];
   placeholder?: string;
 }
@@ -14,9 +17,11 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 export function Select({ label, options, placeholder, id, className = '', ...rest }: SelectProps) {
   return (
     <div>
-      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-ink">
-        {label}
-      </label>
+      {label && (
+        <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-ink">
+          {label}
+        </label>
+      )}
       <select
         id={id}
         className={[

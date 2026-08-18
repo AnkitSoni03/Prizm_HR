@@ -97,7 +97,7 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
         <p className="flex items-center gap-2 text-sm text-ink-muted">
           <FileText className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
           {policies.length > 0 ? `${policies.length} polic${policies.length === 1 ? 'y' : 'ies'} — ` : ''}
-          visible to every employee.
+          each only visible to the Roster(s) it's assigned to.
         </p>
         {canCreate && (
           <Button onClick={() => setEditingPolicy('new')}>

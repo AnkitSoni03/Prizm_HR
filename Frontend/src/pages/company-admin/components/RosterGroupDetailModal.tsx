@@ -9,15 +9,21 @@ import { useAuth } from '../../../context/auth-context';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
 import { listEmployees, updateEmployee } from '../../../api/companyAdmin/employees';
+import { listShifts } from '../../../api/companyAdmin/attendance';
+import { listLeaveTypes, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
 import {
   bulkAssignRosterGroup,
   getRosterGroup,
   type RosterPolicyGroup,
   type RosterPolicyGroupDetail,
 } from '../../../api/companyAdmin/rosterGroups';
-import type { Employee } from '../../../api/tenancy';
+import type { Employee, Shift } from '../../../api/tenancy';
 import { formatDisplayDateRange } from '../../../utils/dateDisplay';
 import { formatEmployeeLabel } from '../../../utils/employeeDisplay';
+import { ShiftFormModal } from './ShiftFormModal';
+import { HolidayFormModal } from './HolidayFormModal';
+import { PolicyFormModal } from './PolicyFormModal';
+import { LeavePolicyFormModal } from './LeavePolicyFormModal';
 
 interface RosterGroupDetailModalProps {
   rosterGroup: RosterPolicyGroup;
@@ -28,27 +34,64 @@ interface RosterGroupDetailModalProps {
 
 type Tab = 'employees' | 'shifts' | 'holidays' | 'companyPolicies' | 'leavePolicies';
 
-// Everything a Roster's employees inherit is assigned FROM each entity's own
-// create/edit form ("Assign to Roster(s)" — see ShiftFormModal,
-// HolidayFormModal, PolicyFormModal, LeavePolicyFormModal), not from here.
-// This modal is a read-only summary of those links, plus the one thing that
-// IS managed from here: which employees are assigned to this Roster.
+// Everything a Roster's employees inherit can be assigned either from each
+// entity's own create/edit form ("Assign to Roster(s)" — see ShiftFormModal,
+// HolidayFormModal, PolicyFormModal, LeavePolicyFormModal) OR directly from
+// here via the "+ Add" button on each tab, which opens the exact same form
+// modal pre-scoped to this Roster — both paths call the same create
+// endpoint, so nothing about the underlying data model changes. This modal
+// otherwise summarizes what's already linked, plus manages which employees
+// are assigned to this Roster.
 export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onUpdated }: RosterGroupDetailModalProps) {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const showToast = useToast();
   const canUpdate = hasPermission('roster_group:update');
+  const canCreateShift = hasPermission('shift:create');
+  const canCreateHoliday = hasPermission('holiday:create');
+  const canCreateCompanyPolicy = hasPermission('company_policy:create');
+  const canCreateLeavePolicy = hasPermission('leave_policy:create');
 
   const [activeTab, setActiveTab] = useState<Tab>('employees');
 
   const [detail, setDetail] = useState<RosterPolicyGroupDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function loadDetail() {
     getRosterGroup(rosterGroup.id)
       .then(setDetail)
       .catch(() => setDetailError('Could not load this Roster’s assigned Shift/Holidays/Policies.'));
+  }
+
+  useEffect(() => {
+    loadDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rosterGroup.id]);
+
+  function handleLinkedEntitySaved() {
+    setDetail(null);
+    loadDetail();
+    onUpdated();
+  }
+
+  // Data the "+ Add" form modals need — fetched lazily, once, the first time
+  // any add form is actually opened (not up front for every tab).
+  const [shiftsForConflictCheck, setShiftsForConflictCheck] = useState<Shift[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [isAddingShift, setIsAddingShift] = useState(false);
+  const [isAddingHoliday, setIsAddingHoliday] = useState(false);
+  const [isAddingCompanyPolicy, setIsAddingCompanyPolicy] = useState(false);
+  const [isAddingLeavePolicy, setIsAddingLeavePolicy] = useState(false);
+
+  function openAddShift() {
+    listShifts().then(setShiftsForConflictCheck).catch(() => setShiftsForConflictCheck([]));
+    setIsAddingShift(true);
+  }
+
+  function openAddLeavePolicy() {
+    listLeaveTypes().then(setLeaveTypes).catch(() => setLeaveTypes([]));
+    setIsAddingLeavePolicy(true);
+  }
 
   // Employees currently assigned to this group + candidates to add
   const [assignedEmployees, setAssignedEmployees] = useState<Employee[] | null>(null);
@@ -95,7 +138,7 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
   async function handleRemove(employee: Employee) {
     const confirmed = await confirm({
       title: 'Remove from Roster',
-      message: `Remove ${formatEmployeeLabel(employee)} from "${rosterGroup.name}"? They'll fall back to their own default shift and the company-wide holidays/policies/leave policy.`,
+      message: `Remove ${formatEmployeeLabel(employee)} from "${rosterGroup.name}"? Until a new Roster is assigned, their shift, holidays, company policies, and leave balance will show blank.`,
       confirmLabel: 'Remove',
       variant: 'danger',
     });
@@ -113,6 +156,7 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
   }
 
   return (
+    <>
     <Modal
       title={rosterGroup.name}
       onClose={onClose}
@@ -196,9 +240,15 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
 
       {activeTab === 'shifts' && detail && (
         <div className="space-y-3">
-          <p className="text-sm text-ink-muted">
-            A Roster can have at most one Shift — assign it from the Shift's own create/edit form.
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-ink-muted">A Roster can have at most one Shift.</p>
+            {canCreateShift && detail.shifts.length === 0 && (
+              <Button type="button" variant="secondary" onClick={openAddShift}>
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Add Shift
+              </Button>
+            )}
+          </div>
           {detail.shifts.length === 0 ? (
             <p className="text-sm text-ink-muted">No Shift assigned yet.</p>
           ) : (
@@ -218,12 +268,19 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
 
       {activeTab === 'holidays' && detail && (
         <div className="space-y-3">
-          <p className="text-sm text-ink-muted">
-            Extra holidays only this Roster's employees see, on top of company/brand-wide ones —
-            assign from the Holidays page.
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-ink-muted">
+              Holidays only this Roster's employees see — a Roster with none sees no holidays at all.
+            </p>
+            {canCreateHoliday && (
+              <Button type="button" variant="secondary" onClick={() => setIsAddingHoliday(true)}>
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Add
+              </Button>
+            )}
+          </div>
           {detail.holidays.length === 0 ? (
-            <p className="text-sm text-ink-muted">No Roster-specific holidays yet.</p>
+            <p className="text-sm text-ink-muted">No holidays assigned yet.</p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border">
               {detail.holidays.map((h) => (
@@ -239,12 +296,19 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
 
       {activeTab === 'companyPolicies' && detail && (
         <div className="space-y-3">
-          <p className="text-sm text-ink-muted">
-            Company Policies only this Roster's employees see, on top of company-wide ones —
-            assign from the Company Policies page.
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-ink-muted">
+              Company Policies only this Roster's employees see — a Roster with none sees no policies at all.
+            </p>
+            {canCreateCompanyPolicy && (
+              <Button type="button" variant="secondary" onClick={() => setIsAddingCompanyPolicy(true)}>
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Add
+              </Button>
+            )}
+          </div>
           {detail.companyPolicies.length === 0 ? (
-            <p className="text-sm text-ink-muted">No Roster-specific policies yet.</p>
+            <p className="text-sm text-ink-muted">No policies assigned yet.</p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border">
               {detail.companyPolicies.map((p) => (
@@ -259,13 +323,20 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
 
       {activeTab === 'leavePolicies' && detail && (
         <div className="space-y-3">
-          <p className="text-sm text-ink-muted">
-            Overrides the company-wide leave quota for this Roster's employees, per leave type —
-            assign from the Leave Policy Settings page.
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-ink-muted">
+              This Roster's employees only get leave types with a policy assigned here.
+            </p>
+            {canCreateLeavePolicy && (
+              <Button type="button" variant="secondary" onClick={openAddLeavePolicy}>
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Add
+              </Button>
+            )}
+          </div>
           {detail.leavePolicies.length === 0 ? (
             <p className="text-sm text-ink-muted">
-              No overrides yet — this Roster's employees use the company-wide leave policy.
+              No leave policies assigned yet — this Roster's employees have no leave balance until one is added.
             </p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border">
@@ -277,7 +348,7 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
                       {policy.annualQuota} days/year · {policy.accrual.replace('_', ' ')}
                     </p>
                   </div>
-                  <Badge tone="success">Override</Badge>
+                  <Badge tone="success">Assigned</Badge>
                 </div>
               ))}
             </div>
@@ -285,5 +356,41 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
         </div>
       )}
     </Modal>
+
+    {isAddingShift && (
+      <ShiftFormModal
+        shifts={shiftsForConflictCheck}
+        defaultRosterGroupIds={[rosterGroup.id]}
+        onClose={() => setIsAddingShift(false)}
+        onSaved={handleLinkedEntitySaved}
+      />
+    )}
+
+    {isAddingHoliday && (
+      <HolidayFormModal
+        defaultRosterGroupIds={[rosterGroup.id]}
+        onClose={() => setIsAddingHoliday(false)}
+        onSaved={handleLinkedEntitySaved}
+      />
+    )}
+
+    {isAddingCompanyPolicy && (
+      <PolicyFormModal
+        defaultRosterGroupIds={[rosterGroup.id]}
+        onClose={() => setIsAddingCompanyPolicy(false)}
+        onSaved={handleLinkedEntitySaved}
+      />
+    )}
+
+    {isAddingLeavePolicy && (
+      <LeavePolicyFormModal
+        leaveTypes={leaveTypes}
+        defaultRosterGroupIds={[rosterGroup.id]}
+        onLeaveTypeCreated={(leaveType) => setLeaveTypes((prev) => [...prev, leaveType])}
+        onClose={() => setIsAddingLeavePolicy(false)}
+        onSaved={handleLinkedEntitySaved}
+      />
+    )}
+    </>
   );
 }

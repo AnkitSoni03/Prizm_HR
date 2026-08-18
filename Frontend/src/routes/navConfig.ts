@@ -24,10 +24,10 @@ export interface NavItem {
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   disabled?: boolean;
   // When set, the item is hidden entirely (not just permission-gated inside
-  // the page) unless the caller holds this permission — e.g. "Provide
-  // Leaves" only matters to the subset of Employees granted the
-  // "Assign Leaves" Power (see powerCatalog.js), so it shouldn't clutter
-  // every employee's sidebar.
+  // the page) unless the caller holds this permission — e.g. "Document
+  // Verification" only matters to the subset of Employees granted the
+  // "Document Verification" Power (see powerCatalog.js), so it shouldn't
+  // clutter every employee's sidebar.
   permission?: string;
 }
 
@@ -49,9 +49,9 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Attendance Board', path: '/company-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Fraud Attempts', path: '/company-admin/fraud-attempts', icon: ShieldAlert, permission: 'attendance:read' },
   { label: 'Holidays', path: '/company-admin/holidays', icon: CalendarClock },
+  { label: 'Leave Types', path: '/company-admin/leave-types', icon: Wallet, permission: 'leave_type:read' },
   { label: 'Leave Policy Settings', path: '/company-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
   { label: 'Company Policies', path: '/company-admin/policies', icon: FileText },
-  { label: 'Provide Leaves', path: '/company-admin/provide-leaves', icon: Wallet, permission: 'leave_balance:adjust' },
   { label: 'Payroll', path: '/company-admin/payroll', icon: Wallet, permission: 'payroll_settings:read' },
   { label: 'Settings', path: '/company-admin/settings', icon: Settings },
 ];
@@ -87,12 +87,15 @@ export const ESS_NAV: NavItem[] = [
   { label: 'My Payslips', path: '/ess/payslips', icon: Wallet },
   { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/ess/policies', icon: FileText },
-  { label: 'Provide Leaves', path: '/ess/provide-leaves', icon: Wallet, permission: 'leave_balance:adjust' },
   {
     label: 'Document Verification',
     path: '/ess/document-verification',
     icon: FileCheck2,
     permission: 'employee_document:verify',
   },
+  { label: 'Roster', path: '/ess/roster-groups', icon: Layers, permission: 'roster_group:read' },
+  { label: 'Shifts', path: '/ess/shifts', icon: CalendarCheck, permission: 'shift:read' },
+  { label: 'Leave Types', path: '/ess/leave-types', icon: Wallet, permission: 'leave_type:create' },
+  { label: 'Leave Policy Settings', path: '/ess/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
   { label: 'Settings', path: '/ess/settings', icon: Settings },
 ];

@@ -64,7 +64,7 @@ export function HolidaysPage() {
         <p className="flex items-center gap-2 text-sm text-ink-muted">
           <CalendarClock className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
           {holidays.length > 0 ? `${holidays.length} holiday${holidays.length === 1 ? '' : 's'} — ` : ''}
-          also shown to every employee on their "Yearly Holidays" page.
+          only shown to the Roster(s) each is assigned to on an employee's "Yearly Holidays" page.
         </p>
         {canCreate && (
           <Button onClick={() => setEditingHoliday('new')}>
@@ -103,7 +103,7 @@ export function HolidaysPage() {
                 h.rosterGroups && h.rosterGroups.length > 0 ? (
                   <span className="text-ink">{h.rosterGroups.map((rg) => rg.name).join(', ')}</span>
                 ) : (
-                  <span className="text-ink-muted">Company-wide</span>
+                  <span className="text-ink-muted">Not visible to anyone yet</span>
                 ),
             },
             {

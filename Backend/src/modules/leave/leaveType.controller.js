@@ -6,7 +6,7 @@ const { parsePagination } = require('../../utils/pagination');
 async function list(req, res, next) {
   try {
     const { limit, offset } = parsePagination(req.query);
-    const { rows, count } = await service.listLeaveTypes({ limit, offset });
+    const { rows, count } = await service.listLeaveTypes({ limit, offset, rosterGroupId: req.query.rosterGroupId });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);
@@ -24,7 +24,7 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { code, name, isPaid, carryForward } = req.body;
+    const { code, name, isPaid, carryForward, maxCarryForwardDays, cycleType, defaultAccrual } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'code and name are required' });
     }
@@ -35,6 +35,9 @@ async function create(req, res, next) {
       name,
       isPaid,
       carryForward,
+      maxCarryForwardDays,
+      cycleType,
+      defaultAccrual,
     });
     res.status(201).json({ data: leaveType });
   } catch (err) {
@@ -55,4 +58,13 @@ async function update(req, res, next) {
   }
 }
 
-module.exports = { list, get, create, update };
+async function remove(req, res, next) {
+  try {
+    await service.deleteLeaveType({ companyId: req.auth.companyId, id: req.params.id });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, get, create, update, remove };

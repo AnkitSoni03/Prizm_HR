@@ -240,50 +240,54 @@ export function MyProfilePage() {
         <div className="mb-5 sm:mb-6">
           <SectionLabel>Employment Details</SectionLabel>
           <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
-            <Field label="Brand" value={profile.brand?.name ?? '—'} />
+            {profile.brand ? (
+              <Field label="Brand" value={profile.brand.name} />
+            ) : (
+              <Field label="Company" value={profile.company?.name ?? '—'} />
+            )}
             <Field label="Department" value={profile.department?.name ?? '—'} />
             <Field label="Designation" value={profile.designation?.title ?? '—'} />
-            <Field label="Manager" value={profile.manager?.name ?? '—'} />
+            <Field label="Manager" value={profile.manager?.name ?? profile.effectiveManager?.name ?? '—'} />
             <Field label="Employment Type" value={EMPLOYMENT_TYPE_LABEL[profile.employmentType]} />
             <Field label="Date of Joining" value={formatDisplayDate(profile.dateOfJoining)} />
+            <Field label="Date of Birth" value={formatDisplayDate(profile.dateOfBirth)} />
+            <Field label="Work State" value={profile.workState ?? '—'} />
           </div>
         </div>
 
         <div>
-          <SectionLabel>Shift &amp; Roster</SectionLabel>
+          <SectionLabel>Roster</SectionLabel>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
               <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
-                Default Shift
+                Assigned Roster
               </p>
-              {profile.defaultShift ? (
-                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
-                  {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
-                  {profile.defaultShift.endTime.slice(0, 5)}
-                  {profile.defaultShift.isNightShift && (
-                    <span className="ml-1.5 text-[10px] text-ink-muted sm:text-xs">(Night Shift)</span>
-                  )}
-                </p>
+              {profile.rosterGroup ? (
+                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">{profile.rosterGroup.name}</p>
               ) : (
-                <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">Not assigned yet — contact your admin</p>
+                <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">
+                  None yet — your Shift, Holidays, Company Policies, and Leave Balance will show blank until your
+                  admin assigns one.
+                </p>
               )}
             </div>
             <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
               <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
-                Today&apos;s Roster
+                Today&apos;s Shift
               </p>
               {profile.todayRoster?.shift ? (
                 <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
                   {profile.todayRoster.shift.name} · {profile.todayRoster.shift.startTime.slice(0, 5)}–
                   {profile.todayRoster.shift.endTime.slice(0, 5)}
-                  {profile.defaultShift && profile.todayRoster.shift.id !== profile.defaultShift.id && (
-                    <span className="ml-1.5 text-[10px] text-warning sm:text-xs">(overrides default)</span>
-                  )}
+                  <span className="ml-1.5 text-[10px] text-warning sm:text-xs">(published override)</span>
+                </p>
+              ) : profile.defaultShift ? (
+                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
+                  {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
+                  {profile.defaultShift.endTime.slice(0, 5)}
                 </p>
               ) : (
-                <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">
-                  No roster published for today — following default shift
-                </p>
+                <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">Following your Roster&apos;s shift</p>
               )}
             </div>
           </div>

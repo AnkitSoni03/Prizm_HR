@@ -54,12 +54,17 @@ async function withDownloadUrl(policy) {
 // explicit (not left to the tenant-scope hook alone) so a Group Admin's
 // company drill-in (whose own companyId is null — see CLAUDE.md's
 // "tenant-scope hook + system-level rows" gotcha) can still scope this,
-// same pattern as shift.service.js::listShifts. rosterGroupId (singular)
-// filters the result: a policy with zero Roster links is company-wide
-// (always included); one with links is included only when linked to the
-// requested Roster — same rule as holiday.service.js::listHolidays, used by
-// ESS's own "Company Policies" view to show company-wide + the caller's own
-// Roster only.
+// same pattern as shift.service.js::listShifts.
+//
+// rosterGroupId (singular) has three states, used by ESS's own "Company
+// Policies" view (admin management pages omit it entirely and see
+// everything, unfiltered):
+//   - undefined: no filter — every policy regardless of Roster (admin).
+//   - 'none': the caller has no Roster assigned — return nothing. Roster is
+//     the sole determinant of what an employee sees; a policy with zero
+//     Roster links is dormant (a catalog entry not yet attached to any
+//     Roster), not a "company-wide" fallback.
+//   - a real id: only policies explicitly linked to that Roster.
 async function listCompanyPolicies({ companyId, rosterGroupId, limit, offset }) {
   const where = companyId ? { companyId } : {};
   const { rows, count } = await db.CompanyPolicy.findAndCountAll({
@@ -69,10 +74,10 @@ async function listCompanyPolicies({ companyId, rosterGroupId, limit, offset }) 
     order: [['id', 'DESC']],
     include: AUDIT_INCLUDES,
   });
+
+  if (rosterGroupId === 'none') return { rows: [], count: 0 };
   const filtered = rosterGroupId
-    ? rows.filter(
-        (p) => p.rosterGroups.length === 0 || p.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId))
-      )
+    ? rows.filter((p) => p.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId)))
     : rows;
   return { rows: await Promise.all(filtered.map(withDownloadUrl)), count };
 }

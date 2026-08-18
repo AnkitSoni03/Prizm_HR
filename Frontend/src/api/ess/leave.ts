@@ -5,7 +5,11 @@ export interface LeaveType {
   code: string;
   name: string;
   isPaid: boolean;
+  // Whether an unused balance rolls into the next cycle at all.
   carryForward: boolean;
+  // Cap on days carried forward when carryForward is true. null = unlimited
+  // (carryForward: false is what means "zero", not this).
+  maxCarryForwardDays: number | null;
 }
 
 export interface LeaveBalance {
@@ -17,6 +21,11 @@ export interface LeaveBalance {
   used: number;
   balance: number;
   leaveType?: LeaveType;
+  // The currently-governing accrual for this leave type, resolved from your
+  // own Roster's Leave Policy — null only if you have no Roster (shouldn't
+  // happen for a row that exists at all, since a balance can't be created
+  // without one). See leaveBalance.service.js::attachAccrualInfo.
+  accrual: 'yearly' | 'monthly' | 'monthly_reset' | null;
 }
 
 export interface LeaveRequest {
@@ -52,8 +61,14 @@ interface ListResult<T> {
 // Reference data (leave types, holidays) plus everything scoped to the
 // caller's own employeeId via leave_balance:read_own / leave_request:read_own
 // — the backend resolves employeeId from the JWT, never passed from here.
-export async function listLeaveTypes(): Promise<LeaveType[]> {
-  const { data } = await apiClient.get<{ data: LeaveType[] }>('/leave/types', { params: { limit: 100 } });
+//
+// rosterGroupId, when passed, scopes the result to only leave types your own
+// Roster actually grants ('none' if you have no Roster — see
+// leaveType.service.js::listLeaveTypes). Omit it entirely (e.g. My Comp-Off's
+// lookup of the system "CO" type by code) to get the full company catalog
+// regardless of Roster — comp-off consumption isn't gated by a Leave Policy.
+export async function listLeaveTypes(params: { rosterGroupId?: string } = {}): Promise<LeaveType[]> {
+  const { data } = await apiClient.get<{ data: LeaveType[] }>('/leave/types', { params: { limit: 100, ...params } });
   return data.data;
 }
 
@@ -88,7 +103,12 @@ export async function cancelLeaveRequest(id: string): Promise<LeaveRequest> {
   return data.data;
 }
 
-export async function listHolidays(params: { from?: string; to?: string } = {}): Promise<Holiday[]> {
+// rosterGroupId, when passed, scopes the result to only holidays your own
+// Roster actually has ('none' if you have no Roster — see
+// holiday.service.js::listHolidays). Roster is the sole determinant of what
+// an employee sees; a holiday with zero Roster links is dormant, not a
+// "company-wide" fallback.
+export async function listHolidays(params: { from?: string; to?: string; rosterGroupId?: string } = {}): Promise<Holiday[]> {
   const { data } = await apiClient.get<{ data: Holiday[] }>('/leave/holidays', {
     params: { ...params, limit: 100 },
   });

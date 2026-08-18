@@ -15,6 +15,12 @@ module.exports = (sequelize, DataTypes) => {
       employeeId: { type: DataTypes.BIGINT, allowNull: false },
       leaveTypeId: { type: DataTypes.BIGINT, allowNull: false },
       year: { type: DataTypes.INTEGER, allowNull: false },
+      // NULL for 'yearly'/'monthly' accrual (one row per year, as always).
+      // Set to the calendar month (1-12) for 'monthly_reset' accrual — each
+      // month gets its own row so a delayed approval crossing a reset
+      // boundary can never land on the wrong month's balance. See
+      // leaveBalance.service.js::getOrCreateBalance.
+      month: { type: DataTypes.INTEGER, allowNull: true },
       allotted: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       used: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       balance: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },

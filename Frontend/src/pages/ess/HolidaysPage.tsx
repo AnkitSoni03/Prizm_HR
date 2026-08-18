@@ -22,7 +22,7 @@ const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
 // there's no separate "admin" portal for them to go find these in, they're
 // still a regular employee first.
 export function HolidaysPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const confirm = useConfirm();
   const showToast = useToast();
   const canCreate = hasPermission('holiday:create');
@@ -40,7 +40,11 @@ export function HolidaysPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await listHolidays({ from: `${year}-01-01`, to: `${year}-12-31` });
+      const result = await listHolidays({
+        from: `${year}-01-01`,
+        to: `${year}-12-31`,
+        rosterGroupId: user?.rosterGroupId ?? 'none',
+      });
       setHolidays(result.data);
     } catch {
       setError('Could not load holidays.');

@@ -9,11 +9,12 @@ interface RosterMultiSelectProps {
 
 // Checkbox list of every Roster in the company — used on Shift/Holiday/
 // Company Policy/Leave Policy's own create/edit forms ("Assign to
-// Roster(s)"). Leaving every box unchecked means company-wide, same as
-// before Rosters existed; checking one or more scopes it to just those
-// Rosters' employees.
+// Roster(s)"). Roster is the sole determinant of visibility now — leaving
+// every box unchecked means nobody sees this yet (it's just a catalog entry
+// until attached to at least one Roster); checking one or more makes it
+// visible to exactly those Rosters' employees.
 export function RosterMultiSelect({
-  label = 'Assign to Roster(s) — optional',
+  label = 'Assign to Roster(s)',
   rosterGroups,
   selectedIds,
   onChange,
@@ -27,12 +28,12 @@ export function RosterMultiSelect({
       <div className="mb-1.5 flex items-center justify-between">
         <label className="block text-sm font-medium text-ink">{label}</label>
         <span className="text-xs text-ink-muted">
-          {selectedIds.length === 0 ? 'Company-wide' : `${selectedIds.length} selected`}
+          {selectedIds.length === 0 ? 'Not visible to anyone yet' : `${selectedIds.length} selected`}
         </span>
       </div>
       {rosterGroups.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-sm text-ink-muted">
-          No Rosters created yet — leave unchecked for company-wide.
+          No Rosters created yet — create one first, then assign it here so employees can actually see this.
         </p>
       ) : (
         <div className="max-h-40 overflow-y-auto rounded-xl border border-border bg-card">

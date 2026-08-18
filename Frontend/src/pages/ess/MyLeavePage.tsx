@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
+import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import {
   cancelLeaveRequest,
@@ -42,6 +43,7 @@ function formatDate(d: Date): string {
 }
 
 export function MyLeavePage() {
+  const { user } = useAuth();
   const confirm = useConfirm();
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -60,10 +62,10 @@ export function MyLeavePage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    listLeaveTypes()
+    listLeaveTypes({ rosterGroupId: user?.rosterGroupId ?? 'none' })
       .then(setLeaveTypes)
       .catch(() => setError('Could not load leave types.'));
-  }, []);
+  }, [user?.rosterGroupId]);
 
   async function loadRequests() {
     setIsLoading(true);
@@ -143,12 +145,22 @@ export function MyLeavePage() {
             ]}
           />
         </div>
-        <Button onClick={openModal} className="!px-3 !py-1.5 !text-xs sm:!px-4 sm:!py-2 sm:!text-sm">
+        <Button
+          onClick={openModal}
+          disabled={leaveTypes.length === 0}
+          className="!px-3 !py-1.5 !text-xs sm:!px-4 sm:!py-2 sm:!text-sm"
+        >
           Apply for leave
         </Button>
       </div>
 
       {error && <p className="mb-2.5 text-xs text-danger sm:mb-3 sm:text-sm">{error}</p>}
+      {!error && leaveTypes.length === 0 && (
+        <p className="mb-2.5 text-xs text-ink-muted sm:mb-3 sm:text-sm">
+          No leave types are available to you yet — this shows up once a Roster with a Leave Policy is assigned to
+          you. Contact HR if you think this is a mistake.
+        </p>
+      )}
 
       <Table
         isLoading={isLoading}

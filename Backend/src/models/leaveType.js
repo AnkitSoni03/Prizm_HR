@@ -19,7 +19,20 @@ module.exports = (sequelize, DataTypes) => {
       code: { type: DataTypes.STRING, allowNull: false },
       name: { type: DataTypes.STRING, allowNull: false },
       isPaid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // Whether an unused balance rolls into the next cycle at all — see
+      // maxCarryForwardDays/cycleType below for how much and when.
       carryForward: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      // Cap on days carried forward when carryForward is true. NULL =
+      // unlimited (carryForward: false is what means "zero", not this).
+      maxCarryForwardDays: { type: DataTypes.DECIMAL(5, 2), allowNull: true },
+      // 'calendar' (Jan 1 – Dec 31, the only behavior before this column
+      // existed) or 'anniversary' (resets on the employee's own joining-date
+      // anniversary) — see utils/leaveCycle.js.
+      cycleType: { type: DataTypes.ENUM('calendar', 'anniversary'), allowNull: false, defaultValue: 'calendar' },
+      // Pure UX default for the Add Leave Policy form's Accrual field —
+      // never enforced; a Roster-specific policy can still pick a different
+      // accrual for the same leave type.
+      defaultAccrual: { type: DataTypes.ENUM('yearly', 'monthly', 'monthly_reset'), allowNull: true },
     },
     {
       sequelize,

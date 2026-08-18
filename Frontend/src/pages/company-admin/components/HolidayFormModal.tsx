@@ -8,18 +8,22 @@ import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAd
 
 interface HolidayFormModalProps {
   holiday?: Holiday;
+  // Pre-selects these Rosters — used when this modal is opened from inside a
+  // Roster's own detail view ("Add Holiday" right there). Ignored when
+  // editing an existing holiday (its own rosterGroups win).
+  defaultRosterGroupIds?: string[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function HolidayFormModal({ holiday, onClose, onSaved }: HolidayFormModalProps) {
+export function HolidayFormModal({ holiday, defaultRosterGroupIds, onClose, onSaved }: HolidayFormModalProps) {
   const isEdit = !!holiday;
   const [date, setDate] = useState(holiday?.date ?? '');
   const [toDate, setToDate] = useState(holiday?.endDate ?? holiday?.date ?? '');
   const [name, setName] = useState(holiday?.name ?? '');
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
-    holiday?.rosterGroups?.map((rg) => rg.id) ?? []
+    holiday?.rosterGroups?.map((rg) => rg.id) ?? defaultRosterGroupIds ?? []
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

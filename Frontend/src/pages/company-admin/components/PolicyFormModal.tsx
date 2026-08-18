@@ -16,13 +16,17 @@ import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 
 interface PolicyFormModalProps {
   policy?: CompanyPolicy;
+  // Pre-selects these Rosters — used when this modal is opened from inside a
+  // Roster's own detail view ("Add Company Policy" right there). Ignored
+  // when editing an existing policy (its own rosterGroups win).
+  defaultRosterGroupIds?: string[];
   onClose: () => void;
   onSaved: () => void;
 }
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
-export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalProps) {
+export function PolicyFormModal({ policy, defaultRosterGroupIds, onClose, onSaved }: PolicyFormModalProps) {
   const isEdit = !!policy;
   const showToast = useToast();
   const [title, setTitle] = useState(policy?.title ?? '');
@@ -30,7 +34,7 @@ export function PolicyFormModal({ policy, onClose, onSaved }: PolicyFormModalPro
   const [file, setFile] = useState<File | null>(null);
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
-    policy?.rosterGroups?.map((rg) => rg.id) ?? []
+    policy?.rosterGroups?.map((rg) => rg.id) ?? defaultRosterGroupIds ?? []
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
