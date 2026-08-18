@@ -139,9 +139,63 @@ export function NotificationBell() {
   const location = useLocation();
   const { user } = useAuth();
 
+  // Sound cue on new unread notifications (no websocket/push infra — see
+  // POLL_INTERVAL_MS above — so "new" just means the unread count went up
+  // between two polls). previousUnreadCountRef/hasInitializedRef track the
+  // last-known count so the very first load (and any local optimistic
+  // decrease from mark-read/mark-all-read) never falsely triggers a beep —
+  // only a genuine increase does.
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const previousUnreadCountRef = useRef(0);
+  const hasInitializedRef = useRef(false);
+
+  function playNotificationSound() {
+    try {
+      const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextClass();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        // Browsers block audio until the user has interacted with the page
+        // at least once — resume() is a no-op if that hasn't happened yet;
+        // the next poll after any click/keypress will succeed.
+        void ctx.resume();
+      }
+      const now = ctx.currentTime;
+      // Two-tone chime (ascending), short and unobtrusive.
+      [880, 1174.66].forEach((freq, i) => {
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = freq;
+        const start = now + i * 0.12;
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.2, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start(start);
+        oscillator.stop(start + 0.3);
+      });
+    } catch {
+      // Sound is a nice-to-have — never let it break the poll cycle.
+    }
+  }
+
+  function applyUnreadCount(next: number, { checkForNew = false }: { checkForNew?: boolean } = {}) {
+    if (checkForNew && hasInitializedRef.current && next > previousUnreadCountRef.current) {
+      playNotificationSound();
+    }
+    previousUnreadCountRef.current = next;
+    hasInitializedRef.current = true;
+    setUnreadCount(next);
+  }
+
   async function refreshUnreadCount() {
     try {
-      setUnreadCount(await getUnreadNotificationCount());
+      applyUnreadCount(await getUnreadNotificationCount(), { checkForNew: true });
     } catch {
       // Silent — a failed poll shouldn't surface as a user-facing error.
     }
@@ -151,7 +205,11 @@ export function NotificationBell() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshUnreadCount();
     const interval = setInterval(refreshUnreadCount, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      void audioContextRef.current?.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -204,7 +262,7 @@ export function NotificationBell() {
   async function handleNotificationClick(notification: AppNotification) {
     if (!notification.isRead) {
       setNotifications((prev) => prev.map((n) => (n.id === notification.id ? { ...n, isRead: true } : n)));
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      applyUnreadCount(Math.max(0, previousUnreadCountRef.current - 1));
       await markNotificationRead(notification.id);
     }
 
@@ -230,7 +288,7 @@ export function NotificationBell() {
 
   async function handleMarkAllRead() {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    setUnreadCount(0);
+    applyUnreadCount(0);
     await markAllNotificationsRead();
   }
 
