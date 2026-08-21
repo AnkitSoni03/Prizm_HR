@@ -27,6 +27,17 @@ export function countDaysInclusive(from: string, to: string): number {
   return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
 }
 
+// Whole calendar days from today to a "YYYY-MM-DD" date (negative if it's
+// already past) — parsed as local midnight, same convention as the rest of
+// this file. Used to flag a comp-off credit as "expiring soon" so an
+// employee/admin can see it needs using before it's wasted.
+export function daysUntil(dateStr: string): number {
+  const target = new Date(`${dateStr}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
 export function formatDisplayDateTime(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);

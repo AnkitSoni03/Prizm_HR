@@ -12,6 +12,10 @@ module.exports = (sequelize, DataTypes) => {
       Employee.belongsTo(models.Designation, { foreignKey: 'designationId', as: 'designation' });
       Employee.belongsTo(models.Employee, { foreignKey: 'managerId', as: 'manager' });
       Employee.belongsTo(models.RosterGroup, { foreignKey: 'rosterGroupId', as: 'rosterGroup' });
+      // Optional, admin-assigned enrollment in the comp-off benefit — see
+      // compOff.service.js::checkAndCreateCompOffCredit, which returns
+      // immediately (no credit) for an employee with this left null.
+      Employee.belongsTo(models.CompOffPolicy, { foreignKey: 'compOffPolicyId', as: 'compOffPolicy' });
       Employee.hasMany(models.Employee, { foreignKey: 'managerId', as: 'directReports' });
       // Optional, admin-assigned dedicated Role holding this employee's
       // hand-picked "powers" — see employee.service.js::assignEmployeePowers.
@@ -61,6 +65,11 @@ module.exports = (sequelize, DataTypes) => {
       // holidays, the company-wide leave policy, and their own
       // employee_shifts default — exactly as before this column existed.
       rosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
+      // Optional, admin-assigned Comp-Off Policy — null means this employee
+      // is not enrolled in the comp-off benefit at all (no auto-credit on a
+      // holiday/week-off worked, and the ESS "My Comp-Off" page shows a
+      // not-enrolled state rather than an empty credits table).
+      compOffPolicyId: { type: DataTypes.BIGINT, allowNull: true },
       customRoleId: { type: DataTypes.BIGINT, allowNull: true },
       userId: { type: DataTypes.BIGINT, allowNull: true },
       dateOfJoining: { type: DataTypes.DATEONLY, allowNull: true },

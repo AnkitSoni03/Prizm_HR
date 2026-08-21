@@ -62,6 +62,14 @@ const DEFAULT_LEAVE_TYPES = [
   { code: 'PATERNITY', name: 'Paternity Leave', isPaid: true },
   { code: 'UNPAID', name: 'Unpaid Leave', isPaid: false },
   { code: 'UNPAID_HALF', name: 'Unpaid Half Day', isPaid: false },
+  // leaveRequest.service.js hard-codes code === 'CO' as the comp-off
+  // consumption path — without this row, an employee with an approved
+  // comp-off credit has no leave type to spend it against (MyCompOffPage.tsx
+  // shows "Comp-off isn't configured as a leave type for your company yet."
+  // and disables the button). isPaid: true so payrollRun.service.js's
+  // paid-leave lookup doesn't treat a redeemed comp-off day as unpaid — the
+  // employee already worked the day it compensates.
+  { code: 'CO', name: 'Comp Off', isPaid: true },
 ];
 
 async function createCompany({ groupId, name, legalName, gstNumber, planId, usesBrands, createdBy }) {

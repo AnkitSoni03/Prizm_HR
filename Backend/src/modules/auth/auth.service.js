@@ -525,15 +525,21 @@ async function getCurrentUser({ userId, companyId }) {
   let photoUrl = null;
   let designation = null;
   let rosterGroupId = null;
+  // Whether this employee has been assigned a Comp-Off Policy — lets the
+  // ESS "My Comp-Off" page show a not-enrolled state instead of an empty
+  // credits table when they haven't (comp-off is opt-in, see
+  // compOff.service.js::checkAndCreateCompOffCredit).
+  let compOffEnrolled = false;
   if (user.employeeId) {
     const employee = await db.Employee.findByPk(user.employeeId, {
-      attributes: ['name', 'photoUrl', 'rosterGroupId'],
+      attributes: ['name', 'photoUrl', 'rosterGroupId', 'compOffPolicyId'],
       include: [{ model: db.Designation, as: 'designation', attributes: ['title'] }],
     });
     if (employee) {
       name = employee.name;
       designation = employee.designation ? employee.designation.title : null;
       rosterGroupId = employee.rosterGroupId;
+      compOffEnrolled = !!employee.compOffPolicyId;
       if (employee.photoUrl) {
         try {
           photoUrl = await getSignedDownloadUrl(employee.photoUrl);
@@ -557,6 +563,7 @@ async function getCurrentUser({ userId, companyId }) {
     // frontend filter its own "Company Policies" view to company-wide +
     // this employee's own Roster, without a separate lookup.
     rosterGroupId,
+    compOffEnrolled,
     photoUrl,
   };
 }

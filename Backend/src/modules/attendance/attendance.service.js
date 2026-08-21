@@ -226,7 +226,7 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
 
   const employee = await db.Employee.findOne({
     where: { id: employeeId, companyId },
-    attributes: ['id', 'brandId', 'dateOfJoining'],
+    attributes: ['id', 'brandId', 'dateOfJoining', 'rosterGroupId'],
   });
   if (!employee) throw new HttpError(404, 'Employee not found');
 
@@ -238,15 +238,22 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
 
   if (startDate > lastDate) return { rows: [], count: 0 };
 
-  const [attendanceRows, holidays, leaveRequests, rosterEntries, employeeShifts] = await Promise.all([
+  const [attendanceRows, holidays, leaveRequests, rosterEntries, employeeShifts, rosterGroupShiftLink] = await Promise.all([
     db.Attendance.findAll({ where: { employeeId, date: { [Op.gte]: startDate, [Op.lte]: lastDate } } }),
+    // Range-overlap match (a holiday can span date..endDate, not just one
+    // day), including rosterGroups so applicability can be checked the same
+    // way utils/workingDays.js::isHoliday does — a holiday only fires for an
+    // employee whose own rosterGroupId is explicitly linked to it, never a
+    // bare brand/company-wide fallback.
     db.Holiday.findAll({
       where: {
         companyId,
-        date: { [Op.gte]: startDate, [Op.lte]: lastDate },
+        date: { [Op.lte]: lastDate },
+        endDate: { [Op.gte]: startDate },
         [Op.or]: [{ brandId: null }, ...(employee.brandId ? [{ brandId: employee.brandId }] : [])],
       },
-      attributes: ['date'],
+      attributes: ['date', 'endDate'],
+      include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
     }),
     db.LeaveRequest.findAll({
       where: { employeeId, status: 'approved', fromDate: { [Op.lte]: lastDate }, toDate: { [Op.gte]: startDate } },
@@ -264,11 +271,34 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
       order: [['effectiveFrom', 'ASC']],
       include: [{ model: db.Shift, as: 'shift' }],
     }),
+    // Third fallback shift resolveShiftForDate itself uses: a Roster
+    // Group's own default Shift, for an employee with no roster entry AND
+    // no employee_shifts row covering a given date.
+    employee.rosterGroupId
+      ? db.RosterGroupShift.findOne({
+          where: { rosterGroupId: employee.rosterGroupId },
+          include: [{ model: db.Shift, as: 'shift' }],
+        })
+      : null,
   ]);
 
   const attendanceByDate = new Map(attendanceRows.map((a) => [a.date, a]));
-  const holidaySet = new Set(holidays.map((h) => h.date));
+  // A holiday only applies to this employee if it's explicitly linked to
+  // their own Roster Group (no rosterGroupId => no holidays apply at all —
+  // same rule as utils/workingDays.js::isHoliday). Expanded from each
+  // holiday's own date..endDate span into the individual days it covers
+  // within [startDate, lastDate].
+  const holidaySet = new Set();
+  if (employee.rosterGroupId) {
+    for (const h of holidays) {
+      if (!h.rosterGroups.some((rg) => String(rg.id) === String(employee.rosterGroupId))) continue;
+      const spanStart = h.date > startDate ? h.date : startDate;
+      const spanEnd = h.endDate < lastDate ? h.endDate : lastDate;
+      for (let d = spanStart; d <= spanEnd; d = addDays(d, 1)) holidaySet.add(d);
+    }
+  }
   const rosterShiftByDate = new Map(rosterEntries.map((r) => [r.rosterDate, r.shift]));
+  const rosterGroupDefaultShift = rosterGroupShiftLink?.shift ?? null;
 
   // Which specific leave type (e.g. "Annual Leave") covers a given date —
   // used to label 'leave' status rows instead of just the bare word
@@ -295,7 +325,7 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
       shiftIdx++;
     }
     const defaultShift = shiftIdx >= 0 ? employeeShifts[shiftIdx].shift : null;
-    const shift = rosterShiftByDate.get(d) || defaultShift;
+    const shift = rosterShiftByDate.get(d) || defaultShift || rosterGroupDefaultShift;
     const isWeekOff = !!shift?.weeklyOffDays?.length && shift.weeklyOffDays.includes(new Date(`${d}T00:00:00`).getDay());
 
     let status;
@@ -502,22 +532,28 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
 
   const employees = await db.Employee.findAll({
     where: employeeWhere,
-    attributes: ['id', 'employeeCode', 'name', 'brandId', 'dateOfJoining'],
+    attributes: ['id', 'employeeCode', 'name', 'brandId', 'dateOfJoining', 'rosterGroupId'],
     order: [['name', 'ASC']],
   });
   const employeeIds = employees.map((e) => e.id);
   if (employeeIds.length === 0) return { year: y, month: m, daysInMonth, rows: [] };
 
+  const rosterGroupIds = [...new Set(employees.map((e) => e.rosterGroupId).filter(Boolean))];
+
   const fetchRange = dataEnd >= monthStart;
-  const [attendanceRows, holidays, leaveRequests, rosterEntries, employeeShifts] = await Promise.all([
+  const [attendanceRows, holidays, leaveRequests, rosterEntries, employeeShifts, rosterGroupShiftLinks] = await Promise.all([
     fetchRange
       ? db.Attendance.findAll({
           where: { employeeId: { [Op.in]: employeeIds }, date: { [Op.gte]: monthStart, [Op.lte]: dataEnd } },
         })
       : [],
+    // rosterGroups included so applicability can be checked the same way
+    // utils/workingDays.js::isHoliday does — see the isHoliday computation
+    // below.
     db.Holiday.findAll({
       where: { companyId, date: { [Op.lte]: monthEnd }, endDate: { [Op.gte]: monthStart } },
       attributes: ['date', 'endDate', 'brandId'],
+      include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
     }),
     db.LeaveRequest.findAll({
       where: {
@@ -544,7 +580,20 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
       order: [['effectiveFrom', 'ASC']],
       include: [{ model: db.Shift, as: 'shift' }],
     }),
+    // Third fallback shift resolveShiftForDate itself uses: a Roster
+    // Group's own default Shift, for an employee with no roster entry AND
+    // no employee_shifts row covering a given date.
+    rosterGroupIds.length > 0
+      ? db.RosterGroupShift.findAll({
+          where: { rosterGroupId: { [Op.in]: rosterGroupIds } },
+          include: [{ model: db.Shift, as: 'shift' }],
+        })
+      : [],
   ]);
+
+  const rosterGroupDefaultShiftByGroup = new Map(
+    rosterGroupShiftLinks.map((link) => [String(link.rosterGroupId), link.shift])
+  );
 
   const attendanceByEmployee = new Map();
   for (const row of attendanceRows) {
@@ -585,6 +634,9 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
     const attendanceByDate = attendanceByEmployee.get(key) ?? new Map();
     const rosterByDate = rosterShiftByEmployee.get(key) ?? new Map();
     const shiftHistory = employeeShiftsByEmployee.get(key) ?? [];
+    const rosterGroupDefaultShift = employee.rosterGroupId
+      ? rosterGroupDefaultShiftByGroup.get(String(employee.rosterGroupId)) ?? null
+      : null;
     let shiftIdx = -1;
 
     // Day-count totals + worked minutes, tallied alongside the day loop
@@ -625,11 +677,20 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
         shiftIdx++;
       }
       const defaultShift = shiftIdx >= 0 ? shiftHistory[shiftIdx].shift : null;
-      const shift = rosterByDate.get(d) || defaultShift;
+      const shift = rosterByDate.get(d) || defaultShift || rosterGroupDefaultShift;
       const isWeekOff = !!shift?.weeklyOffDays?.length && shift.weeklyOffDays.includes(new Date(`${d}T00:00:00`).getDay());
-      const isHoliday = holidays.some(
-        (h) => h.date <= d && h.endDate >= d && (h.brandId === null || h.brandId === employee.brandId)
-      );
+      // Same Roster-Group-linkage rule as utils/workingDays.js::isHoliday —
+      // no rosterGroupId means no holidays apply, and a linked holiday must
+      // name this employee's own Roster Group, not just match brand/company.
+      const isHoliday =
+        !!employee.rosterGroupId &&
+        holidays.some(
+          (h) =>
+            h.date <= d &&
+            h.endDate >= d &&
+            (h.brandId === null || h.brandId === employee.brandId) &&
+            h.rosterGroups.some((rg) => String(rg.id) === String(employee.rosterGroupId))
+        );
 
       let status;
       if (isHoliday) status = 'holiday';
@@ -764,7 +825,7 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
       }
       if (!isChange) continue;
 
-      changedEmployees.push(employee);
+      changedEmployees.push({ employee, attendanceId: attendance.id });
       await recordApprovalDecision({
         companyId,
         requestType: 'attendance_correction',
@@ -778,8 +839,21 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
   });
 
   // Best-effort, outside the transaction — same convention as every other
-  // approve/reject notification in this codebase.
-  for (const employee of changedEmployees) {
+  // approve/reject notification in this codebase. An admin correcting a
+  // week-off/holiday day to 'present' is exactly as comp-off-eligible as a
+  // real check-in on that day — workingDays.js's isHoliday/isWeeklyOff don't
+  // care how the 'present' row was written, and odRequest.service.js /
+  // attendanceRegularization.service.js's own approve paths already trigger
+  // the same detection, so this manual-correction path shouldn't be the one
+  // place that silently skips it.
+  for (const { employee, attendanceId } of changedEmployees) {
+    if (status === 'present') {
+      try {
+        await checkAndCreateCompOffCredit({ employeeId: employee.id, attendanceId, dateStr: date });
+      } catch (err) {
+        console.error('Comp-off auto-detection failed:', err);
+      }
+    }
     if (!employee.userId) continue;
     await notifyUser({
       companyId,

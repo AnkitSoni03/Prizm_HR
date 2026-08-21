@@ -26,6 +26,7 @@ import {
 import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
 import { holidayAuditName } from '../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime } from '../../utils/dateDisplay';
+import { weeklyOffLabel } from '../../utils/weekdays';
 
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
@@ -257,7 +258,7 @@ export function MyProfilePage() {
 
         <div>
           <SectionLabel>Roster</SectionLabel>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
             <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
               <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
                 Assigned Roster
@@ -272,22 +273,43 @@ export function MyProfilePage() {
               )}
             </div>
             <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
-                Today&apos;s Shift
-              </p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">Shift</p>
               {profile.todayRoster?.shift ? (
-                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
-                  {profile.todayRoster.shift.name} · {profile.todayRoster.shift.startTime.slice(0, 5)}–
-                  {profile.todayRoster.shift.endTime.slice(0, 5)}
-                  <span className="ml-1.5 text-[10px] text-warning sm:text-xs">(published override)</span>
-                </p>
+                <>
+                  <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
+                    {profile.todayRoster.shift.name} · {profile.todayRoster.shift.startTime.slice(0, 5)}–
+                    {profile.todayRoster.shift.endTime.slice(0, 5)}
+                    <span className="ml-1.5 text-[10px] text-warning sm:text-xs">(published override)</span>
+                  </p>
+                  <p className="mt-1 text-[11px] text-ink-muted sm:text-xs">
+                    Week Off: {weeklyOffLabel(profile.todayRoster.shift.weeklyOffDays)}
+                  </p>
+                </>
               ) : profile.defaultShift ? (
-                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
-                  {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
-                  {profile.defaultShift.endTime.slice(0, 5)}
-                </p>
+                <>
+                  <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
+                    {profile.defaultShift.name} · {profile.defaultShift.startTime.slice(0, 5)}–
+                    {profile.defaultShift.endTime.slice(0, 5)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-ink-muted sm:text-xs">
+                    Week Off: {weeklyOffLabel(profile.defaultShift.weeklyOffDays)}
+                  </p>
+                </>
               ) : (
                 <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">Following your Roster&apos;s shift</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">Comp-Off</p>
+              {profile.compOffPolicy ? (
+                <p className="mt-0.5 text-xs sm:mt-1 sm:text-sm">
+                  <Badge tone="success">Active</Badge>
+                  <span className="ml-1.5 text-ink-muted">{profile.compOffPolicy.name}</span>
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs sm:mt-1 sm:text-sm">
+                  <Badge tone="neutral">Not Enrolled</Badge>
+                </p>
               )}
             </div>
           </div>

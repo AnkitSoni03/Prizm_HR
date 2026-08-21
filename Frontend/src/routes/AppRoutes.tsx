@@ -59,6 +59,10 @@ import {
   CompanyPoliciesPage as BrandAdminPoliciesPage,
   CompanyPoliciesPage as EssPoliciesPage,
 } from '../pages/company-admin/CompanyPoliciesPage';
+import {
+  CompOffSettingsPage as CompanyAdminCompOffSettingsPage,
+  CompOffSettingsPage as BrandAdminCompOffSettingsPage,
+} from '../pages/company-admin/CompOffSettingsPage';
 import { SettingsPage as CompanyAdminSettingsPage } from '../pages/company-admin/SettingsPage';
 import { GroupAdminDashboard } from '../pages/group-admin/GroupAdminDashboard';
 import { CompaniesPage as GroupCompaniesPage } from '../pages/group-admin/CompaniesPage';
@@ -323,6 +327,17 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/company-admin/comp-off-settings"
+        element={
+          <ProtectedRoute permission="comp_off_policy:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Comp Off Setting">
+              <CompanyAdminCompOffSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/company-admin/payroll"
         element={
           <ProtectedRoute permission="payroll_settings:read">
@@ -504,6 +519,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="company_policy:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Company Policies">
               <BrandAdminPoliciesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/comp-off-settings"
+        element={
+          <ProtectedRoute permission="comp_off_policy:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Comp Off Setting">
+              <BrandAdminCompOffSettingsPage />
             </Layout>
           </ProtectedRoute>
         }

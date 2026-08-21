@@ -9,18 +9,24 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 
-// PHASE4_MODELS.md's stated default; no company-level setting exists yet to
-// make this configurable (flagged as a follow-up rather than invented here).
-const DEFAULT_EXPIRY_DAYS = 90;
-
 // Triggered from the attendance write path (Phase-3), not a user action.
 // Called from every place an attendance row can be written with status
 // 'present' or 'on_duty': attendance.service.js::checkIn,
-// odRequest.service.js::approveOdRequest, and
-// attendanceRegularization.service.js::approveRegularization.
+// odRequest.service.js::approveOdRequest,
+// attendanceRegularization.service.js::approveRegularization, and
+// attendance.service.js::bulkSetAttendanceStatus. An employee with no
+// compOffPolicyId (the default — comp-off is opt-in, per the Comp Off
+// Setting page) earns nothing here, full stop, regardless of whether the
+// day is actually a holiday/week-off.
 async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, transaction }) {
   const employee = await db.Employee.findOne({ where: { id: employeeId }, transaction });
-  if (!employee) return null;
+  if (!employee || !employee.compOffPolicyId) return null;
+
+  const policy = await db.CompOffPolicy.findOne({
+    where: { id: employee.compOffPolicyId, companyId: employee.companyId },
+    transaction,
+  });
+  if (!policy) return null;
 
   const holiday = await isHoliday({
     companyId: employee.companyId,
@@ -40,7 +46,9 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
       sourceAttendanceId: attendanceId,
       earnedDate: dateStr,
       status: 'pending_approval',
-      expiryDate: addDays(dateStr, DEFAULT_EXPIRY_DAYS),
+      // Null (never expires) for a carry-forward policy — see the migration
+      // that made this column nullable and CompOffPolicy's own comment.
+      expiryDate: policy.carryForward ? null : addDays(dateStr, policy.expiryDays),
     },
     { transaction }
   );

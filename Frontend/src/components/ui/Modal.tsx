@@ -49,12 +49,19 @@ export function Modal({
     >
       <div
         className={[
+          // No top padding here (pb/px only) — the sticky header below
+          // carries its own top padding instead. A negative margin-top on
+          // a `position: sticky` child does NOT reliably cancel a
+          // flex-container's own padding-top in Chrome (verified: the
+          // computed margin applies, but the element's rendered position
+          // ignores it) — the only correct fix is to not give the
+          // container top padding to fight against in the first place.
           'flex w-full flex-col overflow-y-auto border-border bg-card shadow-lg transition-all duration-150',
           compact
-            ? 'max-h-[85vh] rounded-xl border p-5'
+            ? 'max-h-[85vh] rounded-xl border pb-5 px-5'
             : [
-                'max-md:h-full max-md:max-w-none max-md:rounded-none max-md:border-0 max-md:p-5',
-                'md:max-h-[90vh] md:rounded-xl md:border md:p-6',
+                'max-md:h-full max-md:max-w-none max-md:rounded-none max-md:border-0 max-md:pb-5 max-md:px-5',
+                'md:max-h-[90vh] md:rounded-xl md:border md:pb-6 md:px-6',
               ].join(' '),
           'animate-[modal-in_180ms_cubic-bezier(0.16,1,0.3,1)]',
           widthClassName,
@@ -63,8 +70,13 @@ export function Modal({
       >
         <div
           className={[
+            // -mx/px still cancels-and-reapplies the container's horizontal
+            // padding (that part works fine with sticky). pt is real,
+            // uncancelled padding — since the container itself now has no
+            // top padding, this box's bg-card already starts flush at the
+            // scrollport's top edge, so nothing can bleed through above it.
             'sticky top-0 z-10 shrink-0 bg-card',
-            compact ? '-mx-5 px-5' : '-mx-6 px-6 max-md:-mx-5 max-md:px-5',
+            compact ? '-mx-5 px-5 pt-5' : '-mx-6 px-6 pt-6 max-md:-mx-5 max-md:px-5 max-md:pt-5',
           ].join(' ')}
         >
           <div className="mb-5 flex items-center justify-between gap-3">

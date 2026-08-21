@@ -420,7 +420,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                 render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
               },
               { key: 'earnedDate', header: 'Earned Date', render: (r) => formatDisplayDate(r.earnedDate) },
-              { key: 'expiryDate', header: 'Expiry Date', render: (r) => formatDisplayDate(r.expiryDate) },
+              { key: 'expiryDate', header: 'Expiry Date', render: (r) => (r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never') },
               {
                 key: 'status',
                 header: 'Status',

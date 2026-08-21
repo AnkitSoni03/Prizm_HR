@@ -45,9 +45,12 @@ import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import { assignCompOffPolicy, listCompOffPolicies, type CompOffPolicy } from '../../../api/companyAdmin/compOffPolicies';
 import { INDIAN_STATES } from '../../../utils/indianStates';
 import { holidayAuditName } from '../../../api/companyAdmin/holidays';
-import { formatDisplayDateTime } from '../../../utils/dateDisplay';
+import { formatDisplayDate, formatDisplayDateTime, daysUntil } from '../../../utils/dateDisplay';
+import { weeklyOffLabel } from '../../../utils/weekdays';
+import { listCompOffCredits, type CompOffCredit } from '../../../api/companyAdmin/approvals';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -69,6 +72,15 @@ interface EmployeeDetailModalProps {
   // straight to 'documents' since that's the only tab it cares about.
   initialTab?: 'details' | 'documents' | 'powers';
 }
+
+// Same mapping as ess/MyCompOffPage.tsx's STATUS_TONE.
+const COMP_OFF_STATUS_TONE: Record<CompOffCredit['status'], 'success' | 'warning' | 'danger' | 'neutral'> = {
+  pending_approval: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  expired: 'neutral',
+  used: 'neutral',
+};
 
 const EMPLOYMENT_TYPES = [
   { value: 'full_time', label: 'Full-time' },
@@ -194,17 +206,24 @@ export function EmployeeDetailModal({
     };
   }, [canInviteEss, employee.id, employee.userId]);
 
-  // defaultShift/todayRoster (resolved server-side "as of today") aren't on
-  // the list-view `employee` prop — same reason customRole/loginUser above
-  // need their own fetch of the full GET /employees/:id record.
+  // defaultShift/todayRoster/compOffPolicy (resolved server-side "as of
+  // today") aren't on the list-view `employee` prop — same reason
+  // customRole/loginUser above need their own fetch of the full
+  // GET /employees/:id record.
   const [shiftSummary, setShiftSummary] = useState<
-    Pick<Employee, 'defaultShift' | 'todayRoster'> | undefined
+    Pick<Employee, 'defaultShift' | 'todayRoster' | 'compOffPolicy'> | undefined
   >(undefined);
 
   function refreshShiftSummary() {
     getEmployee(employee.id)
-      .then((full) => setShiftSummary({ defaultShift: full.defaultShift ?? null, todayRoster: full.todayRoster ?? null }))
-      .catch(() => setShiftSummary({ defaultShift: null, todayRoster: null }));
+      .then((full) =>
+        setShiftSummary({
+          defaultShift: full.defaultShift ?? null,
+          todayRoster: full.todayRoster ?? null,
+          compOffPolicy: full.compOffPolicy ?? null,
+        })
+      )
+      .catch(() => setShiftSummary({ defaultShift: null, todayRoster: null, compOffPolicy: null }));
   }
 
   useEffect(() => {
@@ -233,6 +252,69 @@ export function EmployeeDetailModal({
       setIsAssigningRoster(false);
     }
   }
+
+  // Comp-off is opt-in (see Comp Off Setting) — this is the same
+  // single-employee assign action as that page's bulk Assign Employees tab,
+  // just inline here for the common "I'm already looking at this one
+  // employee" case. canAssignCompOff also gates the policy-list fetch below
+  // so a caller without the permission never makes the call.
+  const canAssignCompOff = hasPermission('comp_off_policy:assign');
+  const [compOffPolicies, setCompOffPolicies] = useState<CompOffPolicy[]>([]);
+  const [assignCompOffPolicyId, setAssignCompOffPolicyId] = useState('');
+  const [isAssigningCompOff, setIsAssigningCompOff] = useState(false);
+  const [assignCompOffError, setAssignCompOffError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canAssignCompOff) return;
+    listCompOffPolicies()
+      .then(setCompOffPolicies)
+      .catch(() => setCompOffPolicies([]));
+  }, [canAssignCompOff]);
+
+  // shiftSummary (and the compOffPolicy it carries) resolves asynchronously
+  // after mount — sync the picker's initial value once it lands, rather than
+  // trying to read it from the list-view `employee` prop, which doesn't
+  // have it (same reason shiftSummary itself needs its own fetch above).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAssignCompOffPolicyId(shiftSummary?.compOffPolicy?.id ?? '');
+  }, [shiftSummary?.compOffPolicy?.id]);
+
+  async function handleAssignCompOff(event: FormEvent) {
+    event.preventDefault();
+    setAssignCompOffError(null);
+    setIsAssigningCompOff(true);
+    try {
+      await assignCompOffPolicy({ employeeIds: [employee.id], compOffPolicyId: assignCompOffPolicyId || null });
+      refreshShiftSummary();
+    } catch (err) {
+      setAssignCompOffError(extractError(err, 'Could not assign this Comp-Off Policy. Please try again.'));
+    } finally {
+      setIsAssigningCompOff(false);
+    }
+  }
+
+  // This employee's own earned comp-off credits, with their expiry dates —
+  // so an admin can see at a glance whether one is about to go to waste,
+  // without leaving this modal to cross-reference the company-wide
+  // Approvals > Comp-Off tab. Independent of canAssignCompOff (comp_off:read
+  // vs comp_off_policy:assign are different grants) and independent of
+  // whether the employee is currently enrolled — a credit already earned
+  // stays visible/spendable even if they're later un-enrolled.
+  const canReadCompOffCredits = hasPermission('comp_off:read');
+  const [compOffCredits, setCompOffCredits] = useState<CompOffCredit[]>([]);
+
+  function refreshCompOffCredits() {
+    if (!canReadCompOffCredits) return;
+    listCompOffCredits({ employeeId: employee.id, limit: 50 })
+      .then((result) => setCompOffCredits(result.data))
+      .catch(() => setCompOffCredits([]));
+  }
+
+  useEffect(() => {
+    refreshCompOffCredits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee.id, canReadCompOffCredits]);
 
   // Soft toggle — never deletes the employee. Deactivating also blocks their
   // ESS login immediately (see employee.service.js::setEmployeeActiveStatus);
@@ -664,7 +746,7 @@ export function EmployeeDetailModal({
           {shiftSummary && (
             <div className="space-y-3 border-t border-border pt-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Roster</p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-lg border border-border bg-page px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Assigned Roster</p>
                   <p className="mt-1 text-sm text-ink">
@@ -672,14 +754,43 @@ export function EmployeeDetailModal({
                   </p>
                 </div>
                 <div className="rounded-lg border border-border bg-page px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Today&apos;s Roster</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Shift</p>
                   {shiftSummary.todayRoster?.shift ? (
-                    <p className="mt-1 text-sm text-ink">
-                      {shiftSummary.todayRoster.shift.name} · {shiftSummary.todayRoster.shift.startTime.slice(0, 5)}–
-                      {shiftSummary.todayRoster.shift.endTime.slice(0, 5)}
-                    </p>
+                    <>
+                      <p className="mt-1 text-sm text-ink">
+                        {shiftSummary.todayRoster.shift.name} · {shiftSummary.todayRoster.shift.startTime.slice(0, 5)}–
+                        {shiftSummary.todayRoster.shift.endTime.slice(0, 5)}
+                        <span className="ml-1.5 text-xs text-warning">(published override)</span>
+                      </p>
+                      <p className="mt-1 text-xs text-ink-muted">
+                        Week Off: {weeklyOffLabel(shiftSummary.todayRoster.shift.weeklyOffDays)}
+                      </p>
+                    </>
+                  ) : shiftSummary.defaultShift ? (
+                    <>
+                      <p className="mt-1 text-sm text-ink">
+                        {shiftSummary.defaultShift.name} · {shiftSummary.defaultShift.startTime.slice(0, 5)}–
+                        {shiftSummary.defaultShift.endTime.slice(0, 5)}
+                      </p>
+                      <p className="mt-1 text-xs text-ink-muted">
+                        Week Off: {weeklyOffLabel(shiftSummary.defaultShift.weeklyOffDays)}
+                      </p>
+                    </>
                   ) : (
                     <p className="mt-1 text-sm text-ink-muted">Following Roster / default shift</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-border bg-page px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Comp-Off</p>
+                  {shiftSummary.compOffPolicy ? (
+                    <p className="mt-1 text-sm">
+                      <Badge tone="success">Active</Badge>
+                      <span className="ml-1.5 text-ink-muted">{shiftSummary.compOffPolicy.name}</span>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm">
+                      <Badge tone="neutral">Not Enrolled</Badge>
+                    </p>
                   )}
                 </div>
               </div>
@@ -710,6 +821,85 @@ export function EmployeeDetailModal({
                     </Button>
                   </div>
                 </form>
+              )}
+
+              {canAssignCompOff && (
+                <form onSubmit={handleAssignCompOff} className="space-y-3">
+                  {assignCompOffError && <p className="text-sm text-danger">{assignCompOffError}</p>}
+                  <Select
+                    id="employee-assign-comp-off"
+                    label="Comp-Off Policy"
+                    value={assignCompOffPolicyId}
+                    onChange={(event) => setAssignCompOffPolicyId(event.target.value)}
+                    placeholder="Not enrolled"
+                    options={compOffPolicies.map((p) => ({ value: p.id, label: p.name }))}
+                  />
+                  <p className="text-xs text-ink-muted">
+                    Comp-off is opt-in — this employee earns no credit for working a holiday/week-off until
+                    enrolled here.
+                  </p>
+                  <div className="flex justify-end">
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      isLoading={isAssigningCompOff}
+                      disabled={assignCompOffPolicyId === (shiftSummary?.compOffPolicy?.id ?? '')}
+                    >
+                      {assignCompOffPolicyId ? 'Assign Comp-Off' : 'Remove from Comp-Off'}
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {canReadCompOffCredits && compOffCredits.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                    Comp-Off Credits
+                  </p>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-page text-xs text-ink-muted">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Earned</th>
+                          <th className="px-3 py-2 text-left font-medium">Expires</th>
+                          <th className="px-3 py-2 text-left font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {compOffCredits.map((credit) => {
+                          const daysLeft = credit.expiryDate ? daysUntil(credit.expiryDate) : null;
+                          // Only a still-unused (approved) credit can be
+                          // "wasted" — one already used/rejected/expired has
+                          // nothing left to warn about.
+                          const expiringSoon =
+                            credit.status === 'approved' && daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
+                          return (
+                            <tr key={credit.id}>
+                              <td className="px-3 py-2 text-ink">{formatDisplayDate(credit.earnedDate)}</td>
+                              <td className="px-3 py-2">
+                                <span className="text-ink">
+                                  {credit.expiryDate ? formatDisplayDate(credit.expiryDate) : 'Never'}
+                                </span>
+                                {expiringSoon && (
+                                  <span className="ml-1.5">
+                                    <Badge tone="warning">
+                                      {daysLeft === 0 ? 'Expires today' : `${daysLeft}d left`}
+                                    </Badge>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                <Badge tone={COMP_OFF_STATUS_TONE[credit.status]}>
+                                  {credit.status.replace('_', ' ')}
+                                </Badge>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
             </div>
           )}

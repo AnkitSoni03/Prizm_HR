@@ -131,7 +131,14 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
   let compOffCreditId = null;
   if (isCompOff) {
     const credit = await db.CompOffCredit.findOne({
-      where: { employeeId, status: 'approved', expiryDate: { [Op.gte]: fromDate } },
+      // expiryDate: null means "earned under a carry-forward policy, never
+      // expires" (see compOff.service.js) — still a valid credit to spend,
+      // so it can't be excluded by a plain >= fromDate comparison.
+      where: {
+        employeeId,
+        status: 'approved',
+        [Op.or]: [{ expiryDate: null }, { expiryDate: { [Op.gte]: fromDate } }],
+      },
       order: [['earnedDate', 'ASC']],
     });
     if (!credit) throw new HttpError(422, 'No available comp-off credit for this employee');

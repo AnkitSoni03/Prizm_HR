@@ -87,7 +87,9 @@ export interface CompOffCredit {
   approverUserId: string | null;
   approverUser?: ApproverUser | null;
   rejectionReason: string | null;
-  expiryDate: string;
+  // Null means "earned under a carry-forward Comp-Off Policy — never
+  // expires".
+  expiryDate: string | null;
   employee?: RequestEmployee;
 }
 
@@ -120,6 +122,12 @@ interface ListParams {
   // odRequest.routes.js's requireReadAccess. Only leave/OD requests support
   // this today.
   scope?: 'reports' | 'company';
+  // Comp-off only — a company/brand-wide `comp_off:read` holder (Company
+  // Admin/HR Manager/Brand Admin) can filter to one specific employee's own
+  // credits (see compOff.controller.js::list). A Brand Admin passing an
+  // employeeId outside their own brand just gets zero rows back, not an
+  // error — the brand scope is enforced server-side regardless.
+  employeeId?: string;
 }
 
 export async function listLeaveRequests(params: ListParams = {}): Promise<ListResult<LeaveRequest>> {

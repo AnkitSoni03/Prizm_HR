@@ -130,6 +130,10 @@ async function getEmployeeForRead(id) {
       // client-side, and My Profile now needs to show it (Roster drives
       // their shift/holidays/policies/leave entirely).
       { model: db.RosterGroup, as: 'rosterGroup', attributes: ['id', 'name'] },
+      // Lets My Profile show whether the comp-off benefit is active for this
+      // employee (see compOff.service.js::checkAndCreateCompOffCredit —
+      // null here means they earn nothing on a holiday/week-off worked).
+      { model: db.CompOffPolicy, as: 'compOffPolicy', attributes: ['id', 'name'] },
       // Lets EmployeeDetailModal.tsx pre-check which POWER_CATALOG keys are
       // already assigned when it opens, without a second round trip.
       {
@@ -147,9 +151,19 @@ async function getEmployeeForRead(id) {
   if (!employee) throw new HttpError(404, 'Employee not found');
 
   const today = dateOnly(new Date());
-  const [roster, defaultAssignment] = await Promise.all([
+  const [roster, defaultAssignment, rosterGroupShiftLink] = await Promise.all([
     getActiveRosterEntry({ employeeId: id, rosterDate: today }),
     getActiveEmployeeShift({ employeeId: id, date: today }),
+    // Third fallback resolveShiftForDate itself uses (attendance.service.js):
+    // the Roster Group's own default Shift, for an employee with no roster
+    // entry AND no employee_shifts row — the common case for anyone onboarded
+    // straight onto a Roster Group with no per-employee shift override.
+    employee.rosterGroupId
+      ? db.RosterGroupShift.findOne({
+          where: { rosterGroupId: employee.rosterGroupId },
+          include: [{ model: db.Shift, as: 'shift' }],
+        })
+      : null,
   ]);
 
   function shiftSummary(shift) {
@@ -172,7 +186,7 @@ async function getEmployeeForRead(id) {
   return {
     ...withPhoto,
     effectiveManager,
-    defaultShift: shiftSummary(defaultAssignment?.shift ?? null),
+    defaultShift: shiftSummary(defaultAssignment?.shift ?? rosterGroupShiftLink?.shift ?? null),
     todayRoster: roster
       ? { id: roster.id, rosterDate: roster.rosterDate, shift: shiftSummary(roster.shift) }
       : null,

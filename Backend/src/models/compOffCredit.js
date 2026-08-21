@@ -26,7 +26,11 @@ module.exports = (sequelize, DataTypes) => {
       approverId: { type: DataTypes.BIGINT, allowNull: true },
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
-      expiryDate: { type: DataTypes.DATEONLY, allowNull: false },
+      // Null means this credit never expires — earned under a
+      // carryForward-enabled CompOffPolicy. compOffExpiry.job.js's sweep
+      // (WHERE expiry_date < today) and leaveRequest.service.js's redemption
+      // lookup both treat null as "always still valid".
+      expiryDate: { type: DataTypes.DATEONLY, allowNull: true },
     },
     {
       sequelize,

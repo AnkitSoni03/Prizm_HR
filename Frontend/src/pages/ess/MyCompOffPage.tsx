@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { RefreshCw } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
+import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { useAuth } from '../../context/auth-context';
 import { listMyCompOffCredits, type CompOffCredit } from '../../api/ess/compOff';
 import { createLeaveRequest, listLeaveTypes, type LeaveType } from '../../api/ess/leave';
-import { formatDisplayDate } from '../../utils/dateDisplay';
+import { formatDisplayDate, daysUntil } from '../../utils/dateDisplay';
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
   pending_approval: 'warning',
@@ -32,6 +35,7 @@ function formatDate(d: Date): string {
 }
 
 export function MyCompOffPage() {
+  const { user } = useAuth();
   const [credits, setCredits] = useState<CompOffCredit[]>([]);
   const [coLeaveType, setCoLeaveType] = useState<LeaveType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -62,7 +66,17 @@ export function MyCompOffPage() {
   }, []);
 
   const today = formatDate(new Date());
-  const availableCount = credits.filter((c) => c.status === 'approved' && c.expiryDate >= today).length;
+  // Null expiryDate means "earned under a carry-forward policy — never
+  // expires", so it can't be excluded by a plain >= today comparison.
+  const availableCount = credits.filter(
+    (c) => c.status === 'approved' && (c.expiryDate === null || c.expiryDate >= today)
+  ).length;
+  // Nudges the employee to actually spend a credit before it's wasted —
+  // same 14-day threshold and "unused only" rule as the Expires column's
+  // per-row badge below.
+  const expiringSoonCount = credits.filter(
+    (c) => c.status === 'approved' && c.expiryDate !== null && daysUntil(c.expiryDate) >= 0 && daysUntil(c.expiryDate) <= 14
+  ).length;
 
   function openModal() {
     setDate(formatDate(new Date()));
@@ -85,6 +99,19 @@ export function MyCompOffPage() {
     }
   }
 
+  // No Comp-Off Policy assigned (the default — comp-off is opt-in, per the
+  // Comp Off Setting page) — show nothing about the feature at all, rather
+  // than an empty "0 credits" table that implies they could have some.
+  if (user && !user.compOffEnrolled) {
+    return (
+      <EmptyStateCard
+        icon={RefreshCw}
+        title="Comp-Off isn't enabled for you"
+        description="You haven't been enrolled in the Comp-Off benefit yet. Ask your HR admin to assign you a Comp-Off Policy to start earning credit for working a holiday or week-off."
+      />
+    );
+  }
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">
@@ -101,6 +128,14 @@ export function MyCompOffPage() {
         </Button>
       </div>
 
+      {expiringSoonCount > 0 && (
+        <p className="mb-2.5 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning sm:mb-3 sm:text-sm">
+          {expiringSoonCount} comp-off {expiringSoonCount === 1 ? 'credit is' : 'credits are'} expiring within 14
+          days — use {expiringSoonCount === 1 ? 'it' : 'them'} before {expiringSoonCount === 1 ? 'it' : 'they'}{' '}
+          go to waste.
+        </p>
+      )}
+
       {error && <p className="mb-2.5 text-xs text-danger sm:mb-3 sm:text-sm">{error}</p>}
       {!coLeaveType && !isLoading && !error && (
         <p className="mb-2.5 text-xs text-ink-muted sm:mb-3 sm:text-sm">
@@ -115,7 +150,26 @@ export function MyCompOffPage() {
         emptyMessage="You haven't earned any comp-off credits yet."
         columns={[
           { key: 'earnedDate', header: 'Earned', render: (c) => formatDisplayDate(c.earnedDate) },
-          { key: 'expiryDate', header: 'Expires', render: (c) => formatDisplayDate(c.expiryDate) },
+          {
+            key: 'expiryDate',
+            header: 'Expires',
+            render: (c) => {
+              const daysLeft = c.expiryDate ? daysUntil(c.expiryDate) : null;
+              // Only a still-unused (approved) credit can be "wasted" — one
+              // already used/rejected/expired has nothing left to warn about.
+              const expiringSoon = c.status === 'approved' && daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
+              return (
+                <>
+                  {c.expiryDate ? formatDisplayDate(c.expiryDate) : 'Never'}
+                  {expiringSoon && (
+                    <span className="ml-1.5">
+                      <Badge tone="warning">{daysLeft === 0 ? 'Expires today' : `${daysLeft}d left`}</Badge>
+                    </span>
+                  )}
+                </>
+              );
+            },
+          },
           {
             key: 'status',
             header: 'Status',

@@ -172,6 +172,10 @@ export interface Employee {
   // getEmployeeForRead). null means none is assigned/published.
   defaultShift?: EmployeeShiftSummary | null;
   todayRoster?: { id: string; rosterDate: string; shift: EmployeeShiftSummary | null } | null;
+  // Null means comp-off is not active for this employee — they earn no
+  // credit for working a holiday/week-off until assigned one on the Comp
+  // Off Setting page. Only present when eager-loaded by GET /employees/:id.
+  compOffPolicy?: { id: string; name: string } | null;
 }
 
 export interface Plan {

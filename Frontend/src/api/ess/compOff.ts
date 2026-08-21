@@ -7,7 +7,9 @@ export interface CompOffCredit {
   earnedDate: string;
   status: 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'used';
   approverId: string | null;
-  expiryDate: string;
+  // Null means "earned under a carry-forward Comp-Off Policy — never
+  // expires" (see Backend's compOff.service.js).
+  expiryDate: string | null;
 }
 
 interface ListResult<T> {

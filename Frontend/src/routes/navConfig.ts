@@ -52,6 +52,7 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Leave Types', path: '/company-admin/leave-types', icon: Wallet, permission: 'leave_type:read' },
   { label: 'Leave Policy Settings', path: '/company-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
   { label: 'Company Policies', path: '/company-admin/policies', icon: FileText },
+  { label: 'Comp Off Setting', path: '/company-admin/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
   { label: 'Payroll', path: '/company-admin/payroll', icon: Wallet, permission: 'payroll_settings:read' },
   { label: 'Settings', path: '/company-admin/settings', icon: Settings },
 ];
@@ -73,6 +74,7 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Attendance Board', path: '/brand-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Holidays', path: '/brand-admin/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/brand-admin/policies', icon: FileText },
+  { label: 'Comp Off Setting', path: '/brand-admin/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
   { label: 'Settings', path: '/brand-admin/settings', icon: Settings },
 ];
 

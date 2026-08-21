@@ -43,6 +43,10 @@ export interface EmployeeProfile {
   // Policies/Leave — null means none assigned yet (everything shows blank
   // until one is, see LeaveBalancePage.tsx and HolidaysPage.tsx).
   rosterGroup?: { id: string; name: string } | null;
+  // Null means comp-off is not active for this employee — they earn no
+  // credit for working a holiday/week-off until an admin assigns one on the
+  // Comp Off Setting page (see Backend's compOff.service.js).
+  compOffPolicy?: { id: string; name: string } | null;
   photoDownloadUrl?: string | null;
   // Standing default shift (employee_shifts) — this mechanism has no admin
   // UI left anywhere (Shift assignment now flows entirely through Roster),

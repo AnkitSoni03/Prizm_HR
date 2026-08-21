@@ -27,6 +27,10 @@ export interface AuthUser {
   // this employee's own Roster without a separate lookup. null for pure
   // admin accounts and for an employee with no Roster assigned.
   rosterGroupId: string | null;
+  // Whether the caller's own linked Employee record has a Comp-Off Policy
+  // assigned — false for pure admin accounts too. Lets ESS "My Comp-Off"
+  // show a not-enrolled state instead of an empty credits table.
+  compOffEnrolled: boolean;
   // Resolved from the caller's own linked Employee record (employeeId), if
   // any — most pure admin accounts have none and this is simply null,
   // falling back to the generic avatar icon.
