@@ -29,16 +29,22 @@ export function detectFaceOptions() {
 
 export { faceapi };
 
-// Standard eye-aspect-ratio (EAR) formula from 6 eye landmark points —
-// dips sharply during a blink and recovers immediately after. Used both to
-// drive the "please blink" liveness challenge and as a component of the
-// motion-variance check that rejects a frozen/static photo.
-export function eyeAspectRatio(eye: faceapi.Point[]): number {
+// Smile ratio: mouth-corner-to-corner width, normalized by jaw width (a
+// stable reference that doesn't change when someone smiles) so the metric
+// stays meaningful regardless of how close the person is to the camera.
+// Widens noticeably on "please smile" and stays flat otherwise — used to
+// drive that liveness challenge and as a component of the motion-variance
+// check that rejects a frozen/static photo. Chosen over eye-aspect-ratio/
+// blink specifically because glasses frequently distort or occlude
+// eye-landmark detection, causing false negatives for employees who wear
+// them — this reads only the mouth and jaw outline, nowhere near the eyes.
+export function smileRatio(landmarks: faceapi.FaceLandmarks68): number {
   const dist = (a: faceapi.Point, b: faceapi.Point) => Math.hypot(a.x - b.x, a.y - b.y);
-  const vertical1 = dist(eye[1], eye[5]);
-  const vertical2 = dist(eye[2], eye[4]);
-  const horizontal = dist(eye[0], eye[3]);
-  return (vertical1 + vertical2) / (2 * horizontal);
+  const mouth = landmarks.getMouth();
+  const jaw = landmarks.getJawOutline();
+  const mouthWidth = dist(mouth[0], mouth[6]);
+  const jawWidth = dist(jaw[0], jaw[jaw.length - 1]);
+  return mouthWidth / jawWidth;
 }
 
 // Coarse geometric proxy for head yaw — not true 3D pose estimation, just a

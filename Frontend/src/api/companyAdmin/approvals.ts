@@ -95,7 +95,9 @@ export interface CompOffCredit {
 
 export interface ApprovalHistoryEntry {
   id: string;
-  action: 'approved' | 'rejected';
+  // 'granted' only occurs on a comp-off credit's history — see
+  // compOff.service.js::createCompOffCredit.
+  action: 'approved' | 'rejected' | 'granted';
   reason: string | null;
   decidedAt: string;
   actorUser?: ApproverUser | null;
@@ -202,6 +204,22 @@ export async function getRegularizationHistory(id: string): Promise<ApprovalHist
 export async function listCompOffCredits(params: ListParams = {}): Promise<ListResult<CompOffCredit>> {
   const { data } = await apiClient.get<ListResult<CompOffCredit>>('/leave/comp-off', { params });
   return data;
+}
+
+export interface CreateCompOffCreditInput {
+  employeeId: string;
+  earnedDate: string;
+  // Omitted/null means the credit never expires.
+  expiryDate?: string | null;
+  reason?: string;
+}
+
+// Manual grant via the "Assign Comp-Off" power (comp_off:credit) — unlike
+// every other create call in this file, there's no separate approve step:
+// the credit comes back already status: 'approved'.
+export async function createCompOffCredit(input: CreateCompOffCreditInput): Promise<CompOffCredit> {
+  const { data } = await apiClient.post<{ data: CompOffCredit }>('/leave/comp-off', input);
+  return data.data;
 }
 
 export async function approveCompOffCredit(id: string): Promise<CompOffCredit> {

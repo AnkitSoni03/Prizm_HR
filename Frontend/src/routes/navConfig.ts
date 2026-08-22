@@ -86,6 +86,7 @@ export const ESS_NAV: NavItem[] = [
   { label: 'Team Approvals', path: '/ess/team-approvals', icon: ClipboardCheck },
   { label: 'My OD', path: '/ess/od', icon: Send },
   { label: 'My Comp-Off', path: '/ess/comp-off', icon: RefreshCw },
+  { label: 'Comp Off Setting', path: '/ess/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
   { label: 'My Payslips', path: '/ess/payslips', icon: Wallet },
   { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock },
   { label: 'Company Policies', path: '/ess/policies', icon: FileText },

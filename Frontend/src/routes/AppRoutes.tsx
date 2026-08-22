@@ -62,6 +62,7 @@ import {
 import {
   CompOffSettingsPage as CompanyAdminCompOffSettingsPage,
   CompOffSettingsPage as BrandAdminCompOffSettingsPage,
+  CompOffSettingsPage as EssCompOffSettingsPage,
 } from '../pages/company-admin/CompOffSettingsPage';
 import { SettingsPage as CompanyAdminSettingsPage } from '../pages/company-admin/SettingsPage';
 import { GroupAdminDashboard } from '../pages/group-admin/GroupAdminDashboard';
@@ -651,6 +652,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="company_policy:read">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Company Policies">
               <EssPoliciesPage extraParams={{ rosterGroupId: user?.rosterGroupId ?? 'none' }} />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/comp-off-settings"
+        element={
+          <ProtectedRoute permission="comp_off_policy:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Comp Off Setting">
+              <EssCompOffSettingsPage />
             </Layout>
           </ProtectedRoute>
         }

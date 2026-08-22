@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Lock, LogIn, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { PasswordInput } from '../../components/ui/PasswordInput';
-import { detectFaceOptions, eyeAspectRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
+import { detectFaceOptions, smileRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
 import {
   faceCheckIn,
   uploadFaceCapture,
@@ -14,14 +14,14 @@ import {
 } from '../../api/kiosk';
 
 const CHALLENGES: { key: LivenessChallenge; instruction: string }[] = [
-  { key: 'blink', instruction: 'Please blink' },
+  { key: 'smile', instruction: 'Please smile' },
   { key: 'turn_left', instruction: 'Please turn your head left' },
   { key: 'turn_right', instruction: 'Please turn your head right' },
 ];
 
 // The person has up to 10s to actually perform the challenge — sampling
 // stops the instant it's detected (usually well before that), so a quick
-// blink/turn doesn't force anyone to sit through the full window. If
+// smile/turn doesn't force anyone to sit through the full window. If
 // nothing is detected by the deadline, capture is abandoned with a timeout
 // message rather than sending a burst to the backend that we already know
 // didn't satisfy the challenge.
@@ -36,18 +36,20 @@ const CAMERA_WARMUP_MS = 150;
 // "passed" claim).
 const MIN_FRAMES = 8;
 const MIN_BURST_MS = 1200;
-const BLINK_EAR_THRESHOLD = 0.22;
+// Uncalibrated (no labelled sample set in this environment) — set to a
+// moderate rise in mouth-width/jaw-width ratio, loose enough for a small
+// smile to register rather than requiring a wide grin.
+const SMILE_DELTA_THRESHOLD = 0.06;
 const YAW_DELTA_THRESHOLD = 12;
 
 function isChallengeSatisfied(challenge: LivenessChallenge, frames: LivenessFrame[]): boolean {
   if (frames.length < MIN_FRAMES) return false;
   if (frames[frames.length - 1].t - frames[0].t < MIN_BURST_MS) return false;
 
-  if (challenge === 'blink') {
-    const ears = frames.map((f) => f.ear);
-    const dipped = ears.some((e) => e < BLINK_EAR_THRESHOLD);
-    const recovered = ears[ears.length - 1] >= BLINK_EAR_THRESHOLD;
-    return dipped && recovered;
+  if (challenge === 'smile') {
+    const smiles = frames.map((f) => f.smile);
+    const baseline = smiles[0];
+    return Math.max(...smiles) - baseline >= SMILE_DELTA_THRESHOLD;
   }
 
   const yaws = frames.map((f) => f.yaw);
@@ -223,9 +225,7 @@ export function KioskPage() {
       const elapsed = Date.now() - startedAt;
       const result = await faceapi.detectSingleFace(videoRef.current, detectFaceOptions()).withFaceLandmarks();
       if (result) {
-        const leftEar = eyeAspectRatio(result.landmarks.getLeftEye());
-        const rightEar = eyeAspectRatio(result.landmarks.getRightEye());
-        frames.push({ t: elapsed, ear: (leftEar + rightEar) / 2, yaw: estimateYaw(result.landmarks) });
+        frames.push({ t: elapsed, smile: smileRatio(result.landmarks), yaw: estimateYaw(result.landmarks) });
       }
       setState((prev) =>
         prev.phase === 'capturing'

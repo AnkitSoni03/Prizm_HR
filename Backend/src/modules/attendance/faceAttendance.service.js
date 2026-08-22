@@ -23,7 +23,12 @@ const MIN_BURST_MS = 1200;
 // 11000 gives a small buffer over the frontend's own 10000 ceiling for
 // sampling-loop/network timing slop.
 const MAX_BURST_MS = 11000;
-const BLINK_EAR_THRESHOLD = 0.22;
+// Smile-ratio (mouth-width/jaw-width) delta, not eye-aspect-ratio/blink —
+// glasses frequently distort or occlude eye-landmark detection, causing
+// false liveness rejections for employees who wear them; this reads only
+// the mouth and jaw outline. See KioskPage.tsx's identical client-side copy
+// (SMILE_DELTA_THRESHOLD there, kept in sync with this value).
+const SMILE_DELTA_THRESHOLD = 0.06;
 const YAW_DELTA_THRESHOLD = 12;
 const MIN_MOTION_STDDEV = 0.01; // near-zero variance across the burst means a frozen photo, not a live face
 
@@ -39,10 +44,10 @@ function stddev(values) {
 }
 
 // Re-validated server-side from the numeric frame samples the kiosk sends
-// (eye-aspect-ratio + yaw estimate per frame, computed client-side by
+// (smile-ratio + yaw estimate per frame, computed client-side by
 // face-api.js) — never trusts a bare "challenge passed" boolean from the
 // browser. This defeats a static printed photo or a photo shown on a second
-// screen (zero motion, no blink/turn possible on command); it does NOT
+// screen (zero motion, no smile/turn possible on command); it does NOT
 // defeat a pre-recorded video of the real person performing the exact
 // requested challenge — a known, accepted limitation (see CLAUDE.md rule 6).
 function validateLiveness({ challenge, frames }) {
@@ -55,16 +60,17 @@ function validateLiveness({ challenge, frames }) {
     throw new HttpError(400, 'Liveness check failed — please try again.');
   }
 
-  const ears = frames.map((f) => f.ear);
+  const smiles = frames.map((f) => f.smile);
   const yaws = frames.map((f) => f.yaw);
-  if (stddev(ears) < MIN_MOTION_STDDEV && stddev(yaws) < MIN_MOTION_STDDEV) {
+  if (stddev(smiles) < MIN_MOTION_STDDEV && stddev(yaws) < MIN_MOTION_STDDEV) {
     throw new HttpError(400, 'No motion detected — please use a live camera, not a photo.');
   }
 
-  if (challenge === 'blink') {
-    const dipped = ears.some((e) => e < BLINK_EAR_THRESHOLD);
-    const recovered = ears[ears.length - 1] >= BLINK_EAR_THRESHOLD;
-    if (!dipped || !recovered) throw new HttpError(400, 'Blink not detected — please try again.');
+  if (challenge === 'smile') {
+    const baseline = smiles[0];
+    if (Math.max(...smiles) - baseline < SMILE_DELTA_THRESHOLD) {
+      throw new HttpError(400, 'Smile not detected — please try again.');
+    }
   } else if (challenge === 'turn_left' || challenge === 'turn_right') {
     const baseline = yaws[0];
     const extremum = challenge === 'turn_left' ? Math.min(...yaws) : Math.max(...yaws);

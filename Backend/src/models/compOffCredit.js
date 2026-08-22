@@ -16,7 +16,11 @@ module.exports = (sequelize, DataTypes) => {
   CompOffCredit.init(
     {
       employeeId: { type: DataTypes.BIGINT, allowNull: false },
-      sourceAttendanceId: { type: DataTypes.BIGINT, allowNull: false },
+      // Null for a credit manually granted via the "Assign Comp-Off" power
+      // (compOff.service.js::createCompOffCredit) — only the auto-detected
+      // path (checkAndCreateCompOffCredit) has a real worked-day attendance
+      // row behind it.
+      sourceAttendanceId: { type: DataTypes.BIGINT, allowNull: true },
       earnedDate: { type: DataTypes.DATEONLY, allowNull: false },
       status: {
         type: DataTypes.ENUM('pending_approval', 'approved', 'rejected', 'expired', 'used'),

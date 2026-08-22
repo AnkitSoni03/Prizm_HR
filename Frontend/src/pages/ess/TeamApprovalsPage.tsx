@@ -10,20 +10,27 @@ import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
 import { Avatar } from '../../components/ui/Avatar';
+import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../context/auth-context';
 import {
   approveLeaveRequest,
   approveOdRequest,
+  getCompOffHistory,
   getLeaveRequestHistory,
   getOdRequestHistory,
+  listCompOffCredits,
   listLeaveRequests,
   listOdRequests,
   rejectLeaveRequest,
   rejectOdRequest,
+  type CompOffCredit,
   type LeaveRequest,
   type OdRequest,
   type RequestEmployee,
 } from '../../api/companyAdmin/approvals';
+import { listEmployees } from '../../api/companyAdmin/employees';
+import type { Employee } from '../../api/tenancy';
+import { AssignCompOffModal } from '../company-admin/components/AssignCompOffModal';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; employeeId: string }) {
@@ -36,7 +43,7 @@ function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; em
   );
 }
 
-type Tab = 'leave' | 'od';
+type Tab = 'leave' | 'od' | 'compOff';
 
 const LIMIT = 20;
 
@@ -128,23 +135,41 @@ export function TeamApprovalsPage() {
   // Lets the notification bell deep-link straight into a tab.
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
-  const initialTab: Tab = requestedTab === 'od' ? 'od' : 'leave';
+  const initialTab: Tab = (['leave', 'od', 'compOff'] as Tab[]).includes(requestedTab as Tab)
+    ? (requestedTab as Tab)
+    : 'leave';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [statusFilter, setStatusFilter] = useState('');
   const [offset, setOffset] = useState(0);
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [odRequests, setOdRequests] = useState<OdRequest[]>([]);
+  const [compOffCredits, setCompOffCredits] = useState<CompOffCredit[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ tab: Tab; id: string } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [showAssignCompOff, setShowAssignCompOff] = useState(false);
+  const canAssignCompOff = hasPermission('comp_off:credit');
 
   async function load() {
     setIsLoading(true);
     setError(null);
     try {
+      if (activeTab === 'compOff') {
+        if (!canAssignCompOff) {
+          setCompOffCredits([]);
+          setTotal(0);
+          return;
+        }
+        const result = await listCompOffCredits({ status: statusFilter || undefined, limit: LIMIT, offset });
+        setCompOffCredits(result.data);
+        setTotal(result.pagination.total);
+        return;
+      }
+
       const domain = activeTab === 'leave' ? 'leave_request' : 'od_request';
       const scope = resolveScope(hasPermission, domain);
       if (!scope) {
@@ -177,6 +202,16 @@ export function TeamApprovalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, statusFilter, offset]);
 
+  // Only needed to populate the "Assign Comp-Off" employee picker.
+  useEffect(() => {
+    if (activeTab === 'compOff' && canAssignCompOff && employees.length === 0) {
+      listEmployees({ status: 'active', limit: 100 })
+        .then((result) => setEmployees(result.data))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   function switchTab(tab: Tab) {
     setActiveTab(tab);
     setStatusFilter('');
@@ -204,10 +239,12 @@ export function TeamApprovalsPage() {
   function loadHistory() {
     if (!historyTarget) return Promise.resolve([]);
     const { tab, id } = historyTarget;
-    return tab === 'leave' ? getLeaveRequestHistory(id) : getOdRequestHistory(id);
+    if (tab === 'leave') return getLeaveRequestHistory(id);
+    if (tab === 'od') return getOdRequestHistory(id);
+    return getCompOffHistory(id);
   }
 
-  const rows = activeTab === 'leave' ? leaveRequests : odRequests;
+  const rows = activeTab === 'leave' ? leaveRequests : activeTab === 'od' ? odRequests : compOffCredits;
 
   return (
     <div>
@@ -215,23 +252,31 @@ export function TeamApprovalsPage() {
         items={[
           { key: 'leave', label: 'Leave Requests' },
           { key: 'od', label: 'OD Requests' },
+          ...(canAssignCompOff ? [{ key: 'compOff', label: 'Comp-Off Credits' }] : []),
         ]}
         active={activeTab}
         onChange={(key) => switchTab(key as Tab)}
       />
 
-      <div className="mb-3 w-full sm:w-48">
-        <Select
-          id="team-approvals-status-filter"
-          label="Status"
-          value={statusFilter}
-          onChange={(event) => {
-            setOffset(0);
-            setStatusFilter(event.target.value);
-          }}
-          placeholder="All statuses"
-          options={STATUS_OPTIONS}
-        />
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div className="w-full sm:w-48">
+          <Select
+            id="team-approvals-status-filter"
+            label="Status"
+            value={statusFilter}
+            onChange={(event) => {
+              setOffset(0);
+              setStatusFilter(event.target.value);
+            }}
+            placeholder="All statuses"
+            options={STATUS_OPTIONS}
+          />
+        </div>
+        {activeTab === 'compOff' && canAssignCompOff && (
+          <Button type="button" onClick={() => setShowAssignCompOff(true)}>
+            Assign Comp-Off
+          </Button>
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -239,8 +284,14 @@ export function TeamApprovalsPage() {
       {!isLoading && !error && rows.length === 0 && (
         <EmptyStateCard
           icon={Users}
-          title={activeTab === 'leave' ? 'No leave requests' : 'No OD requests'}
-          description="Requests from employees who report to you will show up here."
+          title={
+            activeTab === 'leave' ? 'No leave requests' : activeTab === 'od' ? 'No OD requests' : 'No comp-off credits yet'
+          }
+          description={
+            activeTab === 'compOff'
+              ? 'Credits you assign to employees will show up here.'
+              : 'Requests from employees who report to you will show up here.'
+          }
         />
       )}
 
@@ -353,12 +404,63 @@ export function TeamApprovalsPage() {
         </>
       )}
 
+      {(isLoading || rows.length > 0) && activeTab === 'compOff' && (
+        <>
+          <Table
+            isLoading={isLoading}
+            rows={compOffCredits}
+            rowKey={(r) => r.id}
+            columns={[
+              {
+                key: 'employee',
+                header: 'Employee',
+                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+              },
+              { key: 'earnedDate', header: 'Earned Date', render: (r) => formatDisplayDate(r.earnedDate) },
+              {
+                key: 'expiryDate',
+                header: 'Expiry Date',
+                render: (r) => (r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never'),
+              },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (r) => (
+                  <Badge tone={STATUS_TONE[r.status] ?? 'neutral'} title={r.status === 'rejected' ? r.rejectionReason ?? undefined : undefined}>
+                    {r.status.replace('_', ' ')}
+                  </Badge>
+                ),
+              },
+              {
+                key: 'actions',
+                header: '',
+                className: 'w-28 text-right',
+                render: (r) => (
+                  <ActionButtons
+                    canApprove={false}
+                    canReject={false}
+                    onApprove={() => {}}
+                    onReject={() => {}}
+                    onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
+                  />
+                ),
+              },
+            ]}
+          />
+          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
+        </>
+      )}
+
       {rejectTarget && (
         <RejectReasonModal title="Reject request" onClose={() => setRejectTarget(null)} onConfirm={confirmReject} />
       )}
 
       {historyTarget && (
         <ApprovalHistoryModal title="Approval history" onClose={() => setHistoryTarget(null)} load={loadHistory} />
+      )}
+
+      {showAssignCompOff && (
+        <AssignCompOffModal employees={employees} onClose={() => setShowAssignCompOff(false)} onSaved={load} />
       )}
     </div>
   );

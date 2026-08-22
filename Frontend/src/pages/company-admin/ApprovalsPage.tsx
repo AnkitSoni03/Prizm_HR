@@ -6,6 +6,7 @@ import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { Pagination } from '../../components/ui/Pagination';
+import { Button } from '../../components/ui/Button';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
 import { Avatar } from '../../components/ui/Avatar';
@@ -33,6 +34,9 @@ import {
   type OdRequest,
   type RequestEmployee,
 } from '../../api/companyAdmin/approvals';
+import { listEmployees } from '../../api/companyAdmin/employees';
+import type { Employee } from '../../api/tenancy';
+import { AssignCompOffModal } from './components/AssignCompOffModal';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; employeeId: string }) {
@@ -138,6 +142,8 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ tab: Tab; id: string } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [showAssignCompOff, setShowAssignCompOff] = useState(false);
 
   const statusOptions =
     activeTab === 'compOff'
@@ -190,6 +196,17 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, statusFilter, offset]);
+
+  // Only needed to populate the "Assign Comp-Off" employee picker — lazy so
+  // a caller without comp_off:credit never pays for this extra request.
+  useEffect(() => {
+    if (activeTab === 'compOff' && hasPermission('comp_off:credit') && employees.length === 0) {
+      listEmployees({ status: 'active', limit: 100, ...extraParams })
+        .then((result) => setEmployees(result.data))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   function switchTab(tab: Tab) {
     setActiveTab(tab);
@@ -247,17 +264,24 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
         onChange={(key) => switchTab(key as Tab)}
       />
 
-      <div className="mb-3 w-full sm:w-48">
-        <Select
-          id="approvals-status-filter"
-          label="Status"
-          value={statusFilter}
-          onChange={(event) => {
-            setOffset(0);
-            setStatusFilter(event.target.value);
-          }}
-          options={statusOptions}
-        />
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div className="w-full sm:w-48">
+          <Select
+            id="approvals-status-filter"
+            label="Status"
+            value={statusFilter}
+            onChange={(event) => {
+              setOffset(0);
+              setStatusFilter(event.target.value);
+            }}
+            options={statusOptions}
+          />
+        </div>
+        {activeTab === 'compOff' && hasPermission('comp_off:credit') && (
+          <Button type="button" onClick={() => setShowAssignCompOff(true)}>
+            Assign Comp-Off
+          </Button>
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -463,6 +487,14 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
           title="Approval history"
           onClose={() => setHistoryTarget(null)}
           load={loadHistory}
+        />
+      )}
+
+      {showAssignCompOff && (
+        <AssignCompOffModal
+          employees={employees}
+          onClose={() => setShowAssignCompOff(false)}
+          onSaved={load}
         />
       )}
     </div>

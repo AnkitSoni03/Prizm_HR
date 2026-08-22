@@ -65,6 +65,33 @@ const POWER_CATALOG = [
     ],
   },
   {
+    key: 'assign_comp_off',
+    label: 'Assign Comp-Off',
+    description:
+      'Manually credit a comp-off day to any employee (credited immediately, no separate approval needed), plus manage Comp-Off Policies and enroll employees into one.',
+    // POST /leave/comp-off (compOff.service.js::createCompOffCredit) grants
+    // a credit directly as 'approved', so this bundle deliberately does NOT
+    // include comp_off:approve/reject (those stay part of the broader,
+    // company-wide approve_requests bundle above — unrelated concern: this
+    // is about creating credits, not deciding ones already pending).
+    // employee:read/department:read/brand:read are needed to browse/filter
+    // the employee directory to pick who to credit, same recurring gap as
+    // document_verification/run_payroll below. comp_off:read lets the
+    // holder see the Comp-Off Credits list to check what's already been
+    // granted. comp_off_policy:* is the separate "Comp Off Setting" page
+    // (policy CRUD + per-employee enrollment, which drives *automatic*
+    // comp-off earning on a worked holiday/weekoff) — bundled in here too
+    // since both are "comp-off administration" from the holder's point of
+    // view, even though they're unrelated mechanisms server-side (manual
+    // grant vs. auto-detection eligibility).
+    permissionCodes: [
+      'comp_off:credit', 'comp_off:read',
+      'comp_off_policy:create', 'comp_off_policy:read', 'comp_off_policy:update',
+      'comp_off_policy:delete', 'comp_off_policy:assign',
+      'employee:read', 'department:read', 'brand:read',
+    ],
+  },
+  {
     key: 'run_payroll',
     label: 'Manage & Run Payroll',
     description: 'Configure salary structures, add adjustments, and process/pay monthly payroll runs.',

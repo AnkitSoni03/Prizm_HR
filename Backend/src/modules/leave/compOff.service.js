@@ -72,6 +72,61 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
   return credit;
 }
 
+// Manual grant, via the "Assign Comp-Off" power (comp_off:credit) — unlike
+// checkAndCreateCompOffCredit above (system-triggered, always starts
+// pending_approval), a credit created here is granted directly as
+// 'approved': the caller already holds a permission specifically scoped to
+// handing out comp-off, so there's no separate decision step left to make.
+// No sourceAttendanceId (nullable — see the migration that relaxed it):
+// there's no worked holiday/weekoff day behind a manually-granted credit.
+async function createCompOffCredit({ companyId, employeeId, earnedDate, expiryDate, reason, actorUserId, actorEmployeeId }) {
+  if (!employeeId) throw new HttpError(400, 'employeeId is required');
+  if (!earnedDate) throw new HttpError(400, 'earnedDate is required');
+
+  const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
+  if (!employee) throw new HttpError(404, 'Employee not found');
+
+  const credit = await db.sequelize.transaction(async (t) => {
+    const created = await db.CompOffCredit.create(
+      {
+        employeeId,
+        sourceAttendanceId: null,
+        earnedDate,
+        status: 'approved',
+        approverId: actorEmployeeId || null,
+        approverUserId: actorUserId,
+        expiryDate: expiryDate || null,
+      },
+      { transaction: t }
+    );
+
+    await recordApprovalDecision({
+      companyId,
+      requestType: 'comp_off_credit',
+      requestId: created.id,
+      action: 'granted',
+      actorUserId,
+      actorEmployeeId: actorEmployeeId || null,
+      reason: reason || null,
+      transaction: t,
+    });
+
+    return created;
+  });
+
+  await notifyUser({
+    companyId,
+    userId: employee.userId,
+    type: 'approval_decision',
+    requestType: 'comp_off_credit',
+    requestId: credit.id,
+    title: 'You were credited a comp-off day',
+    body: `Earned ${earnedDate}`,
+  });
+
+  return credit;
+}
+
 async function listCompOffCredits({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
   if (employeeId) where.employeeId = employeeId;
@@ -193,6 +248,7 @@ async function rejectCompOffCredit({ companyId, id, approverId, approverUserId, 
 
 module.exports = {
   checkAndCreateCompOffCredit,
+  createCompOffCredit,
   listCompOffCredits,
   getCompOffCreditById,
   approveCompOffCredit,

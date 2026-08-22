@@ -39,6 +39,7 @@ async function requireReadAccess(req, res, next) {
 }
 
 router.get('/', requireReadAccess, controller.list);
+router.post('/', requirePermission('comp_off:credit'), controller.create);
 router.get('/:id/history', controller.history);
 router.patch('/:id/approve', requirePermission('comp_off:approve'), controller.approve);
 router.patch('/:id/reject', requirePermission('comp_off:reject'), controller.reject);

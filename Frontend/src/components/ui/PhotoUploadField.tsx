@@ -89,7 +89,14 @@ export function PhotoUploadField({
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    canvas.getContext('2d')?.drawImage(video, 0, 0);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      // Flip the capture to match the mirrored preview below, so the saved
+      // photo looks like what the user saw, not the camera's raw feed.
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+    }
     closeCamera();
     setEditingImageSrc(canvas.toDataURL('image/jpeg', 0.95));
   }
@@ -171,7 +178,7 @@ export function PhotoUploadField({
       {isCameraOpen && (
         <Modal title="Take Photo" onClose={closeCamera} widthClassName="max-w-sm">
           <div className="space-y-4">
-            <video ref={videoRef} muted playsInline className="w-full rounded-lg bg-black" />
+            <video ref={videoRef} muted playsInline className="w-full -scale-x-100 rounded-lg bg-black" />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={closeCamera}>
                 Cancel

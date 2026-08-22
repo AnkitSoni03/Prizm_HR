@@ -29,6 +29,23 @@ async function list(req, res, next) {
   }
 }
 
+async function create(req, res, next) {
+  try {
+    const credit = await service.createCompOffCredit({
+      companyId: req.auth.companyId,
+      employeeId: req.body.employeeId,
+      earnedDate: req.body.earnedDate,
+      expiryDate: req.body.expiryDate || null,
+      reason: req.body.reason,
+      actorUserId: req.auth.userId,
+      actorEmployeeId: req.auth.employeeId,
+    });
+    res.status(201).json({ data: credit });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function approve(req, res, next) {
   try {
     const credit = await service.approveCompOffCredit({
@@ -85,4 +102,4 @@ async function history(req, res, next) {
   }
 }
 
-module.exports = { list, approve, reject, history };
+module.exports = { list, create, approve, reject, history };

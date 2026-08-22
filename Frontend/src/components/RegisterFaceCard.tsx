@@ -214,7 +214,11 @@ export function RegisterFaceCard() {
 
       {cameraReady && (
         <div className="mt-4 space-y-4">
-          <video ref={videoRef} muted playsInline className="w-full rounded-lg bg-black" />
+          {/* CSS-only mirror so this behaves like a normal mirror, not the
+              camera's raw reversed feed — face-api.js detection and the
+              captured descriptor still read the video element's actual
+              unmirrored frame buffer, untouched by the transform. */}
+          <video ref={videoRef} muted playsInline className="w-full -scale-x-100 rounded-lg bg-black" />
 
           <div className="grid grid-cols-3 gap-2">
             {ANGLES.map(({ key, label, instruction }) => (

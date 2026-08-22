@@ -59,7 +59,7 @@ export function ApprovalHistoryModal({ title, onClose, load }: ApprovalHistoryMo
           entries.map((entry) => (
             <div key={entry.id} className="rounded-xl border border-border p-3">
               <div className="flex items-center justify-between gap-2">
-                <Badge tone={entry.action === 'approved' ? 'success' : 'danger'}>{entry.action}</Badge>
+                <Badge tone={entry.action === 'rejected' ? 'danger' : 'success'}>{entry.action}</Badge>
                 <span className="text-xs text-ink-muted">{formatDisplayDateTime(entry.decidedAt)}</span>
               </div>
               <p className="mt-2 text-sm text-ink">By {describeApprover(entry.actorUser)}</p>

@@ -1,10 +1,10 @@
 import { apiClient } from './client';
 
-export type LivenessChallenge = 'blink' | 'turn_left' | 'turn_right';
+export type LivenessChallenge = 'smile' | 'turn_left' | 'turn_right';
 
 export interface LivenessFrame {
   t: number;
-  ear: number;
+  smile: number;
   yaw: number;
 }
 
