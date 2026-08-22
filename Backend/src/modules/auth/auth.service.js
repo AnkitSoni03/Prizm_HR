@@ -1,11 +1,12 @@
 'use strict';
 
+const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
-const { getSignedDownloadUrl } = require('../../utils/gcs');
+const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
 const { isCompanyInactive } = require('../../utils/companyStatus');
 const { resolveEscalationContact } = require('../../utils/accountEscalation');
 const {
@@ -482,7 +483,7 @@ async function logout() {
 // CLAUDE.md's "tenant-scope hook + system-level rows" gotcha.
 async function getCurrentUser({ userId, companyId }) {
   const user = await db.User.findByPk(userId, {
-    attributes: ['id', 'email', 'employeeId'],
+    attributes: ['id', 'email', 'employeeId', 'photoUrl'],
   });
   if (!user) throw new HttpError(404, 'User not found');
 
@@ -547,6 +548,19 @@ async function getCurrentUser({ userId, companyId }) {
           console.error('Could not generate signed URL for profile photo:', err);
         }
       }
+    }
+  }
+
+  // Admin-only accounts (no linked Employee — Super Admin, Group Admin,
+  // Company Admin, Brand Admin, etc.) have their own photo on the User
+  // record itself (see uploadMyUserPhoto below). An Employee's own photo
+  // always wins when both somehow exist, matching the "photo lives on the
+  // Employee record" precedent above.
+  if (!photoUrl && user.photoUrl) {
+    try {
+      photoUrl = await getSignedDownloadUrl(user.photoUrl);
+    } catch (err) {
+      console.error('Could not generate signed URL for profile photo:', err);
     }
   }
 
@@ -647,6 +661,66 @@ async function changePassword({ userId, currentPassword, newPassword }) {
   return { user };
 }
 
+// Self-service profile photo for admin-only accounts (no linked Employee —
+// see auth.controller.js, which blocks this for any caller who does have an
+// employeeId, since that account manages its photo via the Employee record
+// instead, per getCurrentUser's priority above). Same GCS pipeline and
+// replace-wholesale-then-delete-previous pattern as
+// employee.service.js::uploadEmployeePhoto/removeEmployeePhoto.
+async function withUserPhotoUrl(user) {
+  if (!user.photoUrl) return { id: user.id, photoUrl: null, photoDownloadUrl: null };
+  try {
+    return { id: user.id, photoUrl: user.photoUrl, photoDownloadUrl: await getSignedDownloadUrl(user.photoUrl) };
+  } catch (err) {
+    console.error('Could not generate signed URL for user photo:', err);
+    return { id: user.id, photoUrl: user.photoUrl, photoDownloadUrl: null };
+  }
+}
+
+async function uploadMyUserPhoto({ userId, buffer, originalName, mimeType }) {
+  const user = await db.User.findByPk(userId);
+  if (!user) throw new HttpError(404, 'User not found');
+
+  if (user.photoUrl) {
+    try {
+      await deleteObject(user.photoUrl);
+    } catch (err) {
+      console.error('Could not delete previous user photo:', err);
+    }
+  }
+
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const destination = buildObjectPath({
+    // Super Admin / Group Admin have no companyId of their own — 'platform'
+    // keeps the bucket's per-tenant folder convention (see gcs.js) intact
+    // instead of a literal "null" segment.
+    companyId: user.companyId || 'platform',
+    resource: 'user-photos',
+    resourceId: user.id,
+    fileName: `${crypto.randomUUID()}-${safeName}`,
+  });
+  await uploadBuffer({ buffer, destination, contentType: mimeType });
+
+  await user.update({ photoUrl: destination });
+  return withUserPhotoUrl(user);
+}
+
+async function removeMyUserPhoto({ userId }) {
+  const user = await db.User.findByPk(userId);
+  if (!user) throw new HttpError(404, 'User not found');
+
+  if (user.photoUrl) {
+    try {
+      await deleteObject(user.photoUrl);
+    } catch (err) {
+      console.error('Could not delete user photo:', err);
+    }
+    await user.update({ photoUrl: null });
+  }
+
+  return withUserPhotoUrl(user);
+}
+
 module.exports = {
   inviteCompanyAdmin,
   inviteGroupAdmin,
@@ -661,4 +735,6 @@ module.exports = {
   requestPasswordReset,
   resetPassword,
   changePassword,
+  uploadMyUserPhoto,
+  removeMyUserPhoto,
 };

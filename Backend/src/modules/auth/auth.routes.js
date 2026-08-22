@@ -4,6 +4,7 @@ const { Router } = require('express');
 const controller = require('./auth.controller');
 const { requireAuth, requireSuperAdmin } = require('../../middleware/auth.middleware');
 const { requirePermission } = require('../../middleware/rbac.middleware');
+const { upload } = require('../../middleware/upload.middleware');
 
 const router = Router();
 
@@ -50,5 +51,11 @@ router.post('/reset-password', controller.resetPassword);
 // Any authenticated user may change their own password — no permission
 // code, since this isn't a resource-scoped action like the rest of RBAC.
 router.post('/change-password', requireAuth, controller.changePassword);
+// Self-service profile photo for admin-only accounts (no linked Employee —
+// see employee.routes.js's own /me/photo pair for accounts that do have
+// one). Same "not a resource-scoped RBAC action" reasoning as
+// change-password above.
+router.post('/me/photo', requireAuth, upload.single('photo'), controller.uploadMyPhoto);
+router.delete('/me/photo', requireAuth, controller.removeMyPhoto);
 
 module.exports = router;

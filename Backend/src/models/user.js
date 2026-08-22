@@ -50,6 +50,11 @@ module.exports = (sequelize, DataTypes) => {
       // instantly invalidates every outstanding refresh token for this user
       // across all devices, without a session table to revoke rows in.
       tokenVersion: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      // GCS object path (private bucket), same convention as
+      // employees.photo_url — only meaningful for admin-only accounts with
+      // no linked Employee row (an ESS employee's photo lives on the
+      // Employee record instead; see auth.service.js::getCurrentUser).
+      photoUrl: { type: DataTypes.STRING, allowNull: true },
     },
     {
       sequelize,

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Pencil, ShieldAlert } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Tabs } from '../../components/ui/Tabs';
+import { AccountProfileCard } from '../../components/AccountProfileCard';
 import { ChangePasswordCard } from '../../components/ChangePasswordCard';
 import { useAuth } from '../../context/auth-context';
 import { EditCompanyModal } from '../super-admin/components/EditCompanyModal';
@@ -95,6 +96,8 @@ export function SettingsPage() {
 
       {activeTab === 'profile' && (
         <div className="space-y-6">
+          <AccountProfileCard />
+
           {!companyId && <p className="text-sm text-danger">Could not determine your company.</p>}
           {companyId && isLoading && <p className="text-sm text-ink-muted">Loading company profile…</p>}
           {companyId && !isLoading && (error || !company) && (

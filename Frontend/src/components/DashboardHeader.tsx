@@ -53,7 +53,7 @@ export function DashboardHeader({
       className="relative mb-4 overflow-hidden rounded-2xl p-3.5 shadow-md sm:mb-6 sm:p-5"
       style={{ background: "var(--banner-gradient)" }}
     >
-      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           {user?.employeeId ? (
             <Link
@@ -102,14 +102,17 @@ export function DashboardHeader({
         </div>
 
         {stat && (
-          <div className="flex shrink-0 items-end justify-end gap-1">
+          // Full width on mobile — stretches to cover the whole row instead
+          // of floating as a small box on the right — reverts to a
+          // compact, right-aligned, fixed-width tile from sm: up.
+          <div className="flex w-full items-end justify-end gap-1 sm:w-auto sm:shrink-0">
             <img
               src="/dashboard-profile.png"
               alt=""
               aria-hidden="true"
               className="hidden h-20 w-auto shrink-0 object-contain object-bottom drop-shadow-lg md:block lg:h-24"
             />
-            <div className="relative flex shrink-0 items-center gap-2.5 rounded-xl border border-white/20 bg-white/15 px-3.5 py-2.5 shadow-lg backdrop-blur-md sm:min-w-[220px]">
+            <div className="relative flex w-full items-center gap-2.5 rounded-xl border border-white/20 bg-white/15 px-3.5 py-2.5 shadow-lg backdrop-blur-md sm:w-auto sm:shrink-0 sm:min-w-[220px]">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white">
                 <stat.icon className="h-4 w-4" strokeWidth={1.75} />
               </span>

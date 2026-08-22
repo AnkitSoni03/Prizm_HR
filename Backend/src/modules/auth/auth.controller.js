@@ -383,6 +383,51 @@ async function changePassword(req, res, next) {
   }
 }
 
+// Self-service profile photo — admin-only accounts (Super Admin, Group
+// Admin, Company Admin, Brand Admin, etc. with no linked Employee record).
+// An account that *is* linked to an Employee manages its photo from there
+// instead (employee.controller.js's uploadMyPhoto/removeMyPhoto) since
+// getCurrentUser always prefers the Employee's photo when both exist —
+// letting this endpoint silently no-op for that case would be confusing, so
+// it's rejected outright instead.
+async function uploadMyPhoto(req, res, next) {
+  try {
+    if (req.auth.employeeId) {
+      return res
+        .status(400)
+        .json({ error: 'This account has a linked employee profile — manage your photo from there instead.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'file is required' });
+    }
+
+    const result = await authService.uploadMyUserPhoto({
+      userId: req.auth.userId,
+      buffer: req.file.buffer,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeMyPhoto(req, res, next) {
+  try {
+    if (req.auth.employeeId) {
+      return res
+        .status(400)
+        .json({ error: 'This account has a linked employee profile — manage your photo from there instead.' });
+    }
+
+    const result = await authService.removeMyUserPhoto({ userId: req.auth.userId });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   signupInvite,
   signupInviteGroup,
@@ -397,4 +442,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   changePassword,
+  uploadMyPhoto,
+  removeMyPhoto,
 };
