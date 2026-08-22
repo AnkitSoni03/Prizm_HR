@@ -10,6 +10,7 @@ import {
   FileText,
   LogIn,
   LogOut,
+  Megaphone,
   PartyPopper,
   RefreshCw,
   Send,
@@ -26,6 +27,7 @@ import { listHolidays, listMyLeaveBalances, listMyLeaveRequests, type Holiday } 
 import { listMyOdRequests } from '../../api/ess/od';
 import { getMyProfile, type EmployeeProfile } from '../../api/ess/profile';
 import { listPowers, type Power } from '../../api/powers';
+import { listCompanyPolicies, type CompanyPolicy } from '../../api/companyAdmin/companyPolicies';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { HeroStatTile } from '../../components/ui/HeroStatTile';
 import { StatTileSkeleton } from '../../components/ui/StatTile';
@@ -118,7 +120,10 @@ const EMPLOYEE_STATUS_LABEL: Record<EmployeeProfile['status'], string> = {
   archived: 'Archived',
 };
 
-const QUICK_ACTIONS: QuickAction[] = [
+// Icons only — accentColor is filled in at render time from the current
+// theme's chart palette (QUICK_ACTIONS itself can't call useTheme, it's a
+// module-level const), cycling the same 4 validated hues HeroStatTile uses.
+const QUICK_ACTIONS_BASE: QuickAction[] = [
   { label: 'Apply Leave', to: '/ess/leave', icon: CalendarClock },
   { label: 'Apply OD', to: '/ess/od', icon: Send },
   { label: 'My Comp-Off', to: '/ess/comp-off', icon: RefreshCw },
@@ -139,6 +144,8 @@ interface Summary {
   leaveUsedTotal: number;
   pendingRequests: number;
   monthAttendance: Attendance[];
+  monthPresent: number;
+  monthWorkingDays: number;
 }
 
 // No backend dashboard-summary endpoint covers Employees (/dashboard/summary
@@ -154,8 +161,14 @@ export function EssDashboard() {
   const [department, setDepartment] = useState<string | null>(null);
   const [employeeStatus, setEmployeeStatus] = useState<EmployeeProfile['status'] | null>(null);
   const [upcomingHolidays, setUpcomingHolidays] = useState<Holiday[]>([]);
+  const [latestPolicy, setLatestPolicy] = useState<CompanyPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [myPowers, setMyPowers] = useState<Power[]>([]);
+
+  const quickActions: QuickAction[] = QUICK_ACTIONS_BASE.map((action, i) => ({
+    ...action,
+    accentColor: palette.categorical[i % palette.categorical.length],
+  }));
 
   // Only ever lists a power when *every* one of its constituent permission
   // codes is present — matches how assignEmployeePowers grants them as an
@@ -196,6 +209,15 @@ export function EssDashboard() {
 
   useEffect(() => {
     if (!user?.employeeId) return;
+    listCompanyPolicies({ rosterGroupId: user.rosterGroupId ?? 'none', limit: 1 })
+      .then((result) => setLatestPolicy(result.data[0] ?? null))
+      .catch(() => {
+        /* non-critical — the dashboard still works without this section */
+      });
+  }, [user?.employeeId, user?.rosterGroupId]);
+
+  useEffect(() => {
+    if (!user?.employeeId) return;
     const today = todayStr();
 
     Promise.all([
@@ -211,10 +233,26 @@ export function EssDashboard() {
     ])
       .then(([attendance, balances, leaveRequests, odRequests, regularizations]) => {
         const todayRecord = attendance.data.find((a) => a.date === today) ?? null;
+        // Same present/workingDays definition as MonthlyAttendanceCalendar
+        // (holiday/weekoff excluded from the denominator) — kept in sync so
+        // the header's "This Month" tile never disagrees with the calendar
+        // widget directly below it.
+        let monthPresent = 0;
+        let monthWorkingDays = 0;
+        for (const r of attendance.data) {
+          if (r.status === 'present' || r.status === 'on_duty') {
+            monthPresent++;
+            monthWorkingDays++;
+          } else if (r.status === 'half_day' || r.status === 'leave' || r.status === 'absent') {
+            monthWorkingDays++;
+          }
+        }
         setSummary({
           todayStatus: todayRecord?.status ?? null,
           checkIn: todayRecord?.checkIn ?? null,
           checkOut: todayRecord?.checkOut ?? null,
+          monthPresent,
+          monthWorkingDays,
           leaveBalanceTotal: balances.reduce((sum, b) => sum + Number(b.balance), 0),
           leaveBreakdown: balances.map((b) => ({
             name: b.leaveType?.name ?? 'Leave',
@@ -268,7 +306,21 @@ export function EssDashboard() {
           employeeStatus
             ? { label: EMPLOYEE_STATUS_LABEL[employeeStatus], tone: employeeStatus === 'active' ? 'success' : 'neutral' }
             : undefined
-        }      />
+        }
+        tagline="Stay productive, stay positive! You've got this. "
+        stat={{
+          label: 'This Month',
+          value: (
+            <>
+              {summary.monthPresent}
+              <span className="text-sm font-medium text-white/60">/{summary.monthWorkingDays}</span>
+            </>
+          ),
+          hint: 'Days Present',
+          icon: CalendarRange,
+          progressPct: summary.monthWorkingDays > 0 ? (summary.monthPresent / summary.monthWorkingDays) * 100 : 0,
+        }}
+      />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <HeroStatTile
@@ -400,42 +452,51 @@ export function EssDashboard() {
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">
-          <div className="mb-3 flex items-center gap-2 sm:mb-4">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
-              <PartyPopper className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
-            </span>
-            <h3 className="text-sm font-semibold text-ink sm:text-base">Upcoming Holidays</h3>
-          </div>
-          {upcomingHolidays.length === 0 ? (
-            <p className="flex-1 text-xs text-ink-muted sm:text-sm">No holidays scheduled in the next 6 months.</p>
-          ) : (
-            <ul className="flex-1 space-y-2 sm:space-y-2.5">
-              {upcomingHolidays.map((holiday) => (
-                <li
-                  key={holiday.id}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-primary-light/60 px-3 py-2.5 sm:px-3.5 sm:py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium text-ink sm:text-sm">{holiday.name}</p>
-                    <p className="text-[11px] text-ink-muted sm:text-xs">{formatDisplayDate(holiday.date)}</p>
-                  </div>
-                  <Badge tone="neutral">{daysUntil(holiday.date)}d away</Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Link
-            to="/ess/holidays"
-            className="group mt-4 flex items-center justify-center gap-1.5 rounded-lg bg-primary-light px-4 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary hover:text-white sm:text-sm"
-          >
-            View All Holidays
-            <ChevronRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.75} />
-          </Link>
+        <div className="lg:col-span-2">
+          <QuickActions actions={quickActions} />
         </div>
 
-        <div className="lg:col-span-2">
-          <QuickActions actions={QUICK_ACTIONS} />
+        <div className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">
+          <div className="mb-3 flex items-center justify-between gap-2 sm:mb-4">
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
+                <Megaphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
+              </span>
+              <h3 className="text-sm font-semibold text-ink sm:text-base">Company Notices</h3>
+            </div>
+            <Link to="/ess/holidays" className="text-xs font-medium text-primary hover:underline">
+              View All
+            </Link>
+          </div>
+
+          {upcomingHolidays.length === 0 && !latestPolicy ? (
+            <p className="flex-1 text-xs text-ink-muted sm:text-sm">Nothing new to report right now.</p>
+          ) : (
+            <ul className="flex-1 space-y-2 sm:space-y-2.5">
+              {upcomingHolidays.slice(0, 2).map((holiday) => (
+                <li key={holiday.id} className="rounded-lg bg-page px-3 py-2.5 sm:px-3.5 sm:py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-ink sm:text-sm">{holiday.name}</p>
+                      <p className="text-[11px] text-ink-muted sm:text-xs">{formatDisplayDate(holiday.date)}</p>
+                    </div>
+                    <Badge tone="neutral">{daysUntil(holiday.date)}d away</Badge>
+                  </div>
+                </li>
+              ))}
+              {latestPolicy && (
+                <li className="rounded-lg bg-page px-3 py-2.5 sm:px-3.5 sm:py-3">
+                  <Link to="/ess/policies" className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium text-ink sm:text-sm">{latestPolicy.title}</p>
+                      <p className="text-[11px] text-ink-muted sm:text-xs">Company Policy</p>
+                    </div>
+                    <Badge tone="success">Update</Badge>
+                  </Link>
+                </li>
+              )}
+            </ul>
+          )}
         </div>
       </div>
 

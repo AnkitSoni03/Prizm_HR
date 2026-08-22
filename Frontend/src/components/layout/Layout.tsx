@@ -24,7 +24,7 @@ export function Layout({ navItems, portalLabel, title, children }: LayoutProps) 
         onClose={() => setIsMobileMenuOpen(false)}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar title={title} onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
+        <Topbar title={title} onOpenMobileMenu={() => setIsMobileMenuOpen(true)} navItems={navItems} />
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-8">{children}</main>
       </div>
       <HolidayReminderModal />

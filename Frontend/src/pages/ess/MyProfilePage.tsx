@@ -1,6 +1,19 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import axios from 'axios';
-import { Check, FileText, Pencil, Trash2, X } from 'lucide-react';
+import {
+  Briefcase,
+  CalendarClock,
+  Check,
+  FileText,
+  HelpCircle,
+  Layers,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Table } from '../../components/ui/Table';
 import { Input } from '../../components/ui/Input';
@@ -63,8 +76,27 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SectionLabel({ children }: { children: string }) {
-  return <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:text-xs">{children}</p>;
+function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: string }) {
+  return (
+    <p className="mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary sm:text-xs">
+      <Icon className="h-3.5 w-3.5" strokeWidth={2} />
+      {children}
+    </p>
+  );
+}
+
+function RosterCard({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary">
+        <Icon className="h-4 w-4" strokeWidth={1.75} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">{label}</p>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export function MyProfilePage() {
@@ -239,7 +271,7 @@ export function MyProfilePage() {
         </div>
 
         <div className="mb-5 sm:mb-6">
-          <SectionLabel>Employment Details</SectionLabel>
+          <SectionLabel icon={Briefcase}>Employment Details</SectionLabel>
           <div className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
             {profile.brand ? (
               <Field label="Brand" value={profile.brand.name} />
@@ -257,12 +289,9 @@ export function MyProfilePage() {
         </div>
 
         <div>
-          <SectionLabel>Roster</SectionLabel>
+          <SectionLabel icon={Layers}>Roster</SectionLabel>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-            <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">
-                Assigned Roster
-              </p>
+            <RosterCard icon={Users} label="Assigned Roster">
               {profile.rosterGroup ? (
                 <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">{profile.rosterGroup.name}</p>
               ) : (
@@ -271,9 +300,8 @@ export function MyProfilePage() {
                   admin assigns one.
                 </p>
               )}
-            </div>
-            <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">Shift</p>
+            </RosterCard>
+            <RosterCard icon={CalendarClock} label="Shift">
               {profile.todayRoster?.shift ? (
                 <>
                   <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">
@@ -298,9 +326,8 @@ export function MyProfilePage() {
               ) : (
                 <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">Following your Roster&apos;s shift</p>
               )}
-            </div>
-            <div className="rounded-lg border border-border bg-page px-3 py-2.5 sm:px-4 sm:py-3">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted sm:text-xs">Comp-Off</p>
+            </RosterCard>
+            <RosterCard icon={RefreshCw} label="Comp-Off">
               {profile.compOffPolicy ? (
                 <p className="mt-0.5 text-xs sm:mt-1 sm:text-sm">
                   <Badge tone="success">Active</Badge>
@@ -311,14 +338,17 @@ export function MyProfilePage() {
                   <Badge tone="neutral">Not Enrolled</Badge>
                 </p>
               )}
-            </div>
+            </RosterCard>
           </div>
         </div>
 
-        <p className="mt-5 text-[11px] text-ink-muted sm:mt-6 sm:text-xs">
-          Need something updated here? Reach out to your Company Admin or HR team — profile changes aren&apos;t
-          self-service.
-        </p>
+        <div className="mt-5 flex items-center gap-2.5 rounded-lg bg-primary-light px-3.5 py-2.5 sm:mt-6 sm:px-4 sm:py-3">
+          <HelpCircle className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
+          <p className="text-[11px] text-ink-muted sm:text-xs">
+            Need something updated here? Reach out to your Company Admin or HR team — profile changes aren&apos;t
+            self-service.
+          </p>
+        </div>
       </div>
 
       {pendingRequests.length > 0 && (

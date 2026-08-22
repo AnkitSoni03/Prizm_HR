@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { GripVertical, LogOut, Loader2, Moon, Sun, X } from 'lucide-react';
 import type { NavItem } from '../../routes/navConfig';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
-import { Avatar } from '../ui/Avatar';
 
 // A shade under a second so it registers as a real transition (session
 // teardown feels intentional) without becoming an actual annoyance to wait
@@ -34,7 +33,7 @@ function readStoredWidth(): number {
 }
 
 export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps) {
-  const { user, hasPermission, logout } = useAuth();
+  const { hasPermission, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -137,40 +136,6 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
           <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-11 w-11 shrink-0 rounded-xl object-cover sm:h-14 sm:w-14" />
           <p className="truncate text-[11px] text-gray-400 sm:text-xs">{portalLabel}</p>
         </div>
-
-        {/* Mobile-only profile card — on desktop this same info lives in the
-            Topbar instead, so this block is hidden at md and up. */}
-        {(() => {
-          const displayName = user?.name ?? user?.email ?? 'Account';
-          const inner = (
-            <>
-              <Avatar src={user?.photoUrl} alt={displayName} size="lg" className="ring-2 ring-white/15" />
-              <span className="min-w-0 flex-1 text-left leading-tight">
-                <span className="block truncate text-sm font-semibold text-white">{displayName}</span>
-                {user?.designation ? (
-                  <span className="block truncate text-xs font-medium text-primary">{user.designation}</span>
-                ) : (
-                  <span className="block truncate text-xs text-gray-400">{user?.email}</span>
-                )}
-              </span>
-            </>
-          );
-          return (
-            <div className="border-b border-white/10 px-4 py-3 md:hidden">
-              {user?.employeeId ? (
-                <Link
-                  to="/ess/profile"
-                  onClick={onClose}
-                  className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 transition-colors active:scale-[0.98] hover:bg-white/10"
-                >
-                  {inner}
-                </Link>
-              ) : (
-                <div className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5">{inner}</div>
-              )}
-            </div>
-          );
-        })()}
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {visibleNavItems.map((item) => {

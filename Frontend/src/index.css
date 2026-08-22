@@ -28,6 +28,11 @@
 
   --glow: 0 0 #0000;
 
+  /* DashboardHeader's welcome banner — a flat single-color surface (no
+     gradient, no tonal variation), but still themed so dark mode doesn't
+     sit a bright light-mode blue on top of an otherwise near-black UI. */
+  --banner-gradient: #2f4d90;
+
   /* Elevation scale, tuned per-theme — a black drop shadow all but
      disappears against a dark navy card, so dark mode leans on a larger,
      softer spread instead of just upping the opacity of the same shadow. */
@@ -68,6 +73,8 @@
   --danger: #f87171;
 
   --glow: 0 0 0 1px rgb(84 120 208 / 0.25), 0 0 18px rgb(84 120 208 / 0.35);
+
+  --banner-gradient: #131f3f;
 
   --elevation-xs: 0 1px 2px 0 rgb(0 0 0 / 0.28);
   --elevation-sm:
