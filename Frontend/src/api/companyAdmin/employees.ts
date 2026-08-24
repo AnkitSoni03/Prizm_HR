@@ -57,10 +57,64 @@ export async function updateEmployee(
     dateOfBirth: string | null;
     managerId: string | null;
     workState: string | null;
-    rosterGroupId: string | null;
   }>
 ): Promise<Employee> {
   const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}`, input);
+  return data.data;
+}
+
+// Per-leave-type breakdown of what a Roster change did to this employee's
+// existing balances — see Backend/src/modules/org/rosterTransfer.service.js.
+export interface RosterTransferDetail {
+  leaveTypeId: string;
+  leaveTypeName: string;
+  action: 'kept' | 'reset' | 'moved_to_carry_forward' | 'capped_to_zero';
+  previousBalance?: number;
+  newAllotted?: number;
+  matchedInNewRoster?: boolean;
+  balance?: number;
+  carryForwardAmount?: number;
+  carryForwardLeaveTypeId?: string;
+  carryForwardLeaveTypeName?: string;
+}
+
+export interface RosterTransferLog {
+  id: string;
+  fromRosterGroupId: string | null;
+  toRosterGroupId: string | null;
+  carryForward: boolean;
+  createdAt: string;
+  actorUser: { id: string; email: string } | null;
+  fromRosterGroup: { id: string; name: string } | null;
+  toRosterGroup: { id: string; name: string } | null;
+  details: RosterTransferDetail[];
+}
+
+// Dedicated "Change Roster" action (replaces plain rosterGroupId in
+// updateEmployee) — a Roster switch can leave real leave balance behind, so
+// the caller must explicitly decide whether to carry it forward. Returns the
+// per-leave-type breakdown so the caller can show a summary of what happened.
+export async function changeEmployeeRoster(
+  id: string,
+  input: { rosterGroupId: string | null; carryForward: boolean }
+): Promise<{ employee: Employee; details: RosterTransferDetail[] }> {
+  const { data } = await apiClient.patch<{ data: Employee; details: RosterTransferDetail[] }>(
+    `/employees/${id}/roster`,
+    input
+  );
+  return { employee: data.data, details: data.details };
+}
+
+// Same Roster, no leave-balance decision — just pushes this employee's own
+// validity window (rosterAssignedAt) forward from today. See
+// Backend/src/modules/org/rosterTransfer.service.js::renewEmployeeRoster.
+export async function renewEmployeeRoster(id: string): Promise<Employee> {
+  const { data } = await apiClient.post<{ data: Employee }>(`/employees/${id}/roster/renew`, {});
+  return data.data;
+}
+
+export async function listRosterTransferHistory(id: string): Promise<RosterTransferLog[]> {
+  const { data } = await apiClient.get<{ data: RosterTransferLog[] }>(`/employees/${id}/roster-transfer-history`);
   return data.data;
 }
 

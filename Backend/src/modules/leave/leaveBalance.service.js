@@ -54,6 +54,38 @@ async function resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId, trans
   return link ? link.leavePolicy : null;
 }
 
+// Pure calculation, extracted so rosterTransfer.service.js can compute what
+// a leave type's FRESH allotment would be under a given policy (the "No,
+// don't carry forward — recompute per the new Roster" path) without
+// duplicating the yearly/monthly/monthly_reset branching. `policy: null`
+// (no applicable LeavePolicy) always yields 0.
+function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining, dateStr }) {
+  if (!policy) return 0;
+
+  if (policy.accrual === 'yearly') {
+    return Number(policy.annualQuota);
+  }
+  if (policy.accrual === 'monthly_reset') {
+    // Flat amount for THIS month's own row — no division/accumulation.
+    return Number(policy.annualQuota);
+  }
+  if (cycleStart && cycleEnd) {
+    const monthlyAmount = Number(policy.annualQuota) / 12;
+    const months = monthsAccruedInCycle({
+      cycleStart,
+      cycleEnd,
+      dateOfJoining,
+      asOf: dateStr ? new Date(`${dateStr}T00:00:00`) : undefined,
+    });
+    return Math.round(monthlyAmount * months * 100) / 100;
+  }
+  // An explicit `year` was passed with no resolvable cycle window (the
+  // adjustLeaveBalance path) — monthly accrual can't be computed without
+  // one, so this seeds at 0; adjustLeaveBalance immediately overwrites
+  // `allotted` with its own explicit value anyway.
+  return 0;
+}
+
 // Lazily creates the employee's leave_balances row for (leaveTypeId, cycle)
 // from the company's leave_policies row the first time it's needed, rather
 // than requiring a separate backfill step per PHASE4_MODELS.md's "at policy
@@ -93,6 +125,8 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
       cycleType: leaveType ? leaveType.cycleType : 'calendar',
       dateOfJoining: employee ? employee.dateOfJoining : null,
       dateStr,
+      customCycleStartMonth: leaveType ? leaveType.customCycleStartMonth : null,
+      customCycleStartDay: leaveType ? leaveType.customCycleStartDay : null,
     });
     cycleKey = cycle.cycleKey;
     cycleStart = cycle.cycleStart;
@@ -125,28 +159,7 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
   let balance = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
   if (balance) return balance;
 
-  let allotted = 0;
-  if (policy) {
-    if (policy.accrual === 'yearly') {
-      allotted = Number(policy.annualQuota);
-    } else if (policy.accrual === 'monthly_reset') {
-      // Flat amount for THIS month's own row — no division/accumulation.
-      allotted = Number(policy.annualQuota);
-    } else if (cycleStart && cycleEnd) {
-      const monthlyAmount = Number(policy.annualQuota) / 12;
-      const months = monthsAccruedInCycle({
-        cycleStart,
-        cycleEnd,
-        dateOfJoining: employee ? employee.dateOfJoining : null,
-        asOf: dateStr ? new Date(`${dateStr}T00:00:00`) : undefined,
-      });
-      allotted = Math.round(monthlyAmount * months * 100) / 100;
-    }
-    // else: an explicit `year` was passed with no resolvable cycle window
-    // (the adjustLeaveBalance path) — monthly accrual can't be computed
-    // without one, so this seeds at 0; adjustLeaveBalance immediately
-    // overwrites `allotted` with its own explicit value anyway.
-  }
+  let allotted = computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining: employee ? employee.dateOfJoining : null, dateStr });
 
   // Carry-forward: if this leave type allows it, roll in whatever remained
   // unused at the end of the immediately-preceding PERIOD (capped at
@@ -236,9 +249,22 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
 // itself (unlike payroll's payslip_components) — if an admin changes a
 // policy's accrual after the balance was created, this shows the CURRENT
 // accrual, which only matters cosmetically since it's purely informational.
+//
+// ALSO filters out any row for a leave type the employee's CURRENT Roster
+// no longer governs (or every row, if they have no Roster at all) — the
+// own-scope enforcement of "Roster is the sole determinant of which
+// LeavePolicy governs an employee" (CLAUDE.md). rosterTransfer.service.js's
+// changeEmployeeRoster is the write-side half of this guarantee (it resets
+// or relocates a balance the moment a Roster actually changes); this is the
+// read-side backstop so a stale row from ANY cause — a roster change from
+// before that logic existed, a manual leave_balance:adjust correction, a
+// future bug — can never be shown to the employee as real, usable balance.
+// The company-wide admin list (listLeaveBalances, no attachAccrualInfo call)
+// is deliberately NOT filtered this way — an admin needs to see a stray
+// balance to clean it up, not have it hidden from them too.
 async function attachAccrualInfo(rows, employeeId) {
   const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['rosterGroupId'] });
-  if (!employee || !employee.rosterGroupId) return rows.map((row) => ({ ...(row.toJSON ? row.toJSON() : row), accrual: null }));
+  if (!employee || !employee.rosterGroupId) return [];
 
   const links = await db.RosterGroupLeavePolicy.findAll({
     where: { rosterGroupId: employee.rosterGroupId },
@@ -246,7 +272,9 @@ async function attachAccrualInfo(rows, employeeId) {
   });
   const accrualByTypeId = new Map(links.map((link) => [String(link.leaveTypeId), link.leavePolicy.accrual]));
 
-  return rows.map((row) => {
+  return rows
+    .filter((row) => accrualByTypeId.has(String(row.leaveTypeId)))
+    .map((row) => {
     const plain = row.toJSON ? row.toJSON() : row;
     return { ...plain, accrual: accrualByTypeId.get(String(plain.leaveTypeId)) ?? null };
   });
@@ -301,4 +329,5 @@ module.exports = {
   adjustLeaveBalance,
   monthsAccruedInCycle,
   resolveLeavePolicy,
+  computeAllottedForPolicy,
 };

@@ -20,6 +20,11 @@ export interface RosterPolicyGroup {
   companyId: string;
   name: string;
   description: string | null;
+  // Optional validity period ("6 months", "45 days") — both null means no
+  // expiry. Anchored per-employee at assignment time, not to the Roster
+  // itself — see Employee.rosterAssignedAt and utils/rosterValidity.ts.
+  validityValue: number | null;
+  validityUnit: 'days' | 'months' | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,14 +60,24 @@ export async function getRosterGroup(id: string): Promise<RosterPolicyGroupDetai
   return data.data;
 }
 
-export async function createRosterGroup(input: { name: string; description?: string }): Promise<RosterPolicyGroup> {
+export async function createRosterGroup(input: {
+  name: string;
+  description?: string | null;
+  validityValue?: number | null;
+  validityUnit?: 'days' | 'months' | null;
+}): Promise<RosterPolicyGroup> {
   const { data } = await apiClient.post<{ data: RosterPolicyGroup }>('/roster-groups', input);
   return data.data;
 }
 
 export async function updateRosterGroup(
   id: string,
-  input: Partial<{ name: string; description: string | null }>
+  input: Partial<{
+    name: string;
+    description: string | null;
+    validityValue: number | null;
+    validityUnit: 'days' | 'months' | null;
+  }>
 ): Promise<RosterPolicyGroup> {
   const { data } = await apiClient.patch<{ data: RosterPolicyGroup }>(`/roster-groups/${id}`, input);
   return data.data;

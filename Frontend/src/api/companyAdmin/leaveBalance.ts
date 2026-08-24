@@ -11,9 +11,13 @@ export interface LeaveType {
   // Cap on days carried forward when carryForward is true. null = unlimited
   // (carryForward: false is what means "zero", not this).
   maxCarryForwardDays: number | null;
-  // 'calendar' (Jan 1 – Dec 31) or 'anniversary' (resets on the employee's
-  // own joining-date anniversary).
-  cycleType: 'calendar' | 'anniversary';
+  // 'calendar' (Jan 1 – Dec 31), 'anniversary' (resets on the employee's own
+  // joining-date anniversary), or 'custom' (an admin-defined recurring
+  // month/day, e.g. April 1 for a fiscal year — see customCycleStartMonth/Day).
+  cycleType: 'calendar' | 'anniversary' | 'custom';
+  // Only meaningful when cycleType is 'custom'.
+  customCycleStartMonth: number | null;
+  customCycleStartDay: number | null;
   // Pure UX default that pre-fills the Add Leave Policy form's Accrual
   // field when this type is selected — never enforced, a Roster-specific
   // policy can still pick a different accrual for the same leave type.
@@ -42,7 +46,9 @@ interface LeaveTypeWriteInput {
   isPaid?: boolean;
   carryForward?: boolean;
   maxCarryForwardDays?: number | null;
-  cycleType?: 'calendar' | 'anniversary';
+  cycleType?: 'calendar' | 'anniversary' | 'custom';
+  customCycleStartMonth?: number | null;
+  customCycleStartDay?: number | null;
   defaultAccrual?: 'yearly' | 'monthly' | 'monthly_reset' | null;
 }
 
@@ -63,8 +69,11 @@ export async function updateLeaveType(
 // type — that's real history, never destroyed. Safe otherwise: any Leave
 // Policy config for it is necessarily unused too and is cleaned up
 // automatically server-side (see leaveType.service.js::deleteLeaveType).
-export async function deleteLeaveType(id: string): Promise<void> {
-  await apiClient.delete(`/leave/types/${id}`);
+// `force: true` overrides the block — the blocking balance/request rows are
+// soft-deleted along with the leave type, permanently losing that history
+// from every normal view.
+export async function deleteLeaveType(id: string, force = false): Promise<void> {
+  await apiClient.delete(`/leave/types/${id}`, { params: force ? { force: true } : undefined });
 }
 
 export async function listLeaveBalances(params: { employeeId: string; year: number }): Promise<LeaveBalance[]> {

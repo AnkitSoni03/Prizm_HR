@@ -47,6 +47,12 @@ module.exports = (sequelize, DataTypes) => {
       description: { type: DataTypes.STRING, allowNull: true },
       createdBy: { type: DataTypes.BIGINT, allowNull: true },
       updatedBy: { type: DataTypes.BIGINT, allowNull: true },
+      // Optional validity period ("6 months", "45 days") — both null means
+      // no expiry (default, unchanged behavior). Anchored per-employee at
+      // assignment time, not to the Roster itself — see
+      // employees.roster_assigned_at.
+      validityValue: { type: DataTypes.INTEGER, allowNull: true },
+      validityUnit: { type: DataTypes.ENUM('days', 'months'), allowNull: true },
     },
     {
       sequelize,

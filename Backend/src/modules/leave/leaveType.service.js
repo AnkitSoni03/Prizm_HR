@@ -19,7 +19,12 @@ const { HttpError } = require('../../utils/errors');
 async function listLeaveTypes({ limit, offset, rosterGroupId }) {
   if (rosterGroupId === undefined) {
     // Relies on LeaveType's tenant-scope hook for company_id filtering.
+    // System-generated "Carry Forward - <name>" bucket types (see
+    // rosterTransfer.service.js) are excluded from this general catalog —
+    // they're not something an admin should be editing/reassigning directly,
+    // only something an employee's own Roster ends up governing.
     const { rows, count } = await db.LeaveType.findAndCountAll({
+      where: { isCarryForwardBucket: false },
       limit,
       offset,
       order: [['id', 'ASC']],
@@ -50,6 +55,41 @@ async function getLeaveTypeForWrite({ companyId, id }) {
   return leaveType;
 }
 
+// Validates a real day-for-month combination (rejects e.g. month=2/day=30)
+// by round-tripping through Date and checking it didn't roll over into the
+// next month — same class of bug flagged in CLAUDE.md's PT-slab-key
+// mismatch note (a silent fallback here would be far worse: a wrong cycle
+// boundary applied to every employee under this leave type, not just one
+// state's slab).
+function assertValidCustomCycleStart(month, day) {
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new HttpError(400, 'customCycleStartMonth must be 1–12');
+  }
+  if (!Number.isInteger(day) || day < 1 || day > 31) {
+    throw new HttpError(400, 'customCycleStartDay must be 1–31');
+  }
+  const probe = new Date(2001, month - 1, day);
+  if (probe.getMonth() !== month - 1 || probe.getDate() !== day) {
+    throw new HttpError(400, `${month}/${day} is not a valid date`);
+  }
+}
+
+// Resolves the two customCycleStart columns from a cycleType + candidate
+// values — shared by create (cycleType always has a real value, defaulted
+// below) and update (cycleType may be omitted entirely, in which case the
+// EXISTING type's cycleType decides whether these columns are relevant).
+function resolveCustomCycleFields({ cycleType, customCycleStartMonth, customCycleStartDay }) {
+  if (cycleType !== 'custom') {
+    // Stale config left over from a previous 'custom' selection would be
+    // misleading if the type is later switched to 'calendar'/'anniversary'
+    // — same "clear it outright" precedent as maxCarryForwardDays when
+    // carryForward turns false.
+    return { customCycleStartMonth: null, customCycleStartDay: null };
+  }
+  assertValidCustomCycleStart(customCycleStartMonth, customCycleStartDay);
+  return { customCycleStartMonth, customCycleStartDay };
+}
+
 async function createLeaveType({
   companyId,
   code,
@@ -59,7 +99,16 @@ async function createLeaveType({
   maxCarryForwardDays,
   cycleType,
   defaultAccrual,
+  customCycleStartMonth,
+  customCycleStartDay,
 }) {
+  const resolvedCycleType = cycleType || 'calendar';
+  const customCycle = resolveCustomCycleFields({
+    cycleType: resolvedCycleType,
+    customCycleStartMonth,
+    customCycleStartDay,
+  });
+
   try {
     return await db.LeaveType.create({
       companyId,
@@ -68,8 +117,9 @@ async function createLeaveType({
       isPaid: isPaid !== undefined ? !!isPaid : true,
       carryForward: !!carryForward,
       maxCarryForwardDays: carryForward && maxCarryForwardDays !== undefined ? maxCarryForwardDays : null,
-      cycleType: cycleType || 'calendar',
+      cycleType: resolvedCycleType,
       defaultAccrual: defaultAccrual || null,
+      ...customCycle,
     });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -81,9 +131,18 @@ async function createLeaveType({
 
 async function updateLeaveType({ companyId, id, updates }) {
   const leaveType = await getLeaveTypeForWrite({ companyId, id });
-  const { name, isPaid, carryForward, maxCarryForwardDays, cycleType, defaultAccrual } = updates;
+  const {
+    name,
+    isPaid,
+    carryForward,
+    maxCarryForwardDays,
+    cycleType,
+    defaultAccrual,
+    customCycleStartMonth,
+    customCycleStartDay,
+  } = updates;
 
-  await leaveType.update({
+  const patch = {
     ...(name !== undefined && { name }),
     ...(isPaid !== undefined && { isPaid }),
     ...(carryForward !== undefined && { carryForward }),
@@ -95,7 +154,24 @@ async function updateLeaveType({ companyId, id, updates }) {
     }),
     ...(cycleType !== undefined && { cycleType }),
     ...(defaultAccrual !== undefined && { defaultAccrual }),
-  });
+  };
+
+  // Only re-resolve the custom-cycle columns when this update actually
+  // touches the cycle dimension (cycleType itself, or a new month/day for
+  // an already-'custom' type) — an unrelated field-only edit (e.g. name)
+  // must leave an existing custom start date completely untouched.
+  if (cycleType !== undefined || customCycleStartMonth !== undefined || customCycleStartDay !== undefined) {
+    Object.assign(
+      patch,
+      resolveCustomCycleFields({
+        cycleType: cycleType !== undefined ? cycleType : leaveType.cycleType,
+        customCycleStartMonth: customCycleStartMonth !== undefined ? customCycleStartMonth : leaveType.customCycleStartMonth,
+        customCycleStartDay: customCycleStartDay !== undefined ? customCycleStartDay : leaveType.customCycleStartDay,
+      })
+    );
+  }
+
+  await leaveType.update(patch);
   return leaveType;
 }
 
@@ -105,18 +181,37 @@ async function updateLeaveType({ companyId, id, updates }) {
 // balance/request without accruing/being applied for), so it's safe to
 // clean up automatically here rather than leaving orphaned config behind —
 // leave_policies has no delete route of its own today.
-async function deleteLeaveType({ companyId, id }) {
+//
+// `force: true` (same `leave_type:delete` permission — no separate gate,
+// same precedent as employee.service.js::assignEmployeePowers reusing an
+// existing grant rather than adding a new code) lets an admin who has seen
+// and accepted the consequences delete anyway. It never hard-deletes: the
+// blocking LeaveBalance/LeaveRequest rows are soft-deleted (paranoid
+// `.destroy()`, respecting CLAUDE.md rule 2) so the history is gone from
+// every normal read path but is still recoverable at the DB layer, same
+// as any other soft-deleted row in this app.
+async function deleteLeaveType({ companyId, id, force = false }) {
   const leaveType = await getLeaveTypeForWrite({ companyId, id });
 
   const [balanceCount, requestCount] = await Promise.all([
     db.LeaveBalance.count({ where: { leaveTypeId: id } }),
     db.LeaveRequest.count({ where: { leaveTypeId: id } }),
   ]);
-  if (balanceCount > 0) {
-    throw new HttpError(409, 'Cannot delete: employees already have a leave balance for this type.');
-  }
-  if (requestCount > 0) {
-    throw new HttpError(409, 'Cannot delete: leave requests already exist for this type.');
+
+  if (!force) {
+    if (balanceCount > 0) {
+      throw new HttpError(409, 'Cannot delete: employees already have a leave balance for this type.');
+    }
+    if (requestCount > 0) {
+      throw new HttpError(409, 'Cannot delete: leave requests already exist for this type.');
+    }
+  } else {
+    if (balanceCount > 0) {
+      await db.LeaveBalance.destroy({ where: { leaveTypeId: id } });
+    }
+    if (requestCount > 0) {
+      await db.LeaveRequest.destroy({ where: { leaveTypeId: id } });
+    }
   }
 
   const policies = await db.LeavePolicy.findAll({ where: { leaveTypeId: id }, attributes: ['id'] });

@@ -3,7 +3,7 @@
 const { dateOnly } = require('./dateRange');
 
 // Resolves which "cycle" a given date falls into for a leave type, plus
-// that cycle's own start/end dates. Two cycle types:
+// that cycle's own start/end dates. Three cycle types:
 //
 //   - 'calendar' (the only behavior that existed before this file did):
 //     cycleKey is the plain calendar year, cycleStart/cycleEnd are Jan 1 /
@@ -16,12 +16,32 @@ const { dateOnly } = require('./dateRange');
 //     schema change — two different employees each having their own
 //     "cycle 2" never collides, since LeaveBalance is already uniquely
 //     scoped by (employeeId, leaveTypeId, year).
+//   - 'custom': an admin-defined recurring month/day (e.g. 4/1 for an Indian
+//     fiscal year) the SAME for every employee under this leave type,
+//     regardless of joining date — cycleKey is the calendar year the cycle
+//     STARTS in (e.g. FY starting April 2026 -> key 2026), same
+//     monotonically-increasing-integer trick as the other two cycle types.
 //
 // dateOfJoining is required for 'anniversary' — falls back to 'calendar'
-// behavior if missing (an employee with no recorded joining date can't have
-// an anniversary cycle resolved).
-function resolveLeaveCycle({ cycleType, dateOfJoining, dateStr }) {
+// behavior if missing. customCycleStartMonth/Day are required for 'custom' —
+// same calendar fallback if either is missing (shouldn't happen once
+// leaveType.service.js's create/update validation is in place, but this
+// mirrors 'anniversary's existing defensive fallback rather than throwing).
+function resolveLeaveCycle({ cycleType, dateOfJoining, dateStr, customCycleStartMonth, customCycleStartDay }) {
   const asOf = new Date(`${dateStr}T00:00:00`);
+
+  if (cycleType === 'custom' && customCycleStartMonth && customCycleStartDay) {
+    // Anchor to the most recent occurrence of month/day on or before asOf.
+    let cycleStart = new Date(asOf.getFullYear(), customCycleStartMonth - 1, customCycleStartDay);
+    if (cycleStart > asOf) {
+      cycleStart = new Date(asOf.getFullYear() - 1, customCycleStartMonth - 1, customCycleStartDay);
+    }
+
+    const cycleEnd = new Date(cycleStart.getFullYear() + 1, cycleStart.getMonth(), cycleStart.getDate());
+    cycleEnd.setDate(cycleEnd.getDate() - 1);
+
+    return { cycleKey: cycleStart.getFullYear(), cycleStart: dateOnly(cycleStart), cycleEnd: dateOnly(cycleEnd) };
+  }
 
   if (cycleType !== 'anniversary' || !dateOfJoining) {
     const year = asOf.getFullYear();

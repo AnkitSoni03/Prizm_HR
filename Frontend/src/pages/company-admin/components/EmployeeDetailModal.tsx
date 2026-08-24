@@ -8,6 +8,7 @@ import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { Tabs } from '../../../components/ui/Tabs';
 import { RejectReasonModal } from '../../../components/RejectReasonModal';
+import { ChangeRosterModal } from '../../../components/ChangeRosterModal';
 import { useAuth } from '../../../context/auth-context';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
@@ -22,7 +23,10 @@ import {
   deleteEmployee,
   uploadEmployeePhoto,
   removeEmployeePhoto,
+  renewEmployeeRoster,
+  type RosterTransferDetail,
 } from '../../../api/companyAdmin/employees';
+import { computeRosterExpiry, daysUntil as daysUntilRosterExpiry, rosterExpiryLabel } from '../../../utils/rosterValidity';
 import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import { FileUploadField } from '../../../components/ui/FileUploadField';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
@@ -235,22 +239,44 @@ export function EmployeeDetailModal({
   // (via the Roster's own linked Shift — see shift.service.js/
   // attendance.service.js::resolveShiftForDate) — manual per-employee
   // default-shift assignment (employee_shifts) no longer has any UI, here or
-  // on the Shifts page's "Assign Default Shift" button (removed).
-  const [assignRosterGroupId, setAssignRosterGroupId] = useState(employee.rosterGroupId ?? '');
-  const [isAssigningRoster, setIsAssigningRoster] = useState(false);
-  const [assignRosterError, setAssignRosterError] = useState<string | null>(null);
+  // on the Shifts page's "Assign Default Shift" button (removed). Changing
+  // it goes through ChangeRosterModal (not a plain field edit) since a
+  // Roster switch can leave real leave balance behind — see
+  // rosterTransfer.service.js.
+  const [isChangeRosterModalOpen, setIsChangeRosterModalOpen] = useState(false);
+  const currentRosterGroup = rosterGroups.find((rg) => rg.id === employee.rosterGroupId) ?? null;
+  const rosterExpiryDate = currentRosterGroup?.validityValue
+    ? computeRosterExpiry(employee.rosterAssignedAt, currentRosterGroup.validityValue, currentRosterGroup.validityUnit)
+    : null;
+  const rosterExpiryRemaining = rosterExpiryDate ? daysUntilRosterExpiry(rosterExpiryDate) : null;
+  const [isRenewingRoster, setIsRenewingRoster] = useState(false);
 
-  async function handleAssignRoster(event: FormEvent) {
-    event.preventDefault();
-    setAssignRosterError(null);
-    setIsAssigningRoster(true);
+  async function handleRenewRoster() {
+    setIsRenewingRoster(true);
     try {
-      await updateEmployee(employee.id, { rosterGroupId: assignRosterGroupId || null });
+      await renewEmployeeRoster(employee.id);
       onUpdated();
-    } catch (err) {
-      setAssignRosterError(extractError(err, 'Could not assign this Roster. Please try again.'));
-      setIsAssigningRoster(false);
+      showToast('Roster renewed.', 'success');
+    } catch {
+      showToast('Could not renew this Roster. Please try again.', 'error');
+    } finally {
+      setIsRenewingRoster(false);
     }
+  }
+
+  function handleRosterChanged(details: RosterTransferDetail[]) {
+    setIsChangeRosterModalOpen(false);
+    if (details.length > 0) {
+      const movedCount = details.filter((d) => d.action === 'moved_to_carry_forward').length;
+      const resetCount = details.filter((d) => d.action === 'reset').length;
+      const parts: string[] = [];
+      if (movedCount > 0) parts.push(`${movedCount} moved to Carry Forward`);
+      if (resetCount > 0) parts.push(`${resetCount} reset`);
+      showToast(parts.length > 0 ? `Roster changed — ${parts.join(', ')}.` : 'Roster changed.', 'success');
+    } else {
+      showToast('Roster changed.', 'success');
+    }
+    onUpdated();
   }
 
   // Comp-off is opt-in (see Comp Off Setting) — this is the same
@@ -752,6 +778,11 @@ export function EmployeeDetailModal({
                   <p className="mt-1 text-sm text-ink">
                     {rosterGroups.find((rg) => rg.id === employee.rosterGroupId)?.name ?? 'None — company/brand-wide defaults'}
                   </p>
+                  {rosterExpiryRemaining !== null && (
+                    <Badge tone={rosterExpiryRemaining <= 3 ? 'danger' : rosterExpiryRemaining <= 7 ? 'warning' : 'neutral'}>
+                      {rosterExpiryLabel(rosterExpiryRemaining)}
+                    </Badge>
+                  )}
                 </div>
                 <div className="rounded-lg border border-border bg-page px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Shift</p>
@@ -796,31 +827,16 @@ export function EmployeeDetailModal({
               </div>
 
               {canUpdate && (
-                <form onSubmit={handleAssignRoster} className="space-y-3">
-                  {assignRosterError && <p className="text-sm text-danger">{assignRosterError}</p>}
-                  <Select
-                    id="employee-assign-roster"
-                    label="Roster"
-                    value={assignRosterGroupId}
-                    onChange={(event) => setAssignRosterGroupId(event.target.value)}
-                    placeholder="None — company/brand-wide defaults"
-                    options={rosterGroups.map((rg) => ({ value: rg.id, label: rg.name }))}
-                  />
-                  <p className="text-xs text-ink-muted">
-                    Whatever Shift, Holidays, Company Policies, and Leave Policy this Roster has assigned to it
-                    automatically applies to this employee.
-                  </p>
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      variant="secondary"
-                      isLoading={isAssigningRoster}
-                      disabled={assignRosterGroupId === (employee.rosterGroupId ?? '')}
-                    >
-                      Assign Roster
+                <div className="flex justify-end gap-2">
+                  {rosterExpiryRemaining !== null && (
+                    <Button type="button" variant="secondary" onClick={handleRenewRoster} isLoading={isRenewingRoster}>
+                      Renew
                     </Button>
-                  </div>
-                </form>
+                  )}
+                  <Button type="button" variant="secondary" onClick={() => setIsChangeRosterModalOpen(true)}>
+                    Change Roster
+                  </Button>
+                </div>
               )}
 
               {canAssignCompOff && (
@@ -1483,6 +1499,15 @@ export function EmployeeDetailModal({
           title={`Reject ${rejectingDoc.type}`}
           onClose={() => setRejectingDoc(null)}
           onConfirm={handleRejectConfirm}
+        />
+      )}
+      {isChangeRosterModalOpen && (
+        <ChangeRosterModal
+          employeeId={employee.id}
+          currentRosterGroupId={employee.rosterGroupId}
+          rosterGroups={rosterGroups}
+          onClose={() => setIsChangeRosterModalOpen(false)}
+          onChanged={handleRosterChanged}
         />
       )}
     </>

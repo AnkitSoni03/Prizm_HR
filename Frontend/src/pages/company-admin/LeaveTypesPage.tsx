@@ -14,7 +14,19 @@ import { LeaveTypeFormModal } from './components/LeaveTypeFormModal';
 const CYCLE_LABELS: Record<LeaveType['cycleType'], string> = {
   calendar: 'Calendar Year',
   anniversary: 'Anniversary (Joining Date)',
+  custom: 'Custom',
 };
+
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+function cycleLabel(leaveType: LeaveType): string {
+  if (leaveType.cycleType === 'custom' && leaveType.customCycleStartMonth && leaveType.customCycleStartDay) {
+    return `Custom (${MONTH_NAMES[leaveType.customCycleStartMonth - 1]} ${leaveType.customCycleStartDay})`;
+  }
+  return CYCLE_LABELS[leaveType.cycleType];
+}
 
 const ACCRUAL_LABELS: Record<NonNullable<LeaveType['defaultAccrual']>, string> = {
   yearly: 'Yearly',
@@ -77,6 +89,22 @@ export function LeaveTypesPage() {
       await deleteLeaveType(leaveType.id);
       loadLeaveTypes();
     } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const forced = await confirm({
+          title: 'Employees already have history for this leave type',
+          message: `"${leaveType.name}" has existing leave balances or leave requests. Force-deleting it will permanently erase that balance/request history for every employee it applies to — this cannot be undone. Delete anyway?`,
+          confirmLabel: 'Force delete',
+          variant: 'danger',
+        });
+        if (!forced) return;
+        try {
+          await deleteLeaveType(leaveType.id, true);
+          loadLeaveTypes();
+        } catch (forceErr) {
+          showToast(extractError(forceErr, 'Could not delete this leave type.'));
+        }
+        return;
+      }
       showToast(extractError(err, 'Could not delete this leave type.'));
     }
   }
@@ -116,7 +144,7 @@ export function LeaveTypesPage() {
             { key: 'name', header: 'Name', render: (lt) => <span className="font-medium text-ink">{lt.name}</span> },
             { key: 'code', header: 'Code', render: (lt) => lt.code },
             { key: 'paid', header: 'Paid', render: (lt) => <Badge tone={lt.isPaid ? 'success' : 'neutral'}>{lt.isPaid ? 'Paid' : 'Unpaid'}</Badge> },
-            { key: 'cycle', header: 'Cycle', render: (lt) => CYCLE_LABELS[lt.cycleType] },
+            { key: 'cycle', header: 'Cycle', render: (lt) => cycleLabel(lt) },
             {
               key: 'carryForward',
               header: 'Carry Forward',

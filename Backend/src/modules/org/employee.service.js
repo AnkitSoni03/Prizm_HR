@@ -129,7 +129,7 @@ async function getEmployeeForRead(id) {
       // has no roster_group:read of their own to resolve this name
       // client-side, and My Profile now needs to show it (Roster drives
       // their shift/holidays/policies/leave entirely).
-      { model: db.RosterGroup, as: 'rosterGroup', attributes: ['id', 'name'] },
+      { model: db.RosterGroup, as: 'rosterGroup', attributes: ['id', 'name', 'validityValue', 'validityUnit'] },
       // Lets My Profile show whether the comp-off benefit is active for this
       // employee (see compOff.service.js::checkAndCreateCompOffCredit —
       // null here means they earn nothing on a holiday/week-off worked).
@@ -309,7 +309,13 @@ async function createEmployee({
 // so Company Admin/Brand Admin need a way to set (or later correct) it —
 // same PATCH /employees/:id endpoint every other field here already uses,
 // gated by the employee:update permission they already hold.
-const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'managerId', 'userId', 'workState', 'rosterGroupId'];
+// rosterGroupId is deliberately excluded here — changing it can leave a real
+// leave balance behind (a Roster governs which LeavePolicy applies per leave
+// type), so it now goes exclusively through rosterTransfer.service.js's
+// changeEmployeeRoster (PATCH /employees/:id/roster), which makes the
+// admin explicitly decide whether to carry the old Roster's balances
+// forward instead of silently reassigning the field.
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'managerId', 'userId', 'workState'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
@@ -321,7 +327,6 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
 
   if (patch.managerId) await assertBelongsToCompany(db.Employee, patch.managerId, companyId, 'Manager');
   if (patch.designationId) await assertBelongsToCompany(db.Designation, patch.designationId, companyId, 'Designation');
-  if (patch.rosterGroupId) await assertBelongsToCompany(db.RosterGroup, patch.rosterGroupId, companyId, 'Roster Group');
 
   try {
     await employee.update(patch);

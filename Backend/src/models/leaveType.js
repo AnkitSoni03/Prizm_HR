@@ -10,6 +10,12 @@ module.exports = (sequelize, DataTypes) => {
       LeaveType.hasMany(models.LeavePolicy, { foreignKey: 'leaveTypeId', as: 'policies' });
       LeaveType.hasMany(models.LeaveBalance, { foreignKey: 'leaveTypeId', as: 'balances' });
       LeaveType.hasMany(models.LeaveRequest, { foreignKey: 'leaveTypeId', as: 'requests' });
+      // Self-reference: a system-generated "CF - <name>" bucket type (see
+      // isCarryForwardBucket below) points back at the original type it was
+      // split off from — rosterTransfer.service.js uses this to find-and-
+      // reuse the same bucket across repeated roster changes instead of
+      // creating a new one every time.
+      LeaveType.belongsTo(models.LeaveType, { foreignKey: 'sourceLeaveTypeId', as: 'sourceLeaveType' });
     }
   }
 
@@ -26,13 +32,24 @@ module.exports = (sequelize, DataTypes) => {
       // unlimited (carryForward: false is what means "zero", not this).
       maxCarryForwardDays: { type: DataTypes.DECIMAL(5, 2), allowNull: true },
       // 'calendar' (Jan 1 – Dec 31, the only behavior before this column
-      // existed) or 'anniversary' (resets on the employee's own joining-date
-      // anniversary) — see utils/leaveCycle.js.
-      cycleType: { type: DataTypes.ENUM('calendar', 'anniversary'), allowNull: false, defaultValue: 'calendar' },
+      // existed), 'anniversary' (resets on the employee's own joining-date
+      // anniversary), or 'custom' (an admin-defined recurring start date —
+      // see customCycleStartMonth/Day below) — see utils/leaveCycle.js.
+      cycleType: { type: DataTypes.ENUM('calendar', 'anniversary', 'custom'), allowNull: false, defaultValue: 'calendar' },
+      // Only meaningful when cycleType is 'custom' — the recurring
+      // month/day (e.g. 4/1 for an Indian fiscal year) the cycle resets on
+      // every year, regardless of any employee's own joining date.
+      customCycleStartMonth: { type: DataTypes.INTEGER, allowNull: true },
+      customCycleStartDay: { type: DataTypes.INTEGER, allowNull: true },
       // Pure UX default for the Add Leave Policy form's Accrual field —
       // never enforced; a Roster-specific policy can still pick a different
       // accrual for the same leave type.
       defaultAccrual: { type: DataTypes.ENUM('yearly', 'monthly', 'monthly_reset'), allowNull: true },
+      // True for a system-generated "CF - <name>" bucket created by
+      // rosterTransfer.service.js — excluded from normal "Add Leave Type"
+      // catalog pickers on the frontend.
+      isCarryForwardBucket: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      sourceLeaveTypeId: { type: DataTypes.BIGINT, allowNull: true },
     },
     {
       sequelize,

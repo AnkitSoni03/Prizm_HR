@@ -39,6 +39,11 @@ router.get('/', requirePermission('employee:read'), controller.list);
 router.get('/:id', requireEmployeeReadAccess, controller.get);
 router.post('/', requirePermission('employee:create'), controller.create);
 router.patch('/:id', requirePermission('employee:update'), controller.update);
+// Dedicated Roster-change action (carry-forward decision) — same
+// employee:update gate as the generic PATCH.
+router.patch('/:id/roster', requirePermission('employee:update'), controller.changeRoster);
+router.post('/:id/roster/renew', requirePermission('employee:update'), controller.renewRoster);
+router.get('/:id/roster-transfer-history', requirePermission('employee:update'), controller.getRosterTransferHistory);
 // Gated by the same employee:update permission every admin who can already
 // edit an employee already holds — no separate gate permission, per the
 // user's explicit "all admins have right to assign that power".

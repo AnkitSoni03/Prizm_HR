@@ -48,7 +48,10 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
     const linkedRosterGroupIds = links.map((l) => l.rosterGroupId);
     if (linkedRosterGroupIds.length === 0) continue;
 
-    const leaveType = await db.LeaveType.findOne({ where: { id: policy.leaveTypeId }, attributes: ['id', 'cycleType'] });
+    const leaveType = await db.LeaveType.findOne({
+      where: { id: policy.leaveTypeId },
+      attributes: ['id', 'cycleType', 'customCycleStartMonth', 'customCycleStartDay'],
+    });
     const cycleType = leaveType ? leaveType.cycleType : 'calendar';
 
     const employees = await db.Employee.findAll({
@@ -68,6 +71,8 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
           cycleType,
           dateOfJoining: employee.dateOfJoining,
           dateStr: asOfStr,
+          customCycleStartMonth: leaveType ? leaveType.customCycleStartMonth : null,
+          customCycleStartDay: leaveType ? leaveType.customCycleStartDay : null,
         });
         const monthlyAmount = Number(policy.annualQuota) / 12;
         const months = monthsAccruedInCycle({ cycleStart, cycleEnd, dateOfJoining: employee.dateOfJoining, asOf });

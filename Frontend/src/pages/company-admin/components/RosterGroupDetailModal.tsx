@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, UserMinus } from 'lucide-react';
+import { Plus, RotateCw, UserMinus } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs } from '../../../components/ui/Tabs';
 import { Button } from '../../../components/ui/Button';
@@ -8,7 +8,8 @@ import { EmployeeMultiSelect } from '../../../components/ui/EmployeeMultiSelect'
 import { useAuth } from '../../../context/auth-context';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
-import { listEmployees, updateEmployee } from '../../../api/companyAdmin/employees';
+import { listEmployees, changeEmployeeRoster, renewEmployeeRoster } from '../../../api/companyAdmin/employees';
+import { computeRosterExpiry, daysUntil, rosterExpiryLabel } from '../../../utils/rosterValidity';
 import { listShifts } from '../../../api/companyAdmin/attendance';
 import { listLeaveTypes, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
 import {
@@ -98,6 +99,21 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
   const [selectedToAdd, setSelectedToAdd] = useState<string[]>([]);
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [renewingId, setRenewingId] = useState<string | null>(null);
+
+  async function handleRenew(employee: Employee) {
+    setRenewingId(employee.id);
+    try {
+      await renewEmployeeRoster(employee.id);
+      await loadAssigned();
+      onUpdated();
+      showToast(`Renewed ${formatEmployeeLabel(employee)}'s Roster.`, 'success');
+    } catch {
+      showToast('Could not renew this Roster. Please try again.', 'error');
+    } finally {
+      setRenewingId(null);
+    }
+  }
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   async function loadAssigned() {
@@ -145,7 +161,10 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
     if (!confirmed) return;
     setRemovingId(employee.id);
     try {
-      await updateEmployee(employee.id, { rosterGroupId: null });
+      // No carry-forward prompt here (this is a one-click "Remove", not the
+      // full Change Roster flow) — un-assigning back to no Roster resets
+      // their leave balance fresh, same as ChangeRosterModal's "No" choice.
+      await changeEmployeeRoster(employee.id, { rosterGroupId: null, carryForward: false });
       await loadAssigned();
       onUpdated();
     } catch {
@@ -187,25 +206,52 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
             )}
             {assignedEmployees && assignedEmployees.length > 0 && (
               <div className="max-h-56 overflow-y-auto rounded-xl border border-border">
-                {assignedEmployees.map((employee) => (
-                  <div
-                    key={employee.id}
-                    className="flex items-center justify-between border-b border-border px-3 py-2 text-sm last:border-b-0"
-                  >
-                    <span className="text-ink">{formatEmployeeLabel(employee)}</span>
-                    {canUpdate && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemove(employee)}
-                        disabled={removingId === employee.id}
-                        aria-label={`Remove ${employee.name}`}
-                        className="rounded-md p-1 text-ink-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
-                      >
-                        <UserMinus className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                {assignedEmployees.map((employee) => {
+                  const expiryDate = rosterGroup.validityValue
+                    ? computeRosterExpiry(employee.rosterAssignedAt, rosterGroup.validityValue, rosterGroup.validityUnit)
+                    : null;
+                  const remaining = expiryDate ? daysUntil(expiryDate) : null;
+                  return (
+                    <div
+                      key={employee.id}
+                      className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="text-ink">{formatEmployeeLabel(employee)}</span>
+                        {remaining !== null && (
+                          <Badge tone={remaining <= 3 ? 'danger' : remaining <= 7 ? 'warning' : 'neutral'}>
+                            {rosterExpiryLabel(remaining)}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {canUpdate && remaining !== null && (
+                          <button
+                            type="button"
+                            onClick={() => handleRenew(employee)}
+                            disabled={renewingId === employee.id}
+                            aria-label={`Renew ${employee.name}'s Roster`}
+                            title="Renew"
+                            className="rounded-md p-1 text-ink-muted hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+                          >
+                            <RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        )}
+                        {canUpdate && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(employee)}
+                            disabled={removingId === employee.id}
+                            aria-label={`Remove ${employee.name}`}
+                            className="rounded-md p-1 text-ink-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                          >
+                            <UserMinus className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

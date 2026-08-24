@@ -14,12 +14,22 @@ interface LeaveTypeFormModalProps {
 const CYCLE_OPTIONS = [
   { value: 'calendar', label: 'Calendar Year (resets every Jan 1 – Dec 31)' },
   { value: 'anniversary', label: 'Anniversary Year (resets every year from date of joining)' },
+  { value: 'custom', label: 'Custom (admin-defined start date, resets every year)' },
 ];
 
-const DEFAULT_ACCRUAL_OPTIONS = [
-  { value: 'yearly', label: 'Yearly — full quota available immediately' },
-  { value: 'monthly', label: 'Monthly — quota accrues 1/12th each month' },
-  { value: 'monthly_reset', label: 'Monthly reset — use-it-or-lose-it each month' },
+const MONTH_OPTIONS = [
+  { value: '1', label: 'January' },
+  { value: '2', label: 'February' },
+  { value: '3', label: 'March' },
+  { value: '4', label: 'April' },
+  { value: '5', label: 'May' },
+  { value: '6', label: 'June' },
+  { value: '7', label: 'July' },
+  { value: '8', label: 'August' },
+  { value: '9', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' },
 ];
 
 // Used both as its own "Leave Types" management page (LeaveTypesPage.tsx)
@@ -35,8 +45,11 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
     leaveType?.maxCarryForwardDays != null ? String(leaveType.maxCarryForwardDays) : ''
   );
   const [cycleType, setCycleType] = useState<LeaveType['cycleType']>(leaveType?.cycleType ?? 'calendar');
-  const [defaultAccrual, setDefaultAccrual] = useState<LeaveType['defaultAccrual']>(
-    leaveType?.defaultAccrual ?? null
+  const [customCycleStartMonth, setCustomCycleStartMonth] = useState(
+    leaveType?.customCycleStartMonth != null ? String(leaveType.customCycleStartMonth) : '4'
+  );
+  const [customCycleStartDay, setCustomCycleStartDay] = useState(
+    leaveType?.customCycleStartDay != null ? String(leaveType.customCycleStartDay) : '1'
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,10 +57,18 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    if (cycleType === 'custom' && (customCycleStartDay.trim() === '' || Number(customCycleStartDay) < 1 || Number(customCycleStartDay) > 31)) {
+      setError('Custom cycle start day must be between 1 and 31.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const maxCarryForwardValue =
         carryForward && maxCarryForwardDays.trim() !== '' ? Number(maxCarryForwardDays) : null;
+      const cyclePayload =
+        cycleType === 'custom'
+          ? { customCycleStartMonth: Number(customCycleStartMonth), customCycleStartDay: Number(customCycleStartDay) }
+          : { customCycleStartMonth: null, customCycleStartDay: null };
       let saved: LeaveType;
       if (isEdit) {
         saved = await updateLeaveType(leaveType.id, {
@@ -56,7 +77,7 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
           carryForward,
           maxCarryForwardDays: maxCarryForwardValue,
           cycleType,
-          defaultAccrual,
+          ...cyclePayload,
         });
       } else {
         saved = await createLeaveType({
@@ -66,7 +87,7 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
           carryForward,
           maxCarryForwardDays: maxCarryForwardValue,
           cycleType,
-          defaultAccrual,
+          ...cyclePayload,
         });
       }
       onSaved(saved);
@@ -113,27 +134,34 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
         </label>
 
         <Select
-          id="leave-type-default-accrual"
-          label="Default Accrual (optional)"
-          value={defaultAccrual ?? ''}
-          onChange={(event) =>
-            setDefaultAccrual((event.target.value || null) as LeaveType['defaultAccrual'])
-          }
-          placeholder="No default — set accrual per policy"
-          options={DEFAULT_ACCRUAL_OPTIONS}
-        />
-        <p className="-mt-2 text-xs text-ink-muted">
-          Just a starting point for the Add Leave Policy form — a Roster-specific policy can still pick a
-          different accrual for this same leave type.
-        </p>
-
-        <Select
           id="leave-type-cycle"
           label="Leave Cycle"
           value={cycleType}
           onChange={(event) => setCycleType(event.target.value as LeaveType['cycleType'])}
           options={CYCLE_OPTIONS}
         />
+        {cycleType === 'custom' && (
+          <div className="flex gap-2">
+            <Select
+              id="leave-type-custom-cycle-month"
+              label="Starts every"
+              value={customCycleStartMonth}
+              onChange={(event) => setCustomCycleStartMonth(event.target.value)}
+              options={MONTH_OPTIONS}
+            />
+            <Input
+              id="leave-type-custom-cycle-day"
+              label="Day"
+              type="number"
+              min={1}
+              max={31}
+              step={1}
+              value={customCycleStartDay}
+              onChange={(event) => setCustomCycleStartDay(event.target.value)}
+              className="w-24"
+            />
+          </div>
+        )}
 
         <label className="flex items-center gap-2.5 text-sm text-ink">
           <input

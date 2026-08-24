@@ -65,6 +65,12 @@ module.exports = (sequelize, DataTypes) => {
       // holidays, the company-wide leave policy, and their own
       // employee_shifts default — exactly as before this column existed.
       rosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
+      // When the CURRENT rosterGroupId was (re)assigned — the anchor date
+      // the Roster's own validityValue/validityUnit counts from. Null
+      // whenever rosterGroupId is null. See rosterTransfer.service.js and
+      // jobs/rosterExpiryReminder.job.js.
+      rosterAssignedAt: { type: DataTypes.DATEONLY, allowNull: true },
+      rosterExpiryNotifiedThresholdDays: { type: DataTypes.INTEGER, allowNull: true },
       // Optional, admin-assigned Comp-Off Policy — null means this employee
       // is not enrolled in the comp-off benefit at all (no auto-credit on a
       // holiday/week-off worked, and the ESS "My Comp-Off" page shows a

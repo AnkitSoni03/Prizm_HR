@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import axios from 'axios';
 import { LayoutGrid, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
@@ -11,6 +12,13 @@ import { listEmployees } from '../../api/companyAdmin/employees';
 import type { Employee } from '../../api/tenancy';
 import { RosterGroupFormModal } from './components/RosterGroupFormModal';
 import { RosterGroupDetailModal } from './components/RosterGroupDetailModal';
+
+function extractError(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
+    return err.response.data.error;
+  }
+  return fallback;
+}
 
 // A Roster is just a name — a reusable label an employee is assigned to
 // once. What it actually bundles (Shift, region-specific Holidays, Company
@@ -68,8 +76,8 @@ export function RosterGroupsPage() {
     try {
       await deleteRosterGroup(rosterGroup.id);
       loadRosterGroups();
-    } catch {
-      showToast('Could not delete this Roster — it may still have employees, a shift, holidays, or policies assigned.');
+    } catch (err) {
+      showToast(extractError(err, 'Could not delete this Roster — it may still have employees, a shift, holidays, or policies assigned.'));
     }
   }
 

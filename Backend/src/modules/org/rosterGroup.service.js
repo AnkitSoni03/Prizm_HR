@@ -2,6 +2,23 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { dateOnly, toBusinessLocal } = require('../../utils/dateRange');
+
+// validityValue/validityUnit come as a pair — undefined/undefined (field
+// omitted) means "not touched" on an update; explicit null/null clears the
+// validity period entirely (no expiry); anything else must be a positive
+// integer + a real unit.
+function normalizeValidity({ validityValue, validityUnit }) {
+  if (validityValue === undefined && validityUnit === undefined) return undefined;
+  if (validityValue === null && validityUnit === null) return { validityValue: null, validityUnit: null };
+  if (!Number.isInteger(validityValue) || validityValue <= 0) {
+    throw new HttpError(400, 'validityValue must be a positive whole number');
+  }
+  if (!['days', 'months'].includes(validityUnit)) {
+    throw new HttpError(400, "validityUnit must be 'days' or 'months'");
+  }
+  return { validityValue, validityUnit };
+}
 
 // Roster Group's own page ("Roster") no longer assigns Shifts/Holidays/
 // Company Policies/Leave Policies to itself — those are all assigned from
@@ -47,11 +64,13 @@ async function getRosterGroupForWrite({ companyId, id }) {
   return rosterGroup;
 }
 
-async function createRosterGroup({ companyId, name, description, createdBy }) {
+async function createRosterGroup({ companyId, name, description, validityValue, validityUnit, createdBy }) {
+  const validity = normalizeValidity({ validityValue, validityUnit }) ?? { validityValue: null, validityUnit: null };
   return db.RosterGroup.create({
     companyId,
     name,
     description: description || null,
+    ...validity,
     createdBy: createdBy || null,
   });
 }
@@ -59,10 +78,12 @@ async function createRosterGroup({ companyId, name, description, createdBy }) {
 async function updateRosterGroup({ companyId, id, updates, updatedBy }) {
   const rosterGroup = await getRosterGroupForWrite({ companyId, id });
   const { name, description } = updates;
+  const validity = normalizeValidity({ validityValue: updates.validityValue, validityUnit: updates.validityUnit });
 
   await rosterGroup.update({
     ...(name !== undefined && { name }),
     ...(description !== undefined && { description }),
+    ...(validity !== undefined && validity),
     updatedBy: updatedBy || null,
   });
 
@@ -117,7 +138,15 @@ async function bulkAssignRosterGroup({ companyId, id, employeeIds }) {
       results.push({ employeeId, status: 'skipped', reason: 'Employee not found for this company' });
       continue;
     }
-    await employee.update({ rosterGroupId: id });
+    // rosterAssignedAt anchors this Roster's own validity period (if any)
+    // for this specific employee — see rosterValidity.js. Reset the
+    // notified-threshold so the expiry-reminder job treats this as a fresh
+    // cycle, same as changeEmployeeRoster/renewEmployeeRoster.
+    await employee.update({
+      rosterGroupId: id,
+      rosterAssignedAt: dateOnly(toBusinessLocal()),
+      rosterExpiryNotifiedThresholdDays: null,
+    });
     results.push({ employeeId, status: 'assigned' });
   }
   return results;

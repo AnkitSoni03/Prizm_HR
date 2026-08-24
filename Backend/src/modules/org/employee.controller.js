@@ -1,6 +1,7 @@
 'use strict';
 
 const service = require('./employee.service');
+const rosterTransferService = require('./rosterTransfer.service');
 const { parsePagination } = require('../../utils/pagination');
 const {
   resolveCompanyScope,
@@ -119,6 +120,62 @@ async function update(req, res, next) {
       scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Dedicated "Change Roster" action — replaces the old plain rosterGroupId
+// field in the generic PATCH, since a Roster change can leave a real leave
+// balance behind (see rosterTransfer.service.js). carryForward is required
+// so the frontend can't accidentally skip the decision; ignored (no
+// carry-forward branching runs) when the employee has no current Roster.
+async function changeRoster(req, res, next) {
+  try {
+    const { rosterGroupId, carryForward } = req.body;
+    if (typeof carryForward !== 'boolean') {
+      return res.status(400).json({ error: 'carryForward (boolean) is required' });
+    }
+
+    const result = await rosterTransferService.changeEmployeeRoster({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      newRosterGroupId: rosterGroupId || null,
+      carryForward,
+      actorUserId: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      groupId: req.auth.groupId,
+    });
+    res.json({ data: result.employee, details: result.details });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function renewRoster(req, res, next) {
+  try {
+    const result = await rosterTransferService.renewEmployeeRoster({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      actorUserId: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      groupId: req.auth.groupId,
+    });
+    res.json({ data: result.employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getRosterTransferHistory(req, res, next) {
+  try {
+    const history = await rosterTransferService.listRosterTransferHistory({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      groupId: req.auth.groupId,
+    });
+    res.json({ data: history });
   } catch (err) {
     next(err);
   }
@@ -278,6 +335,9 @@ module.exports = {
   get,
   create,
   update,
+  changeRoster,
+  renewRoster,
+  getRosterTransferHistory,
   transfer,
   remove,
   setActive,

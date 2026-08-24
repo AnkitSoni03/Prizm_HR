@@ -8,6 +8,7 @@ const { runLeaveAccrual } = require('./jobs/leaveAccrual.job');
 const { sweepExpiredCompOff } = require('./jobs/compOffExpiry.job');
 const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanup.job');
 const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
+const { sendRosterExpiryReminders } = require('./jobs/rosterExpiryReminder.job');
 const { verifyMailerConnection } = require('./utils/mailer');
 
 const PORT = process.env.PORT || 5000;
@@ -35,6 +36,11 @@ function startLeaveJobs() {
   // interpretation of a 24-hour-ahead reminder here.
   cron.schedule('0 9 * * *', () => {
     sendHolidayReminders().catch((err) => console.error('holiday-reminder job failed:', err));
+  });
+  // Roster validity reminders (see roster_groups.validity_value/unit) —
+  // advisory-only, checks every active employee once a day.
+  cron.schedule('0 9 * * *', () => {
+    sendRosterExpiryReminders().catch((err) => console.error('roster-expiry-reminder job failed:', err));
   });
 }
 

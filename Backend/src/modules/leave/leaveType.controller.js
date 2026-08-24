@@ -24,7 +24,17 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { code, name, isPaid, carryForward, maxCarryForwardDays, cycleType, defaultAccrual } = req.body;
+    const {
+      code,
+      name,
+      isPaid,
+      carryForward,
+      maxCarryForwardDays,
+      cycleType,
+      defaultAccrual,
+      customCycleStartMonth,
+      customCycleStartDay,
+    } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'code and name are required' });
     }
@@ -38,6 +48,8 @@ async function create(req, res, next) {
       maxCarryForwardDays,
       cycleType,
       defaultAccrual,
+      customCycleStartMonth,
+      customCycleStartDay,
     });
     res.status(201).json({ data: leaveType });
   } catch (err) {
@@ -60,7 +72,11 @@ async function update(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    await service.deleteLeaveType({ companyId: req.auth.companyId, id: req.params.id });
+    await service.deleteLeaveType({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      force: req.query.force === 'true',
+    });
     res.status(204).send();
   } catch (err) {
     next(err);

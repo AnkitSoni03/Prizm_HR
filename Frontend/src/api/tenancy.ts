@@ -130,6 +130,11 @@ export interface Employee {
   // holidays, the company-wide leave policy, and their own employee_shifts
   // default — exactly as if Roster Groups didn't exist.
   rosterGroupId: string | null;
+  // When the CURRENT rosterGroupId was (re)assigned — combine with the
+  // assigned Roster's own validityValue/validityUnit (see
+  // api/companyAdmin/rosterGroups.ts) to compute this employee's own
+  // expiry date. Null whenever rosterGroupId is null.
+  rosterAssignedAt: string | null;
   userId: string | null;
   name: string;
   // Optional: Super Admin's minimal "name only" employee creation leaves
