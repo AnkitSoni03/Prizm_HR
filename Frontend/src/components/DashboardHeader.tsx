@@ -68,7 +68,7 @@ export function DashboardHeader({
           )}
           <div className="min-w-0">
             <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 truncate text-base font-bold tracking-tight text-white sm:text-2xl">
-              <span className="hidden sm:inline">Welcome back,</span>
+              {/* <span className="hidden sm:inline">Welcome back,</span> */}
               <span className="text-amber-300">{name}</span>
               <span aria-hidden="true"></span>
               {status && (
