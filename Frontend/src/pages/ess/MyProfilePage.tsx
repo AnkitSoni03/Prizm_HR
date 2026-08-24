@@ -40,6 +40,7 @@ import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
 import { holidayAuditName } from '../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime } from '../../utils/dateDisplay';
 import { weeklyOffLabel } from '../../utils/weekdays';
+import { computeRosterExpiry, daysUntil as daysUntilRosterExpiry, rosterExpiryLabel } from '../../utils/rosterValidity';
 
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
@@ -151,6 +152,14 @@ export function MyProfilePage() {
   if (!profile) {
     return <p className="text-sm text-ink-muted">Loading…</p>;
   }
+
+  // Same expiry computation as EmployeeDetailModal.tsx's admin-facing view —
+  // shown here too so the employee themselves can see how long their own
+  // Roster is valid, not just their admin.
+  const rosterExpiryDate = profile.rosterGroup?.validityValue
+    ? computeRosterExpiry(profile.rosterAssignedAt, profile.rosterGroup.validityValue, profile.rosterGroup.validityUnit)
+    : null;
+  const rosterExpiryRemaining = rosterExpiryDate ? daysUntilRosterExpiry(rosterExpiryDate) : null;
 
   async function handlePhotoSelect(file: File) {
     setIsSavingPhoto(true);
@@ -293,7 +302,16 @@ export function MyProfilePage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
             <RosterCard icon={Users} label="Assigned Roster">
               {profile.rosterGroup ? (
-                <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">{profile.rosterGroup.name}</p>
+                <>
+                  <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">{profile.rosterGroup.name}</p>
+                  {rosterExpiryRemaining !== null && (
+                    <p className="mt-1.5">
+                      <Badge tone={rosterExpiryRemaining <= 3 ? 'danger' : rosterExpiryRemaining <= 7 ? 'warning' : 'neutral'}>
+                        {rosterExpiryLabel(rosterExpiryRemaining)}
+                      </Badge>
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="mt-0.5 text-xs text-ink-muted sm:mt-1 sm:text-sm">
                   None yet — your Shift, Holidays, Company Policies, and Leave Balance will show blank until your
