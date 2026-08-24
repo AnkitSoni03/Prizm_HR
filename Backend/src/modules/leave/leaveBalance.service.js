@@ -283,7 +283,19 @@ async function attachAccrualInfo(rows, employeeId) {
 async function listLeaveBalances({ companyId, employeeId, year, limit, offset }) {
   const where = {};
   if (employeeId) where.employeeId = employeeId;
-  if (year) where.year = year;
+
+  // For an 'anniversary'-cycle leave type, `leave_balances.year` holds an
+  // employment-cycle NUMBER (1, 2, 3...), not a calendar year (see
+  // utils/leaveCycle.js's header comment) — a literal `year` filter (what
+  // every caller of this function actually has: the ESS "My Leave Balance"
+  // page's Year picker, or an admin browsing a calendar year) can never
+  // match those rows. Only resolvable per-row (each leave type's own
+  // cycleType + the employee's own dateOfJoining), so this is only done for
+  // a single-employee lookup (own-scope read, or an admin viewing one
+  // employee) — cheap there, and not worth the extra per-row work across an
+  // unbounded company-wide list.
+  const resolveCycleKeysPerRow = Boolean(year) && Boolean(employeeId);
+  if (year && !resolveCycleKeysPerRow) where.year = year;
 
   // A month-grain ('monthly_reset') leave type can have up to 12 rows for
   // the current year — only one of them ("this month's") is ever the
@@ -299,15 +311,36 @@ async function listLeaveBalances({ companyId, employeeId, year, limit, offset })
 
   const { rows, count } = await db.LeaveBalance.findAndCountAll({
     where,
-    limit,
-    offset,
+    limit: resolveCycleKeysPerRow ? undefined : limit,
+    offset: resolveCycleKeysPerRow ? undefined : offset,
     order: [['year', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: { companyId }, attributes: ['id', 'employeeCode'] },
+      { model: db.Employee, as: 'employee', where: { companyId }, attributes: ['id', 'employeeCode', 'dateOfJoining'] },
       { model: db.LeaveType, as: 'leaveType' },
     ],
   });
-  return { rows, count };
+
+  if (!resolveCycleKeysPerRow) return { rows, count };
+
+  const numericYear = Number(year);
+  // Same "current year -> as of today, past year -> as of that Dec 31"
+  // resolution ensureBalancesForEmployee already uses to CREATE these rows —
+  // mirroring it here is what guarantees a row this function just seeded is
+  // always found again by this same filter.
+  const dateStr = numericYear >= currentYear ? dateOnly(toBusinessLocal()) : `${numericYear}-12-31`;
+  const filteredRows = rows.filter((row) => {
+    const leaveType = row.leaveType;
+    if (!leaveType || leaveType.cycleType !== 'anniversary') {
+      return Number(row.year) === numericYear;
+    }
+    const { cycleKey } = resolveLeaveCycle({
+      cycleType: 'anniversary',
+      dateOfJoining: row.employee ? row.employee.dateOfJoining : null,
+      dateStr,
+    });
+    return Number(row.year) === cycleKey;
+  });
+  return { rows: filteredRows, count: filteredRows.length };
 }
 
 // Manual correction (leave_balance:adjust) — sets allotted directly and
