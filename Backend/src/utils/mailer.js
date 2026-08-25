@@ -1,32 +1,52 @@
 'use strict';
 
+const dns = require('dns');
 const nodemailer = require('nodemailer');
 
 // Lazily created so a missing/misconfigured SMTP_* env var only breaks email
 // sending (caught and logged by callers, same "best-effort" convention as
 // comp-off auto-detection and custom power role sync elsewhere in this codebase),
 // not server boot.
-let transporter = null;
-function getTransporter() {
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      // Some hosts (Render included) have no outbound IPv6 route, but
-      // smtp.gmail.com resolves to both an AAAA and an A record — without
-      // this, Node's DNS resolution can hand nodemailer the IPv6 address
-      // first and the connection fails with ENETUNREACH. Forcing IPv4
-      // avoids that entirely; it's forwarded straight through to the
-      // underlying net/tls connect() call.
-      family: 4,
-    });
+//
+// Render (and some other containerized hosts) have no outbound IPv6 route,
+// but nodemailer's own DNS resolution (lib/shared/index.js) decides IPv4
+// vs IPv6 by inspecting *this machine's* network interfaces, not by an
+// option we control — passing `family: 4` to createTransport does nothing;
+// SMTPConnection.connect() never reads it. On Render that interface check
+// comes back empty for IPv4, so nodemailer falls back to smtp.gmail.com's
+// AAAA record and the connection fails with ENETUNREACH. Worked around by
+// resolving the A record ourselves (dns.resolve4, unaffected by that
+// interface-detection bug) and connecting to the literal IPv4 address —
+// `tls.servername` is set explicitly so the Gmail certificate still
+// validates against the real hostname despite connecting by IP.
+let transporterPromise = null;
+async function getTransporter() {
+  if (!transporterPromise) {
+    transporterPromise = (async () => {
+      const host = process.env.SMTP_HOST;
+      let connectHost = host;
+      try {
+        const addresses = await dns.promises.resolve4(host);
+        if (addresses.length > 0) connectHost = addresses[0];
+      } catch (err) {
+        console.error(`[mailer] IPv4 resolution for ${host} failed, falling back to hostname:`, err.message);
+      }
+
+      return nodemailer.createTransport({
+        host: connectHost,
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+        tls: {
+          servername: host,
+        },
+      });
+    })();
   }
-  return transporter;
+  return transporterPromise;
 }
 
 // Best-effort startup check (called once from server.js, logged-not-thrown
@@ -35,7 +55,8 @@ function getTransporter() {
 // silently-swallowed failure the first time someone sends an invite.
 async function verifyMailerConnection() {
   try {
-    await getTransporter().verify();
+    const t = await getTransporter();
+    await t.verify();
     console.log('[mailer] SMTP connection verified OK');
   } catch (err) {
     console.error('[mailer] SMTP verification failed:', err.message);
@@ -66,7 +87,8 @@ async function sendMail({ to, subject, html, text }) {
     </div>
   `;
 
-  await getTransporter().sendMail({
+  const t = await getTransporter();
+  await t.sendMail({
     from: `"${fromName}" <${fromEmail}>`,
     to,
     subject,
