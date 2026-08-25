@@ -1,4 +1,4 @@
-.env
+# .env
 Backend/gcs-key.json
 
 # Dependencies / build output
