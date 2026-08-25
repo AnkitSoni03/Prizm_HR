@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { sendActivationEmail } = require('../../utils/mailer');
 const { runWithTenant } = require('../../config/tenant-context');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
@@ -22,6 +23,22 @@ const {
 const BCRYPT_ROUNDS = 12;
 const INVITATION_TTL_DAYS = 7;
 const PASSWORD_RESET_TTL_MINUTES = 10;
+
+// Sends the activation email as part of the invite transaction itself
+// (called from inside a `db.sequelize.transaction` callback below) rather
+// than fire-and-forget after the response — a failed send throws here,
+// which rolls back the whole transaction, so no User/Invitation row is ever
+// left behind for an invite whose email never actually reached the
+// recipient. Wraps the raw SMTP error in an HttpError so the caller gets a
+// clean, actionable message instead of a nodemailer stack trace.
+async function sendActivationEmailOrThrow({ to, activationToken }) {
+  try {
+    await sendActivationEmail({ to, activationToken });
+  } catch (err) {
+    console.error('Activation email send failed:', err);
+    throw new HttpError(502, 'Failed to send the invitation email. Please check the email address and try again.');
+  }
+}
 
 // Refresh tokens are stateless signed JWTs (utils/tokens.js), not rows in a
 // session table — see the tokenVersion column on User for how they're
@@ -74,6 +91,8 @@ async function inviteCompanyAdmin({ companyId, email }) {
       { transaction: t }
     );
 
+    await sendActivationEmailOrThrow({ to: email, activationToken: rawToken });
+
     return { user: createdUser, invitation: createdInvitation };
   });
 
@@ -114,6 +133,8 @@ async function inviteGroupAdmin({ groupId, email }) {
       },
       { transaction: t }
     );
+
+    await sendActivationEmailOrThrow({ to: email, activationToken: rawToken });
 
     return { user: createdUser, invitation: createdInvitation };
   });
@@ -160,6 +181,8 @@ async function inviteBrandAdmin({ brandId, email }) {
       },
       { transaction: t }
     );
+
+    await sendActivationEmailOrThrow({ to: email, activationToken: rawToken });
 
     return { user: createdUser, invitation: createdInvitation };
   });
@@ -238,6 +261,8 @@ async function inviteEmployeeUser({ companyId, employeeId, email, brandId, scope
     );
 
     await employee.update({ userId: createdUser.id }, { transaction: t });
+
+    await sendActivationEmailOrThrow({ to: email, activationToken: rawToken });
 
     return { user: createdUser, invitation: createdInvitation };
   });
@@ -318,6 +343,8 @@ async function transferEmployeeLogin({ companyId, employeeId, newEmail, brandId,
     );
 
     await employee.update({ userId: createdUser.id }, { transaction: t });
+
+    await sendActivationEmailOrThrow({ to: newEmail, activationToken: rawToken });
 
     return { user: createdUser, invitation: createdInvitation };
   });

@@ -43,6 +43,13 @@ async function getTransporter() {
         tls: {
           servername: host,
         },
+        // Invite creation now waits on the actual send (see auth.service.js)
+        // so a stuck SMTP handshake would otherwise hang the HTTP request on
+        // nodemailer's own multi-minute defaults (socketTimeout is 10 min).
+        // Fail fast instead.
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
     })();
   }

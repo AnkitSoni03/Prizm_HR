@@ -170,6 +170,7 @@ export function EmployeeDetailModal({
   const [essEmail, setEssEmail] = useState('');
   const [isInvitingEss, setIsInvitingEss] = useState(false);
   const [essInviteError, setEssInviteError] = useState<string | null>(null);
+  const [essInviteSent, setEssInviteSent] = useState(false);
   const [essActivationToken, setEssActivationToken] = useState<string | null>(null);
   const [isEssLinkCopied, setIsEssLinkCopied] = useState(false);
 
@@ -188,6 +189,7 @@ export function EmployeeDetailModal({
   const [transferLoginEmail, setTransferLoginEmail] = useState('');
   const [isTransferringLogin, setIsTransferringLogin] = useState(false);
   const [transferLoginError, setTransferLoginError] = useState<string | null>(null);
+  const [transferInviteSent, setTransferInviteSent] = useState(false);
   const [transferActivationToken, setTransferActivationToken] = useState<string | null>(null);
   const [isTransferLinkCopied, setIsTransferLinkCopied] = useState(false);
 
@@ -410,11 +412,16 @@ export function EmployeeDetailModal({
     try {
       const result = await transferEmployeeLogin(employee.id, transferLoginEmail);
       setTransferActivationToken(result.activationToken ?? null);
+      setTransferInviteSent(true);
       // The new User row defaults isActive: true — it just hasn't been
       // activated (status stays 'invited' until the link is used).
       setLinkedUser({ id: result.user.id, email: result.user.email, isActive: true, status: result.user.status });
     } catch (err) {
-      setTransferLoginError(extractError(err, 'Could not transfer this login. Please try again.'));
+      // Backend now only commits the transfer once the new activation email
+      // is confirmed sent (a failed send rolls back the whole transfer,
+      // including reactivating the old login), so this message is the real
+      // reason nothing changed — not just a generic catch-all.
+      setTransferLoginError(extractError(err, 'Could not send the new activation email. Please try again.'));
     } finally {
       setIsTransferringLogin(false);
     }
@@ -604,8 +611,13 @@ export function EmployeeDetailModal({
     try {
       const result = await inviteEmployeeUser(employee.id, essEmail);
       setEssActivationToken(result.activationToken ?? null);
+      setEssInviteSent(true);
     } catch (err) {
-      setEssInviteError(extractError(err, 'Could not send the invite. Please try again.'));
+      // Backend now only creates the invite once the activation email is
+      // confirmed sent (a failed send rolls back the whole invite), so this
+      // message is the real reason nothing went out — not just a generic
+      // catch-all.
+      setEssInviteError(extractError(err, 'Could not send the invitation email. Please try again.'));
     } finally {
       setIsInvitingEss(false);
     }
@@ -1051,7 +1063,7 @@ export function EmployeeDetailModal({
                 Employee Self-Service Access
               </p>
 
-              {employee.userId && !essActivationToken && !transferActivationToken && (
+              {employee.userId && !essInviteSent && !transferInviteSent && (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1100,11 +1112,11 @@ export function EmployeeDetailModal({
                 </div>
               )}
 
-              {transferActivationToken && (
+              {transferInviteSent && (
                 <div className="space-y-3">
-                  <p className="text-sm text-ink-muted">
-                    This login was transferred to <span className="font-medium">{transferLoginEmail}</span>. An
-                    activation invitation was sent.
+                  <p className="text-sm text-success">
+                    This login was transferred to <span className="font-medium">{transferLoginEmail}</span>. A
+                    new activation email was sent.
                   </p>
                   {transferActivationUrl && (
                     <div className="w-full rounded-xl border border-border bg-page p-3 text-left">
@@ -1138,7 +1150,7 @@ export function EmployeeDetailModal({
                 </div>
               )}
 
-              {!employee.userId && !essActivationToken && (
+              {!employee.userId && !essInviteSent && (
                 <form onSubmit={handleInviteEss} className="space-y-4">
                   <p className="text-sm text-ink-muted">
                     Invite this employee to log in to the ESS portal and manage their own attendance, leave,
@@ -1162,10 +1174,10 @@ export function EmployeeDetailModal({
                 </form>
               )}
 
-              {essActivationToken && (
+              {essInviteSent && (
                 <div className="space-y-3">
-                  <p className="text-sm text-ink-muted">
-                    An invitation was created for <span className="font-medium">{essEmail}</span>.
+                  <p className="text-sm text-success">
+                    Invitation email sent to <span className="font-medium">{essEmail}</span>.
                   </p>
                   {essActivationUrl && (
                     <div className="w-full rounded-xl border border-border bg-page p-3 text-left">

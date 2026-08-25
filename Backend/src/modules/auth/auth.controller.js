@@ -2,7 +2,7 @@
 
 const authService = require('./auth.service');
 const { requireCompanyScope } = require('../../utils/resolveCompanyScope');
-const { sendActivationEmail, sendPasswordResetEmail } = require('../../utils/mailer');
+const { sendPasswordResetEmail } = require('../../utils/mailer');
 
 function isProd() {
   return process.env.NODE_ENV === 'production';
@@ -16,20 +16,6 @@ function validatePasswordStrength(password) {
     return 'Password must include at least one letter and one number.';
   }
   return null;
-}
-
-// Best-effort, logged-not-thrown — same convention as comp-off
-// auto-detection/custom power role sync elsewhere in this codebase. A bad SMTP
-// config or transient send failure shouldn't fail the invite itself (the
-// Invitation/User rows are already committed); the activationToken is still
-// returned in the response outside production so the flow stays testable
-// even if email delivery is broken.
-async function trySendActivationEmail({ to, activationToken }) {
-  try {
-    await sendActivationEmail({ to, activationToken });
-  } catch (err) {
-    console.error('Activation email send failed:', err);
-  }
 }
 
 async function trySendPasswordResetEmail({ to, resetToken }) {
@@ -51,15 +37,10 @@ async function signupInvite(req, res, next) {
       companyId,
       email,
     });
-    // Fire-and-forget: awaiting this would block the HTTP response on
-    // however long the SMTP provider takes to answer (or hang) — a slow or
-    // silently-throttling provider (Gmail is notorious for this from
-    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
-    // spinning indefinitely even though the invite itself already
-    // succeeded. trySendActivationEmail already catches+logs its own
-    // errors, so there's nothing to await for correctness here.
-    void trySendActivationEmail({ to: user.email, activationToken });
-
+    // The activation email is now sent synchronously inside the service
+    // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
+    // it failed, the whole invite (User/Invitation rows included) was
+    // already rolled back and this line is never reached.
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
       invitation: { id: invitation.id, expiresAt: invitation.expiresAt },
@@ -88,15 +69,10 @@ async function signupInviteGroup(req, res, next) {
       groupId,
       email,
     });
-    // Fire-and-forget: awaiting this would block the HTTP response on
-    // however long the SMTP provider takes to answer (or hang) — a slow or
-    // silently-throttling provider (Gmail is notorious for this from
-    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
-    // spinning indefinitely even though the invite itself already
-    // succeeded. trySendActivationEmail already catches+logs its own
-    // errors, so there's nothing to await for correctness here.
-    void trySendActivationEmail({ to: user.email, activationToken });
-
+    // The activation email is now sent synchronously inside the service
+    // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
+    // it failed, the whole invite (User/Invitation rows included) was
+    // already rolled back and this line is never reached.
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
       invitation: { id: invitation.id, expiresAt: invitation.expiresAt },
@@ -123,15 +99,10 @@ async function signupInviteBrand(req, res, next) {
       brandId,
       email,
     });
-    // Fire-and-forget: awaiting this would block the HTTP response on
-    // however long the SMTP provider takes to answer (or hang) — a slow or
-    // silently-throttling provider (Gmail is notorious for this from
-    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
-    // spinning indefinitely even though the invite itself already
-    // succeeded. trySendActivationEmail already catches+logs its own
-    // errors, so there's nothing to await for correctness here.
-    void trySendActivationEmail({ to: user.email, activationToken });
-
+    // The activation email is now sent synchronously inside the service
+    // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
+    // it failed, the whole invite (User/Invitation rows included) was
+    // already rolled back and this line is never reached.
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
       invitation: { id: invitation.id, expiresAt: invitation.expiresAt },
@@ -173,15 +144,10 @@ async function signupInviteEmployee(req, res, next) {
       // (if anything) the client sent as brandId.
       scopedBrandIds: req.auth.scopedBrandIds,
     });
-    // Fire-and-forget: awaiting this would block the HTTP response on
-    // however long the SMTP provider takes to answer (or hang) — a slow or
-    // silently-throttling provider (Gmail is notorious for this from
-    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
-    // spinning indefinitely even though the invite itself already
-    // succeeded. trySendActivationEmail already catches+logs its own
-    // errors, so there's nothing to await for correctness here.
-    void trySendActivationEmail({ to: user.email, activationToken });
-
+    // The activation email is now sent synchronously inside the service
+    // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
+    // it failed, the whole invite (User/Invitation rows included) was
+    // already rolled back and this line is never reached.
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
       invitation: { id: invitation.id, expiresAt: invitation.expiresAt },
@@ -219,15 +185,10 @@ async function transferEmployeeLoginEmail(req, res, next) {
       brandId,
       scopedBrandIds: req.auth.scopedBrandIds,
     });
-    // Fire-and-forget: awaiting this would block the HTTP response on
-    // however long the SMTP provider takes to answer (or hang) — a slow or
-    // silently-throttling provider (Gmail is notorious for this from
-    // datacenter/cloud IPs) would leave the frontend's "Send Invite" button
-    // spinning indefinitely even though the invite itself already
-    // succeeded. trySendActivationEmail already catches+logs its own
-    // errors, so there's nothing to await for correctness here.
-    void trySendActivationEmail({ to: user.email, activationToken });
-
+    // The activation email is now sent synchronously inside the service
+    // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
+    // it failed, the whole invite (User/Invitation rows included) was
+    // already rolled back and this line is never reached.
     const response = {
       user: { id: user.id, email: user.email, status: user.status },
       invitation: { id: invitation.id, expiresAt: invitation.expiresAt },
@@ -326,7 +287,10 @@ async function forgotPassword(req, res, next) {
     const response = { message: FORGOT_PASSWORD_MESSAGE };
 
     if (user && resetToken) {
-      // Fire-and-forget, same reasoning as trySendActivationEmail above.
+      // Fire-and-forget (unlike the invite endpoints above, this one still
+      // is): awaiting would block the response on the SMTP round trip, and
+      // the anti-enumeration response here can't reveal a send failure
+      // anyway — trySendPasswordResetEmail catches+logs its own errors.
       void trySendPasswordResetEmail({ to: user.email, resetToken });
       // Dev-only fallback for local testing when SMTP isn't reachable —
       // same convention as the activationToken exposed by the invite
