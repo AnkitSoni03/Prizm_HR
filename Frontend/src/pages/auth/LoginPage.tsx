@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { AlertCircle, CheckCircle2, Loader2, Lock, Mail } from 'lucide-react';
-import { useAuth } from '../../context/auth-context';
+import { useAuth, type AuthRole } from '../../context/auth-context';
 import { getDefaultRoute } from '../../routes/roleRedirect';
 import { PasswordInput } from '../../components/ui/PasswordInput';
 import { consumePendingSessionMessage } from '../../api/tokenStore';
@@ -11,6 +11,23 @@ interface LocationState {
   from?: { pathname: string };
   activated?: boolean;
   resetSuccess?: boolean;
+}
+
+// locationState.from is wherever *some* session was bounced from — not
+// necessarily the account that just signed in. If an Admin's expired session
+// left `from: /company-admin/settings` in the location state and a different
+// person (an Employee) then logs in on that same /login visit, blindly
+// honoring `from` would send them into the Admin's portal instead of their
+// own — landing on a page they have no permission for (or, worse, one they
+// do, but that belongs to a different role's workflow entirely). Only trust
+// `from` when it's inside the portal the newly-authenticated user's own role
+// actually owns; otherwise fall back to their real default route.
+function resolveRedirectTarget(from: string | undefined, roles: AuthRole[]): string {
+  const ownPortal = getDefaultRoute(roles);
+  if (from && (from === ownPortal || from.startsWith(`${ownPortal}/`))) {
+    return from;
+  }
+  return ownPortal;
 }
 
 export function LoginPage() {
@@ -28,16 +45,14 @@ export function LoginPage() {
   // visit to this page (including a re-mount after a failed login attempt).
   const [error, setError] = useState<string | null>(() => consumePendingSessionMessage());
 
-  // Only auto-redirect when we landed here because ProtectedRoute bounced an
-  // unauthenticated visitor (locationState.from is set for that round-trip
-  // only). A bare, direct visit to /login while already authenticated —
-  // e.g. a tab closed without logging out, reopened later, restoring the
-  // old session via the leftover refresh token — must NOT auto-redirect:
-  // that would silently trap the user on the old account with no way to
-  // reach the form and sign in as someone else. Instead we fall through and
-  // show the form, with a banner explaining who's currently signed in.
-  if (isAuthenticated && locationState?.from) {
-    const from = locationState.from.pathname;
+  // Any visit to /login while already authenticated — whether ProtectedRoute
+  // bounced here, or a tab was closed without logging out and reopened later
+  // (restoring the old session via the leftover refresh token) — goes
+  // straight back into that session's own portal. Switching accounts is a
+  // deliberate action (Logout, then sign in as someone else), not something
+  // landing on /login should offer by itself.
+  if (isAuthenticated && user) {
+    const from = resolveRedirectTarget(locationState?.from?.pathname, user.roles);
     return <Navigate to={from} replace />;
   }
 
@@ -47,7 +62,7 @@ export function LoginPage() {
 
     try {
       const profile = await login(email, password);
-      const from = locationState?.from?.pathname ?? getDefaultRoute(profile.roles);
+      const from = resolveRedirectTarget(locationState?.from?.pathname, profile.roles);
       navigate(from, { replace: true });
     } catch (err) {
       // A deactivated account/company gets a specific, actionable message
@@ -96,21 +111,6 @@ export function LoginPage() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-8 shadow-sm">
-            {isAuthenticated && user && (
-              <div className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm text-ink">
-                <span>
-                  Already signed in as <span className="font-medium">{user.email}</span>. Sign in
-                  below to switch accounts.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => navigate(getDefaultRoute(user.roles), { replace: true })}
-                  className="shrink-0 whitespace-nowrap font-medium text-primary hover:underline"
-                >
-                  Continue
-                </button>
-              </div>
-            )}
             {locationState?.activated && (
               <div className="mb-5 flex items-start gap-2 rounded-xl border border-success/20 bg-success/5 px-3 py-2.5 text-sm text-success">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
