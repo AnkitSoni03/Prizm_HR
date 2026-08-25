@@ -342,7 +342,7 @@ export function EssDashboard() {
           <p className="truncate text-base font-bold text-warning">{employeeName}</p>
           {/* dark:text-white per request — plain text-white would go invisible
               against this same panel's white bg-card in light mode. */}
-          <p className="truncate text-sm font-semibold text-ink-muted dark:text-white">{designation ?? 'Employee'}</p>
+          <p className="truncate text-xs font-normal text-ink-muted dark:text-white">{designation ?? 'Employee'}</p>
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             <div className="rounded-xl bg-muted px-2 py-2.5">
