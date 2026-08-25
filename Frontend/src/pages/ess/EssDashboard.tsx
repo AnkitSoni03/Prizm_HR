@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  Building2,
   CalendarCheck,
   CalendarClock,
   CalendarRange,
@@ -8,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
+  Hash,
   LogIn,
   LogOut,
   Megaphone,
@@ -112,6 +114,19 @@ function workingHoursLabel(checkIn: string | null, checkOut: string | null): str
   return `${hours}h ${String(mins).padStart(2, '0')}m`;
 }
 
+// "Ankit Soni" -> "AS" — same two-initial fallback shape as every other
+// avatar-with-photo pattern in this app (Avatar.tsx falls back to a plain
+// person icon instead; this card wants the initials specifically, to match
+// the requested ID-card design), capped at 2 characters even for a
+// multi-word name.
+function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const first = parts[0]![0] ?? '';
+  const second = parts.length > 1 ? parts[parts.length - 1]![0] ?? '' : '';
+  return (first + second).toUpperCase();
+}
+
 const EMPLOYEE_STATUS_LABEL: Record<EmployeeProfile['status'], string> = {
   onboarding: 'Onboarding',
   active: 'Active',
@@ -157,6 +172,7 @@ export function EssDashboard() {
   const palette = getChartPalette(theme);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [employeeCode, setEmployeeCode] = useState<string | null>(null);
   const [designation, setDesignation] = useState<string | null>(null);
   const [department, setDepartment] = useState<string | null>(null);
   const [employeeStatus, setEmployeeStatus] = useState<EmployeeProfile['status'] | null>(null);
@@ -189,6 +205,7 @@ export function EssDashboard() {
     getMyProfile(user.employeeId)
       .then((profile) => {
         setDisplayName(profile.name);
+        setEmployeeCode(profile.employeeCode);
         setEmployeeStatus(profile.status);
         setDesignation(profile.designation?.title ?? null);
         setDepartment(profile.department?.name ?? null);
@@ -296,31 +313,114 @@ export function EssDashboard() {
 
   const nextHoliday = upcomingHolidays[0] ?? null;
 
+  const employeeName = displayName ?? user.email.split('@')[0];
+
   return (
     <div>
-      <DashboardHeader
-        name={displayName ?? user.email.split('@')[0]}
-        subtitle={designation ?? 'Here’s where things stand today.'}
-        subtitleDesktopExtra={designation ? (department ?? undefined) : undefined}
-        status={
-          employeeStatus
-            ? { label: EMPLOYEE_STATUS_LABEL[employeeStatus], tone: employeeStatus === 'active' ? 'success' : 'neutral' }
-            : undefined
-        }
-        tagline="Stay productive, stay positive! You've got this. "
-        stat={{
-          label: 'This Month',
-          value: (
-            <>
-              {summary.monthPresent}
-              <span className="text-sm font-medium text-white/60">/{summary.monthWorkingDays}</span>
-            </>
-          ),
-          hint: 'Days Present',
-          icon: CalendarRange,
-          progressPct: summary.monthWorkingDays > 0 ? (summary.monthPresent / summary.monthWorkingDays) * 100 : 0,
-        }}
-      />
+      {/* Mobile-only employee ID card — first thing shown on the phone
+          dashboard, above the stat tiles. Desktop keeps the existing
+          DashboardHeader banner below (hidden here to avoid showing both). */}
+      <Link
+        to="/ess/profile"
+        // Light mode: unchanged brand blue (bg-primary). Dark mode only:
+        // bg-primary-hover — already an existing token in the same brand-blue
+        // family (not a new color), just a shade darker so the card doesn't
+        // sit at the exact same flat blue against the near-black dark page.
+        className="mb-4 block rounded-3xl bg-primary p-4 shadow-md active:scale-[0.99] sm:hidden dark:bg-primary-hover"
+      >
+        <div className="flex justify-center">
+          <div className="-mb-12 z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-card bg-primary-hover text-2xl font-bold text-white shadow-lg ring-4 ring-primary">
+            {user.photoUrl ? (
+              <img src={user.photoUrl} alt={employeeName} className="h-full w-full object-cover" />
+            ) : (
+              initialsFor(employeeName)
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-card px-4 pb-4 pt-14 text-center">
+          <p className="truncate text-base font-bold text-warning">{employeeName}</p>
+          {/* dark:text-white per request — plain text-white would go invisible
+              against this same panel's white bg-card in light mode. */}
+          <p className="truncate text-sm font-semibold text-ink-muted dark:text-white">{designation ?? 'Employee'}</p>
+
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <div className="rounded-xl bg-muted px-2 py-2.5">
+              <p className="flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                <Hash className="h-3 w-3" strokeWidth={2} />
+                ID
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-ink">{employeeCode ?? '—'}</p>
+            </div>
+            <div className="rounded-xl bg-muted px-2 py-2.5">
+              <p className="flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                <CalendarRange className="h-3 w-3" strokeWidth={2} />
+                DATE
+              </p>
+              <p className="mt-0.5 truncate text-sm font-semibold text-ink">{formatDisplayDate(todayStr())}</p>
+            </div>
+          </div>
+
+          <div className="mt-2.5 rounded-xl bg-muted px-2 py-2.5">
+            <p className="flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+              <Building2 className="h-3 w-3" strokeWidth={2} />
+              DEPT
+            </p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-ink">{department ?? '—'}</p>
+          </div>
+
+          {/* Same "This Month" figure the desktop DashboardHeader banner already
+              shows (monthPresent/monthWorkingDays) — reused here rather than
+              recomputed, so the two never disagree. */}
+          <div className="mt-2.5 flex items-center gap-3 rounded-xl bg-muted px-3 py-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
+              <CalendarRange className="h-5 w-5" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-[11px] font-medium text-ink-muted">This Month</p>
+              <p className="truncate text-lg font-bold leading-tight text-ink">
+                {summary.monthPresent}
+                <span className="text-sm font-medium text-ink-muted">/{summary.monthWorkingDays}</span>
+              </p>
+              <p className="text-[11px] text-ink-muted">Days Present</p>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-card">
+                <div
+                  className="h-full rounded-full bg-success transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, summary.monthWorkingDays > 0 ? (summary.monthPresent / summary.monthWorkingDays) * 100 : 0))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Link>
+
+      <div className="hidden sm:block">
+        <DashboardHeader
+          name={employeeName}
+          subtitle={designation ?? 'Here’s where things stand today.'}
+          subtitleDesktopExtra={designation ? (department ?? undefined) : undefined}
+          status={
+            employeeStatus
+              ? { label: EMPLOYEE_STATUS_LABEL[employeeStatus], tone: employeeStatus === 'active' ? 'success' : 'neutral' }
+              : undefined
+          }
+          tagline="Stay productive, stay positive! You've got this. "
+          stat={{
+            label: 'This Month',
+            value: (
+              <>
+                {summary.monthPresent}
+                <span className="text-sm font-medium text-white/60">/{summary.monthWorkingDays}</span>
+              </>
+            ),
+            hint: 'Days Present',
+            icon: CalendarRange,
+            progressPct: summary.monthWorkingDays > 0 ? (summary.monthPresent / summary.monthWorkingDays) * 100 : 0,
+          }}
+        />
+      </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <HeroStatTile
