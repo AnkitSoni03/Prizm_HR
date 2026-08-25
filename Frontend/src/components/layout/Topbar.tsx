@@ -78,7 +78,7 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
         >
           <AlignLeft className="h-5 w-5" strokeWidth={1.75} />
         </button>
-        <h1 className="truncate text-[13px] font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
+        <h1 className="truncate text-lg font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
       </div>
 
       {navItems.length > 0 && (

@@ -133,7 +133,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
           >
             <X className="h-5 w-5" strokeWidth={1.75} />
           </button>
-          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-11 w-11 shrink-0 rounded-xl object-cover sm:h-14 sm:w-14" />
+          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-16 w-16 shrink-0 rounded-xl object-cover sm:h-20 sm:w-20" />
           <p className="truncate text-[11px] text-gray-400 sm:text-xs">{portalLabel}</p>
         </div>
 
@@ -145,7 +145,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
               return (
                 <div
                   key={item.path}
-                  className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2 text-[13px] text-gray-600 sm:py-2.5 sm:text-sm"
+                  className="flex cursor-not-allowed items-center gap-3 rounded-xl border-b border-white/10 px-3 py-2 text-[13px] text-gray-600 last:border-b-0 sm:py-2.5 sm:text-sm"
                   title="Coming soon"
                 >
                   <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
@@ -165,9 +165,9 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                 onClick={onClose}
                 className={({ isActive }) =>
                   [
-                    'relative flex items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-all duration-150 sm:py-2.5 sm:text-sm',
+                    'relative flex items-center gap-3 rounded-xl border-b border-white/10 px-3 py-2 text-[13px] font-medium transition-all duration-150 last:border-b-0 sm:py-2.5 sm:text-sm',
                     isActive
-                      ? 'bg-nav-active text-white shadow-glow'
+                      ? 'bg-nav-active text-white'
                       : 'text-gray-300 hover:translate-x-0.5 hover:bg-white/5 hover:text-white active:scale-[0.98]',
                   ].join(' ')
                 }
