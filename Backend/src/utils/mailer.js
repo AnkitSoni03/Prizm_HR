@@ -1,6 +1,5 @@
 'use strict';
 
-const dns = require('dns');
 const nodemailer = require('nodemailer');
 
 // Lazily created so a missing/misconfigured SMTP_* env var only breaks email
@@ -8,52 +7,34 @@ const nodemailer = require('nodemailer');
 // comp-off auto-detection and custom power role sync elsewhere in this codebase),
 // not server boot.
 //
-// Render (and some other containerized hosts) have no outbound IPv6 route,
-// but nodemailer's own DNS resolution (lib/shared/index.js) decides IPv4
-// vs IPv6 by inspecting *this machine's* network interfaces, not by an
-// option we control — passing `family: 4` to createTransport does nothing;
-// SMTPConnection.connect() never reads it. On Render that interface check
-// comes back empty for IPv4, so nodemailer falls back to smtp.gmail.com's
-// AAAA record and the connection fails with ENETUNREACH. Worked around by
-// resolving the A record ourselves (dns.resolve4, unaffected by that
-// interface-detection bug) and connecting to the literal IPv4 address —
-// `tls.servername` is set explicitly so the Gmail certificate still
-// validates against the real hostname despite connecting by IP.
-let transporterPromise = null;
-async function getTransporter() {
-  if (!transporterPromise) {
-    transporterPromise = (async () => {
-      const host = process.env.SMTP_HOST;
-      let connectHost = host;
-      try {
-        const addresses = await dns.promises.resolve4(host);
-        if (addresses.length > 0) connectHost = addresses[0];
-      } catch (err) {
-        console.error(`[mailer] IPv4 resolution for ${host} failed, falling back to hostname:`, err.message);
-      }
-
-      return nodemailer.createTransport({
-        host: connectHost,
-        port: Number(process.env.SMTP_PORT || 587),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-        tls: {
-          servername: host,
-        },
-        // Invite creation now waits on the actual send (see auth.service.js)
-        // so a stuck SMTP handshake would otherwise hang the HTTP request on
-        // nodemailer's own multi-minute defaults (socketTimeout is 10 min).
-        // Fail fast instead.
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
-      });
-    })();
+// Plain SMTP against smtp.gmail.com — deliberately not the earlier
+// resolve-the-A-record-ourselves workaround. That workaround existed only to
+// route around Render's free-tier network blocking/dropping outbound SMTP
+// (587/465) — confirmed by an identical nodemailer+Gmail setup running
+// unmodified on Google Cloud Run, this project's actual deploy target, which
+// has no such restriction (GCP only blocks outbound port 25). Keep this
+// simple unless this ever needs to run on Render (or a similar host) again.
+let transporter = null;
+function getTransporter() {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      // Invite creation now waits on the actual send (see auth.service.js)
+      // so a stuck SMTP handshake would otherwise hang the HTTP request on
+      // nodemailer's own multi-minute defaults (socketTimeout is 10 min).
+      // Fail fast instead.
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    });
   }
-  return transporterPromise;
+  return transporter;
 }
 
 // Best-effort startup check (called once from server.js, logged-not-thrown
