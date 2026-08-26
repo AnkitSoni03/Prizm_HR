@@ -33,6 +33,7 @@ import { listCompanyPolicies, type CompanyPolicy } from '../../api/companyAdmin/
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { HeroStatTile } from '../../components/ui/HeroStatTile';
 import { StatTileSkeleton } from '../../components/ui/StatTile';
+import { Skeleton } from '../../components/ui/Skeleton';
 import { Badge } from '../../components/ui/Badge';
 import { DashboardHeader } from '../../components/DashboardHeader';
 import { QuickActions, type QuickAction } from '../../components/QuickActions';
@@ -161,6 +162,183 @@ interface Summary {
   monthAttendance: Attendance[];
   monthPresent: number;
   monthWorkingDays: number;
+}
+
+// Full-page loading skeleton, shaped to mirror every section of the actual
+// loaded dashboard below (mobile ID card / desktop banner, 4 stat tiles, the
+// attendance/calendar/leave-chart row, quick actions + notices row) at the
+// same breakpoints — a generic 4-tile skeleton used to flash a much shorter
+// page than what actually renders, causing a layout jump the instant data
+// arrived.
+function MobileIdCardSkeleton() {
+  return (
+    <div className="mb-4 block rounded-3xl border border-border bg-card p-4 shadow-md sm:hidden">
+      <div className="flex justify-center">
+        <Skeleton className="-mb-12 z-10 h-24 w-24 shrink-0 rounded-full border-4 border-card" />
+      </div>
+      <div className="rounded-2xl bg-page px-4 pb-4 pt-14 text-center">
+        <Skeleton className="mx-auto h-4 w-28" />
+        <Skeleton className="mx-auto mt-2 h-3 w-16" />
+        <div className="mt-3 grid grid-cols-2 gap-2.5">
+          <Skeleton className="h-[54px] rounded-xl" />
+          <Skeleton className="h-[54px] rounded-xl" />
+        </div>
+        <Skeleton className="mt-2.5 h-[54px] w-full rounded-xl" />
+        <Skeleton className="mt-2.5 h-[70px] w-full rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+function DesktopHeaderSkeleton() {
+  return (
+    <div className="hidden sm:block">
+      <div className="relative mb-6 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-md">
+        <div className="flex flex-row items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-4">
+            <Skeleton className="h-20 w-20 shrink-0 rounded-full" />
+            <div className="min-w-0 space-y-2">
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-60" />
+            </div>
+          </div>
+          <Skeleton className="h-20 w-56 shrink-0 rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AttendanceCardSkeleton() {
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
+      <div className="mb-3 flex items-center justify-between gap-2 sm:mb-4">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-7 w-7 rounded-lg sm:h-8 sm:w-8" />
+          <Skeleton className="h-4 w-28" />
+        </div>
+        <Skeleton className="h-5 w-16 rounded-full" />
+      </div>
+      <div className="flex flex-1 flex-col gap-2.5 sm:gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-[42px] w-full rounded-lg sm:h-[46px]" />
+        ))}
+      </div>
+      <Skeleton className="mt-4 h-9 w-full rounded-lg" />
+    </div>
+  );
+}
+
+function CalendarCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+      <div className="mb-3 flex items-center gap-2">
+        <Skeleton className="h-7 w-7 shrink-0 rounded-lg" />
+        <div className="space-y-1.5">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-40" />
+        </div>
+      </div>
+      <div className="mb-3 border-b border-border pb-3">
+        <Skeleton className="h-7 w-24" />
+      </div>
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <Skeleton key={`h-${i}`} className="mx-auto h-3 w-4" />
+        ))}
+        {Array.from({ length: 35 }).map((_, i) => (
+          <Skeleton key={i} className="mx-auto h-10 w-10 rounded-md sm:h-11 sm:w-11" />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-border pt-2.5">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-3 w-16" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LeaveChartCardSkeleton() {
+  return (
+    <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-xs">
+      <div className="mb-4 flex items-center gap-2">
+        <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
+        <div className="space-y-1.5">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-44" />
+        </div>
+      </div>
+      <div className="flex flex-1 items-center gap-4">
+        <Skeleton className="h-[150px] w-[150px] shrink-0 rounded-full sm:h-[170px] sm:w-[170px]" />
+        <div className="min-w-0 flex-1 space-y-2.5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-4 w-full" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickActionsSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
+      <Skeleton className="mb-3 h-4 w-28 sm:mb-4" />
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-[76px] rounded-lg sm:h-[84px]" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NoticesCardSkeleton() {
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
+      <div className="mb-3 flex items-center justify-between gap-2 sm:mb-4">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-7 w-7 rounded-lg sm:h-8 sm:w-8" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <Skeleton className="h-3 w-12" />
+      </div>
+      <div className="flex-1 space-y-2 sm:space-y-2.5">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-[52px] w-full rounded-lg" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EssDashboardSkeleton() {
+  return (
+    <div>
+      <MobileIdCardSkeleton />
+      <DesktopHeaderSkeleton />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <StatTileSkeleton key={i} />
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <AttendanceCardSkeleton />
+        <CalendarCardSkeleton />
+        <LeaveChartCardSkeleton />
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <QuickActionsSkeleton />
+        </div>
+        <NoticesCardSkeleton />
+      </div>
+    </div>
+  );
 }
 
 // No backend dashboard-summary endpoint covers Employees (/dashboard/summary
@@ -302,13 +480,7 @@ export function EssDashboard() {
   }
 
   if (!summary) {
-    return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <StatTileSkeleton key={i} />
-        ))}
-      </div>
-    );
+    return <EssDashboardSkeleton />;
   }
 
   const nextHoliday = upcomingHolidays[0] ?? null;
