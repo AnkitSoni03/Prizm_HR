@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import axios from 'axios';
-import { Lock, LogIn, LogOut } from 'lucide-react';
+import { LogIn, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
-import { PasswordInput } from '../../components/ui/PasswordInput';
 import { detectFaceOptions, smileRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
 import {
   faceCheckIn,
@@ -119,12 +119,7 @@ function formatTime(iso: string): string {
 // soon as the descriptor + liveness frames are captured, before the
 // network round-trip even starts — it never sits on in the background.
 export function KioskPage() {
-  const { user, isAuthenticated, login } = useAuth();
-
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const { isAuthenticated, logout } = useAuth();
 
   const [modelsReady, setModelsReady] = useState(false);
   const [state, setState] = useState<KioskState>({ phase: 'ready' });
@@ -156,19 +151,6 @@ export function KioskPage() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
-
-  async function handleLogin(event: React.FormEvent) {
-    event.preventDefault();
-    setLoginError(null);
-    setIsLoggingIn(true);
-    try {
-      await login(email, password);
-    } catch {
-      setLoginError('Invalid email or password for this kiosk account.');
-    } finally {
-      setIsLoggingIn(false);
-    }
-  }
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -386,51 +368,45 @@ export function KioskPage() {
     setState({ phase: 'ready' });
   }
 
+  // No separate "Kiosk Sign In" form anymore — bounces to the same /login
+  // page every other portal uses, carrying `from: /kiosk` so LoginPage's own
+  // resolveRedirectTarget sends a Scanner account straight back here after
+  // signing in (Scanner's own default route is already /kiosk, see
+  // roleRedirect.ts), instead of stranding the device on a bespoke form.
   if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-sidebar px-4">
-        <form onSubmit={handleLogin} className="w-full max-w-xs space-y-4 rounded-xl bg-card p-8 shadow-lg">
-          <div className="text-center">
-            <p className="text-lg font-semibold text-ink">Kiosk Sign In</p>
-            <p className="text-sm text-ink-muted">Sign in with this device's Scanner account.</p>
-          </div>
-          {loginError && <p className="text-sm text-danger">{loginError}</p>}
-          <input
-            type="email"
-            required
-            placeholder="Kiosk email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <PasswordInput
-            id="kiosk-password"
-            icon={Lock}
-            required
-            placeholder="Kiosk password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <button
-            type="submit"
-            disabled={isLoggingIn}
-            className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-70"
-          >
-            {isLoggingIn ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-      </div>
-    );
+    return <Navigate to="/login" state={{ from: { pathname: '/kiosk' } }} replace />;
   }
 
+  const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-sidebar px-4 text-center">
-      <div>
-        <p className="text-lg font-semibold text-white">{user?.email}</p>
-        <p className="text-sm text-white/60">Choose Check In or Check Out, then look at the camera</p>
+    <div className="relative flex h-screen w-full flex-col items-center gap-2 overflow-x-hidden bg-sidebar px-4 py-3 text-center sm:gap-4 sm:px-6 sm:py-4">
+      {/* Lets whoever set up this device sign the kiosk account out again —
+          without this, a kiosk logged in once would stay signed in
+          indefinitely (stateless refresh tokens, per CLAUDE.md, no longer
+          expire early on their own). Disabled mid-capture/matching so a stray
+          tap can't abandon an in-flight check-in/out. */}
+      <button
+        type="button"
+        onClick={() => canLogout && logout()}
+        disabled={!canLogout}
+        title="Sign out this kiosk"
+        className="absolute right-2 top-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/50 hover:bg-white/10 hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30 sm:right-4 sm:top-4"
+      >
+        <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
+        <span className="hidden sm:inline">Sign out kiosk</span>
+      </button>
+
+      <div className="flex w-full max-w-[560px] shrink-0 flex-col items-center pt-5 sm:pt-0">
+        <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-10 w-10 rounded-lg object-cover sm:h-12 sm:w-12" />
+        <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then look at the camera</p>
       </div>
 
-      <div className="relative flex h-[360px] w-[480px] items-center justify-center overflow-hidden rounded-2xl bg-black shadow-xl">
+      {/* flex-1 (instead of a fixed aspect ratio) so the preview claims
+          whatever vertical space the header/buttons leave on the actual
+          device screen, rather than a fixed small box that wastes most of a
+          tall kiosk/phone screen. */}
+      <div className="relative flex w-full min-h-[220px] max-w-[560px] flex-1 items-center justify-center overflow-hidden rounded-2xl bg-black shadow-xl">
         {/* Mirrored (-scale-x-100) so the preview behaves like a normal
             mirror — move your head left, the picture moves left — instead
             of the camera's raw, unmirrored feed which looks reversed to
@@ -480,9 +456,9 @@ export function KioskPage() {
         )}
 
         {state.phase === 'confirm_incomplete_shift' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-6 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-4 text-center sm:px-6">
             <p className="text-sm font-semibold text-white">{state.message}</p>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap justify-center gap-3">
               <button
                 type="button"
                 onClick={confirmCheckoutAnyway}
@@ -505,12 +481,12 @@ export function KioskPage() {
       </div>
 
       {state.phase === 'ready' && (
-        <div className="flex gap-4">
+        <div className="flex w-full max-w-[560px] shrink-0 justify-center gap-3 sm:gap-4">
           <button
             type="button"
             onClick={() => runCapture('checkin')}
             disabled={!modelsReady}
-            className="flex items-center gap-2 rounded-xl bg-success px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-success px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:flex-none sm:px-6 sm:py-3"
           >
             <LogIn className="h-4 w-4" strokeWidth={2} />
             Check In
@@ -519,7 +495,7 @@ export function KioskPage() {
             type="button"
             onClick={() => runCapture('checkout')}
             disabled={!modelsReady}
-            className="flex items-center gap-2 rounded-xl bg-danger px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:flex-none sm:px-6"
           >
             <LogOut className="h-4 w-4" strokeWidth={2} />
             Check Out
