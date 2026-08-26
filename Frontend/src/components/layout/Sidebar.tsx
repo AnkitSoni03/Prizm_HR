@@ -134,7 +134,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
             <X className="h-5 w-5" strokeWidth={1.75} />
           </button>
           <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-20 w-20 shrink-0 rounded-xl object-cover sm:h-24 sm:w-24" />
-          <p className="truncate text-base text-gray-400 sm:text-lg">{portalLabel}</p>
+          <p className="truncate text-xs text-gray-400 sm:text-sm">{portalLabel}</p>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
