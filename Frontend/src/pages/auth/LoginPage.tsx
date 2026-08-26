@@ -105,9 +105,15 @@ export function LoginPage() {
 
       <div className="relative z-10 flex flex-1 items-center justify-center bg-transparent px-4 pb-12 pt-2 sm:py-12 md:bg-page">
         <div className="w-full max-w-sm">
+          {/* This block sits directly on the dark hero gradient on mobile
+              (the section around it is bg-transparent there so that gradient
+              shows through — see the wrapper's own comment above), but on a
+              solid bg-page panel from md: up — needs an explicit light color
+              below md rather than the theme-aware ink tokens, which flip
+              dark-on-dark and become unreadable in light mode. */}
           <div className="mb-6 text-center sm:mb-8 md:text-left">
-            <p className="text-lg font-semibold text-ink">Sign in</p>
-            <p className="text-sm text-ink-muted">Enter your credentials to access your account</p>
+            <p className="text-lg font-semibold text-white md:text-ink">Sign in</p>
+            <p className="text-sm text-white/70 md:text-ink-muted">Enter your credentials to access your account</p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-8 shadow-sm">
