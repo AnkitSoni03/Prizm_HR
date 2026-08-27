@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Building2,
+  Briefcase,
   CalendarCheck,
   CalendarClock,
   CalendarRange,
@@ -9,7 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
-  Hash,
+  IdCard,
   LogIn,
   LogOut,
   Megaphone,
@@ -172,20 +172,19 @@ interface Summary {
 // arrived.
 function MobileIdCardSkeleton() {
   return (
-    <div className="mb-4 block rounded-3xl border border-border bg-card p-4 shadow-md sm:hidden">
-      <div className="flex justify-center">
-        <Skeleton className="-mb-12 z-10 h-24 w-24 shrink-0 rounded-full border-4 border-card" />
-      </div>
-      <div className="rounded-2xl bg-page px-4 pb-4 pt-14 text-center">
-        <Skeleton className="mx-auto h-4 w-28" />
-        <Skeleton className="mx-auto mt-2 h-3 w-16" />
-        <div className="mt-3 grid grid-cols-2 gap-2.5">
-          <Skeleton className="h-[54px] rounded-xl" />
-          <Skeleton className="h-[54px] rounded-xl" />
+    <div className="mb-3 block sm:hidden">
+      <div className="rounded-3xl border border-border bg-muted p-4 shadow-md">
+        <div className="flex items-start gap-3">
+          <Skeleton className="h-16 w-16 shrink-0 rounded-2xl" />
+          <div className="min-w-0 flex-1 space-y-2 pt-1">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
         </div>
-        <Skeleton className="mt-2.5 h-[54px] w-full rounded-xl" />
-        <Skeleton className="mt-2.5 h-[70px] w-full rounded-xl" />
+        <Skeleton className="mt-4 h-14 w-full rounded-2xl" />
       </div>
+      <Skeleton className="mt-3 h-[92px] w-full rounded-2xl" />
     </div>
   );
 }
@@ -492,72 +491,98 @@ export function EssDashboard() {
       {/* Mobile-only employee ID card — first thing shown on the phone
           dashboard, above the stat tiles. Desktop keeps the existing
           DashboardHeader banner below (hidden here to avoid showing both). */}
-      <Link
-        to="/ess/profile"
-        // Light mode: unchanged brand blue (bg-primary). Dark mode only:
-        // bg-primary-hover — already an existing token in the same brand-blue
-        // family (not a new color), just a shade darker so the card doesn't
-        // sit at the exact same flat blue against the near-black dark page.
-        className="mb-4 block rounded-3xl bg-primary p-4 shadow-md active:scale-[0.99] sm:hidden dark:bg-primary-hover"
-      >
-        <div className="flex justify-center">
-          <div className="-mb-12 z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-card bg-primary-hover text-2xl font-bold text-white shadow-lg ring-4 ring-primary">
-            {user.photoUrl ? (
-              <img src={user.photoUrl} alt={employeeName} className="h-full w-full object-cover" />
-            ) : (
-              initialsFor(employeeName)
+      <div className="mb-3 block sm:hidden">
+        {/* Same --banner-gradient token as the desktop DashboardHeader banner
+            (not from-primary/to-primary-hover) — that token is already
+            dimmed per-theme specifically so dark mode doesn't sit a bright
+            light-mode blue on top of an otherwise near-black page. */}
+        <Link
+          to="/ess/profile"
+          className="relative block overflow-hidden rounded-3xl pt-4 px-4 shadow-md active:scale-[0.99]"
+          style={{ background: 'var(--banner-gradient)' }}
+        >
+          {/* Faint scattered-dot texture in the top-right corner — purely
+              decorative, clipped by the card's own overflow-hidden. */}
+          <svg
+            className="pointer-events-none absolute -right-4 -top-4 h-28 w-28 text-white/10"
+            viewBox="0 0 100 100"
+            aria-hidden="true"
+          >
+            {Array.from({ length: 6 }).map((_, row) =>
+              Array.from({ length: 6 }).map((_, col) => (
+                <circle key={`${row}-${col}`} cx={8 + col * 16} cy={8 + row * 16} r="2" fill="currentColor" />
+              ))
             )}
-          </div>
-        </div>
+          </svg>
 
-        <div className="rounded-2xl bg-card px-4 pb-4 pt-14 text-center">
-          <p className="truncate text-base font-bold text-warning">{employeeName}</p>
-          {/* dark:text-white per request — plain text-white would go invisible
-              against this same panel's white bg-card in light mode. */}
-          <p className="truncate text-xs font-normal text-ink-muted dark:text-white">{designation ?? 'Employee'}</p>
-
-          <div className="mt-3 grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl bg-muted px-2 py-2.5">
-              <p className="flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
-                <Hash className="h-3 w-3" strokeWidth={2} />
-                ID
-              </p>
-              <p className="mt-0.5 truncate text-sm font-semibold text-ink">{employeeCode ?? '—'}</p>
+          <div className="relative flex items-start gap-3 pb-4">
+            <div className="relative shrink-0">
+              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-2 border-white/30 bg-white/15 text-xl font-bold text-white">
+                {user.photoUrl ? (
+                  <img src={user.photoUrl} alt={employeeName} className="h-full w-full object-cover" />
+                ) : (
+                  initialsFor(employeeName)
+                )}
+              </div>
+              <span
+                className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full border-2 bg-success"
+                style={{ borderColor: 'var(--banner-gradient)' }}
+                aria-hidden="true"
+              />
             </div>
-            <div className="rounded-xl bg-muted px-2 py-2.5">
-              <p className="flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
-                <CalendarRange className="h-3 w-3" strokeWidth={2} />
-                DATE
-              </p>
-              <p className="mt-0.5 truncate text-sm font-semibold text-ink">{formatDisplayDate(todayStr())}</p>
+
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className="truncate text-base font-bold text-white">{employeeName}</p>
+              <p className="truncate text-xs text-white/70">{designation ?? 'Employee'}</p>
+              {employeeStatus && (
+                <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-medium text-white">
+                  <span className="h-1 w-1 rounded-full bg-success" aria-hidden="true" />
+                  {EMPLOYEE_STATUS_LABEL[employeeStatus]}
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="mt-2.5 rounded-xl bg-muted px-2 py-2.5">
-            <p className="flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
-              <Building2 className="h-3 w-3" strokeWidth={2} />
-              DEPT
-            </p>
-            <p className="mt-0.5 truncate text-sm font-semibold text-ink">{department ?? '—'}</p>
+          <div className="relative -mx-4 grid grid-cols-3 divide-x divide-white/15 bg-white/10 px-2 py-2.5">
+            <div className="flex flex-col items-center gap-1 px-1 text-center">
+              <IdCard className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
+              <p className="text-[9px] font-semibold uppercase tracking-wide text-white/60">Employee ID</p>
+              <p className="truncate text-xs font-semibold text-white">{employeeCode ?? '—'}</p>
+            </div>
+            <div className="flex flex-col items-center gap-1 px-1 text-center">
+              <CalendarRange className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
+              <p className="text-[9px] font-semibold uppercase tracking-wide text-white/60">Date of Joining</p>
+              <p className="truncate text-xs font-semibold text-white">{formatDisplayDate(todayStr())}</p>
+            </div>
+            <div className="flex flex-col items-center gap-1 px-1 text-center">
+              <Briefcase className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
+              <p className="text-[9px] font-semibold uppercase tracking-wide text-white/60">Department</p>
+              <p className="truncate text-xs font-semibold text-white">{department ?? '—'}</p>
+            </div>
           </div>
+        </Link>
 
-          {/* Same "This Month" figure the desktop DashboardHeader banner already
-              shows (monthPresent/monthWorkingDays) — reused here rather than
-              recomputed, so the two never disagree. */}
-          <div className="mt-2.5 flex items-center gap-3 rounded-xl bg-muted px-3 py-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
-              <CalendarRange className="h-5 w-5" strokeWidth={1.75} />
+        {/* Same "This Month" figure the desktop DashboardHeader banner already
+            shows (monthPresent/monthWorkingDays) — reused here rather than
+            recomputed, so the two never disagree. */}
+        <Link
+          to="/ess/attendance"
+          className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-md active:scale-[0.99]"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white">
+              <CalendarCheck className="h-5 w-5" strokeWidth={1.75} />
             </span>
-            <div className="min-w-0 flex-1 text-left">
-              <p className="text-[11px] font-medium text-ink-muted">This Month</p>
-              <p className="truncate text-lg font-bold leading-tight text-ink">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-ink-muted">This Month</p>
+              <p className="truncate text-2xl font-bold leading-tight text-ink">
                 {summary.monthPresent}
                 <span className="text-sm font-medium text-ink-muted">/{summary.monthWorkingDays}</span>
               </p>
               <p className="text-[11px] text-ink-muted">Days Present</p>
-              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-card">
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-success transition-all duration-300"
+                  className="h-full rounded-full bg-primary transition-all duration-300"
                   style={{
                     width: `${Math.min(100, Math.max(0, summary.monthWorkingDays > 0 ? (summary.monthPresent / summary.monthWorkingDays) * 100 : 0))}%`,
                   }}
@@ -565,8 +590,15 @@ export function EssDashboard() {
               </div>
             </div>
           </div>
-        </div>
-      </Link>
+
+          <img
+            src={theme === 'dark' ? '/time-mobile-dark.png' : '/time-mobile.png'}
+            alt=""
+            aria-hidden="true"
+            className="h-20 w-20 shrink-0 object-contain"
+          />
+        </Link>
+      </div>
 
       <div className="hidden sm:block">
         <DashboardHeader
