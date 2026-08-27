@@ -6,6 +6,23 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Telegram-style circular reveal for the dark/light toggle. The new theme's
+   screenshot is clipped to a circle grown via JS (ThemeContext.tsx) from the
+   tapped point; the default cross-fade is disabled so only that circle shows. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+}
+
 :root {
   --bg-page: #f7f9fc;
   --bg-sidebar: #0d1a30;
@@ -136,6 +153,15 @@
        for it, then eats into vertical space and forces a spurious vertical
        scrollbar on pages with no real overflow. */
     overflow-x: hidden;
+    /* The app shell (Layout.tsx) already funnels all real scrolling into
+       <main>'s own overflow-y-auto — this just forecloses the document
+       itself ever scrolling too. Without it, mobile Chrome's address-bar
+       show/hide can make 100vh momentarily taller than the visible
+       viewport, letting the page creep a few px, which throws off the
+       theme toggle's circular-reveal origin (ThemeContext.tsx) since the
+       view-transition snapshot is anchored to the document, not the
+       post-scroll viewport. */
+    overflow-y: hidden;
   }
 
   body {

@@ -20,7 +20,7 @@ export function Layout({ navItems, portalLabel, title, children }: LayoutProps) 
   const isEss = portalLabel === 'Employee Self-Service';
 
   return (
-    <div className="flex h-screen bg-page">
+    <div className="flex h-dvh bg-page">
       <Sidebar
         navItems={navItems}
         portalLabel={portalLabel}
