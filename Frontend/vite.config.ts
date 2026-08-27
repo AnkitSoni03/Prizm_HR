@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['HRMS Logo.png'],
+      includeAssets: ['pwa-icon.png'],
       manifest: {
         name: 'Prizm HR',
         short_name: 'Prizm HR',
@@ -21,9 +21,13 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         icons: [
-          { src: '/HRMS Logo.png', sizes: '192x192', type: 'image/png' },
-          { src: '/HRMS Logo.png', sizes: '512x512', type: 'image/png' },
-          { src: '/HRMS Logo.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          // Filename deliberately has no spaces — a raw space in a manifest
+          // icon `src` breaks Chrome's icon fetch (unlike a normal <img>/
+          // <link> tag, which auto-encodes it), which silently fails the
+          // installability check with no error, just no install prompt.
+          { src: '/pwa-icon.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-icon.png', sizes: '512x512', type: 'image/png' },
+          { src: '/pwa-icon.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
