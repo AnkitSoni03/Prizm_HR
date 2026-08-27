@@ -7,6 +7,10 @@ const TRANSITION_MS = 550;
 // Matches Tailwind's `md` breakpoint — the same cutoff Topbar/Sidebar already
 // use to swap the toggle button from the desktop Topbar to the mobile drawer.
 const MOBILE_BREAKPOINT_PX = 768;
+// How far past the viewport edge the origin sits, so the circle is already
+// mid-size (not a pinprick) the moment it crosses into view — reads as
+// approaching from off-screen rather than blooming from a corner.
+const OFFSCREEN_MARGIN_PX = 200;
 
 function getInitialTheme(): Theme {
   return window.localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark';
@@ -16,12 +20,15 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-// Reveal always starts from a fixed screen corner rather than the tapped
-// button's own position — top-right on desktop, bottom-right on mobile
-// (where the toggle lives at the bottom of the Sidebar drawer).
+// Reveal starts from a point pushed outside the viewport entirely — top-right
+// on desktop, bottom-right on mobile (where the toggle lives at the bottom of
+// the Sidebar drawer) — instead of a fixed screen corner.
 function getRevealOrigin(): { x: number; y: number } {
   const isMobile = window.innerWidth < MOBILE_BREAKPOINT_PX;
-  return { x: window.innerWidth, y: isMobile ? window.innerHeight : 0 };
+  return {
+    x: window.innerWidth + OFFSCREEN_MARGIN_PX,
+    y: isMobile ? window.innerHeight + OFFSCREEN_MARGIN_PX : -OFFSCREEN_MARGIN_PX,
+  };
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
