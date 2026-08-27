@@ -44,7 +44,7 @@ export function BottomNav({ onOpenMore }: { onOpenMore: () => void }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 sm:hidden">
       <nav
-        className="flex items-center justify-around border-t border-border bg-card shadow-lg"
+        className="flex items-center justify-around border-t border-border px-4 bg-card shadow-lg"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {TABS.map((tab) => {
