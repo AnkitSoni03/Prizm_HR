@@ -30,8 +30,8 @@ COPY src ./src
 # process.env.PORT || 5000. .env is not copied into the image — configure
 # real env vars / secrets (DB_*, JWT_*, GCS_CREDENTIALS_JSON, SMTP_*,
 # REDIS_URL, etc.) via `gcloud run deploy --set-env-vars` / Secret Manager.
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=5000
+EXPOSE 5000
 
 USER nodeapp
 
