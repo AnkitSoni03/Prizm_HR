@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+gcs-key.json
+*.log
+.git
+.gitignore
+Dockerfile
+.dockerignore
