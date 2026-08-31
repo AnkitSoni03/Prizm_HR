@@ -21,12 +21,13 @@ function prefersReducedMotion(): boolean {
 }
 
 // Reveal starts from a point pushed outside the viewport entirely — top-right
-// on desktop, bottom-right on mobile (where the toggle lives at the bottom of
-// the Sidebar drawer) — instead of a fixed screen corner.
+// on desktop, straight below the bottom edge (horizontally centered) on
+// mobile, so it reads as rising up into the frame from outside rather than
+// blooming from a corner.
 function getRevealOrigin(): { x: number; y: number } {
   const isMobile = window.innerWidth < MOBILE_BREAKPOINT_PX;
   return {
-    x: window.innerWidth + OFFSCREEN_MARGIN_PX,
+    x: isMobile ? window.innerWidth / 2 : window.innerWidth + OFFSCREEN_MARGIN_PX,
     y: isMobile ? window.innerHeight + OFFSCREEN_MARGIN_PX : -OFFSCREEN_MARGIN_PX,
   };
 }
