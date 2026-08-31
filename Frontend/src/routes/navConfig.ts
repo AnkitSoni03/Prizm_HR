@@ -72,9 +72,13 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Approvals', path: '/brand-admin/approvals', icon: ClipboardCheck },
   { label: 'Attendance Records', path: '/brand-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/brand-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
+  { label: 'Fraud Attempts', path: '/brand-admin/fraud-attempts', icon: ShieldAlert, permission: 'attendance:read' },
   { label: 'Holidays', path: '/brand-admin/holidays', icon: CalendarClock },
+  { label: 'Leave Types', path: '/brand-admin/leave-types', icon: Wallet, permission: 'leave_type:read' },
+  { label: 'Leave Policy Settings', path: '/brand-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
   { label: 'Company Policies', path: '/brand-admin/policies', icon: FileText },
   { label: 'Comp Off Setting', path: '/brand-admin/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
+  { label: 'Payroll', path: '/brand-admin/payroll', icon: Wallet, permission: 'payroll_settings:read' },
   { label: 'Settings', path: '/brand-admin/settings', icon: Settings },
 ];
 

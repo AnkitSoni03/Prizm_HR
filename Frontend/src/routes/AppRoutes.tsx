@@ -19,7 +19,7 @@ import {
   ShiftsRostersPage as EssShiftsPage,
 } from '../pages/company-admin/ShiftsRostersPage';
 import { ApprovalsPage } from '../pages/company-admin/ApprovalsPage';
-import { PayrollPage } from '../pages/company-admin/PayrollPage';
+import { PayrollPage, PayrollPage as BrandAdminPayrollPage } from '../pages/company-admin/PayrollPage';
 import {
   ScannerAccountsPage as CompanyAdminScannerAccountsPage,
   ScannerAccountsPage as BrandAdminScannerAccountsPage,
@@ -32,7 +32,7 @@ import {
   AttendanceBoardPage as CompanyAdminAttendanceBoardPage,
   AttendanceBoardPage as BrandAdminAttendanceBoardPage,
 } from '../pages/company-admin/AttendanceBoardPage';
-import { FraudAttemptsPage } from '../pages/company-admin/FraudAttemptsPage';
+import { FraudAttemptsPage, FraudAttemptsPage as BrandAdminFraudAttemptsPage } from '../pages/company-admin/FraudAttemptsPage';
 import {
   HolidaysPage as CompanyAdminHolidaysPage,
   HolidaysPage as BrandAdminHolidaysPage,
@@ -44,10 +44,12 @@ import {
 } from '../pages/company-admin/RosterGroupsPage';
 import {
   LeavePolicySettingsPage as CompanyAdminLeavePolicySettingsPage,
+  LeavePolicySettingsPage as BrandAdminLeavePolicySettingsPage,
   LeavePolicySettingsPage as EssLeavePolicySettingsPage,
 } from '../pages/company-admin/LeavePolicySettingsPage';
 import {
   LeaveTypesPage as CompanyAdminLeaveTypesPage,
+  LeaveTypesPage as BrandAdminLeaveTypesPage,
   LeaveTypesPage as EssLeaveTypesPage,
 } from '../pages/company-admin/LeaveTypesPage';
 import {
@@ -482,6 +484,17 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/brand-admin/fraud-attempts"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Fraud Attempts">
+              <BrandAdminFraudAttemptsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/brand-admin/scanner-accounts"
         element={
           <ProtectedRoute permission="scanner_account:create">
@@ -526,11 +539,44 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/brand-admin/leave-types"
+        element={
+          <ProtectedRoute permission="leave_type:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Leave Types">
+              <BrandAdminLeaveTypesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/leave-policies"
+        element={
+          <ProtectedRoute permission="leave_policy:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Leave Policy Settings">
+              <BrandAdminLeavePolicySettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/brand-admin/comp-off-settings"
         element={
           <ProtectedRoute permission="comp_off_policy:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Comp Off Setting">
               <BrandAdminCompOffSettingsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/payroll"
+        element={
+          <ProtectedRoute permission="payroll_settings:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Payroll">
+              <BrandAdminPayrollPage />
             </Layout>
           </ProtectedRoute>
         }
