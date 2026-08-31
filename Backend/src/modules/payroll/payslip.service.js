@@ -2,12 +2,22 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { assertEmployeeInBrandScope, resolveScopedEmployeeIds } = require('../../utils/brandScope');
 
 const COMPONENTS_INCLUDE = { model: db.PayslipComponent, as: 'components' };
 
-async function listPayslipsForRun({ companyId, payrollRunId, limit, offset }) {
+// A PayrollRun itself is company-wide (one batch covers every brand's
+// employees), so a Brand Admin still sees that a run exists via
+// payrollRun.service.js — but the payslip line items *within* it are
+// filtered to their own brand's employees, same as every other
+// employee-scoped list in this module.
+async function listPayslipsForRun({ companyId, payrollRunId, limit, offset, scopedBrandIds }) {
+  const where = { companyId, payrollRunId };
+  if (scopedBrandIds) {
+    where.employeeId = await resolveScopedEmployeeIds({ companyId, scopedBrandIds });
+  }
   return db.Payslip.findAndCountAll({
-    where: { companyId, payrollRunId },
+    where,
     limit,
     offset,
     order: [['id', 'ASC']],
@@ -15,7 +25,7 @@ async function listPayslipsForRun({ companyId, payrollRunId, limit, offset }) {
   });
 }
 
-async function getPayslipForRead({ companyId, id }) {
+async function getPayslipForRead({ companyId, id, scopedBrandIds }) {
   const payslip = await db.Payslip.findOne({
     where: { id, companyId },
     include: [
@@ -25,6 +35,7 @@ async function getPayslipForRead({ companyId, id }) {
     ],
   });
   if (!payslip) throw new HttpError(404, 'Payslip not found');
+  await assertEmployeeInBrandScope({ employeeId: payslip.employeeId, companyId, scopedBrandIds });
   return payslip;
 }
 
@@ -53,7 +64,7 @@ async function getOwnPayslip({ companyId, employeeId, id }) {
 // Used only by the PDF export path — eager-loads Company + Employee's
 // department/designation that the lean JSON loaders above don't need.
 // employeeId is set for the ESS own-path, omitted for the admin path.
-async function loadPayslipForPdf({ companyId, employeeId, id }) {
+async function loadPayslipForPdf({ companyId, employeeId, id, scopedBrandIds }) {
   const where = { id, companyId };
   if (employeeId != null) where.employeeId = employeeId;
 
@@ -75,6 +86,12 @@ async function loadPayslipForPdf({ companyId, employeeId, id }) {
     ],
   });
   if (!payslip) throw new HttpError(404, 'Payslip not found');
+  // employeeId is only set on the ESS own-payslip path, which is already
+  // scoped to the caller's own employee — brand scope only matters for the
+  // admin path (employeeId omitted).
+  if (employeeId == null) {
+    await assertEmployeeInBrandScope({ employeeId: payslip.employeeId, companyId, scopedBrandIds });
+  }
   return payslip;
 }
 

@@ -70,7 +70,7 @@ async function assertBelongsToCompany(model, id, companyId, label) {
   if (!row) throw new HttpError(400, `${label} not found for this company`);
 }
 
-async function listEmployees({ limit, offset, companyId, brandId, departmentId, rosterGroupId, status, search }) {
+async function listEmployees({ limit, offset, companyId, brandId, departmentId, rosterGroupId, status, search, scopedBrandIds }) {
   const where = {};
   // Explicit companyId filter for callers whose tenant-scope hook is a
   // no-op (Super Admin's context is null — see CLAUDE.md's "tenant-scope
@@ -80,6 +80,14 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
   // longer be left implicit.
   if (companyId) where.companyId = companyId;
   if (brandId) where.brandId = brandId;
+  // scopedBrandIds (rbac.middleware.js's requirePermission output) is the
+  // real enforcement boundary for a brand-scoped caller (Brand Admin): an
+  // explicit brandId is already validated by the middleware to be one of
+  // theirs, but an *omitted* brandId used to fall through to every employee
+  // in the company — real gap, since callers like the Payroll page's
+  // employee picker (pages/company-admin/PayrollPage.tsx, reused as-is by
+  // Brand Admin) never pass a brandId at all.
+  if (scopedBrandIds) where.brandId = brandId || scopedBrandIds;
   if (departmentId) where.departmentId = departmentId;
   if (rosterGroupId) where.rosterGroupId = rosterGroupId;
   if (status) where.status = status;

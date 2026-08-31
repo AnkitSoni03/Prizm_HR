@@ -72,6 +72,7 @@ async function listPayslips(req, res, next) {
       payrollRunId: req.params.id,
       limit,
       offset,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {

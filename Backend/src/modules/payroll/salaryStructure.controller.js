@@ -7,6 +7,7 @@ async function listForEmployee(req, res, next) {
     const rows = await service.listStructuresForEmployee({
       companyId: req.auth.companyId,
       employeeId: req.params.employeeId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: rows });
   } catch (err) {
@@ -19,6 +20,7 @@ async function getActiveForEmployee(req, res, next) {
     const structure = await service.getActiveStructure({
       companyId: req.auth.companyId,
       employeeId: req.params.employeeId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: structure });
   } catch (err) {
@@ -28,7 +30,11 @@ async function getActiveForEmployee(req, res, next) {
 
 async function get(req, res, next) {
   try {
-    const structure = await service.getStructureForRead({ companyId: req.auth.companyId, id: req.params.id });
+    const structure = await service.getStructureForRead({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     res.json({ data: structure });
   } catch (err) {
     next(err);
@@ -49,6 +55,7 @@ async function assign(req, res, next) {
       annualCtc,
       components,
       createdByUserId: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.status(201).json({ data: structure });
   } catch (err) {

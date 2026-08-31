@@ -21,7 +21,11 @@ async function sendPayslipPdf(res, payslip) {
 
 async function get(req, res, next) {
   try {
-    const payslip = await service.getPayslipForRead({ companyId: req.auth.companyId, id: req.params.id });
+    const payslip = await service.getPayslipForRead({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     res.json({ data: payslip });
   } catch (err) {
     next(err);
@@ -60,7 +64,11 @@ async function getMine(req, res, next) {
 
 async function getPdf(req, res, next) {
   try {
-    const payslip = await service.loadPayslipForPdf({ companyId: req.auth.companyId, id: req.params.id });
+    const payslip = await service.loadPayslipForPdf({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     await sendPayslipPdf(res, payslip);
   } catch (err) {
     next(err);

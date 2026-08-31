@@ -33,6 +33,7 @@ async function list(req, res, next) {
       rosterGroupId: req.query.rosterGroupId,
       status: req.query.status,
       search: req.query.search,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {

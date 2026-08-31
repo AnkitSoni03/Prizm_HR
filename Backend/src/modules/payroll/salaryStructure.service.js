@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { addDays } = require('../../utils/dateRange');
+const { assertEmployeeInBrandScope } = require('../../utils/brandScope');
 
 const DEFINITION_INCLUDE = { model: db.SalaryComponentDefinition, as: 'definition' };
 const COMPONENTS_INCLUDE = { model: db.EmployeeSalaryComponent, as: 'components', include: [DEFINITION_INCLUDE] };
@@ -71,24 +72,27 @@ function resolveComponentAmounts(lines) {
   return lines;
 }
 
-async function getActiveStructure({ companyId, employeeId }) {
+async function getActiveStructure({ companyId, employeeId, scopedBrandIds }) {
+  await assertEmployeeInBrandScope({ employeeId, companyId, scopedBrandIds });
   return db.EmployeeSalaryStructure.findOne({
     where: { companyId, employeeId, status: 'active' },
     include: [COMPONENTS_INCLUDE],
   });
 }
 
-async function getStructureForRead({ companyId, id, transaction }) {
+async function getStructureForRead({ companyId, id, scopedBrandIds, transaction }) {
   const structure = await db.EmployeeSalaryStructure.findOne({
     where: { id, companyId },
     include: [COMPONENTS_INCLUDE],
     transaction,
   });
   if (!structure) throw new HttpError(404, 'Salary structure not found');
+  await assertEmployeeInBrandScope({ employeeId: structure.employeeId, companyId, scopedBrandIds });
   return structure;
 }
 
-async function listStructuresForEmployee({ companyId, employeeId }) {
+async function listStructuresForEmployee({ companyId, employeeId, scopedBrandIds }) {
+  await assertEmployeeInBrandScope({ employeeId, companyId, scopedBrandIds });
   return db.EmployeeSalaryStructure.findAll({
     where: { companyId, employeeId },
     order: [['effectiveFrom', 'DESC']],
@@ -118,9 +122,20 @@ async function getOverlappingStructures({ companyId, employeeId, periodStart, pe
 // superseded (effective_to set to the day before the new one starts,
 // status flipped) rather than deleted, so historical payslips generated
 // against it remain traceable and unaffected.
-async function assignSalaryStructure({ companyId, employeeId, effectiveFrom, annualCtc, components, createdByUserId }) {
+async function assignSalaryStructure({
+  companyId,
+  employeeId,
+  effectiveFrom,
+  annualCtc,
+  components,
+  createdByUserId,
+  scopedBrandIds,
+}) {
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
+  if (scopedBrandIds && !scopedBrandIds.some((brandId) => String(brandId) === String(employee.brandId))) {
+    throw new HttpError(404, 'Employee not found');
+  }
 
   if (!Array.isArray(components) || components.length === 0) {
     throw new HttpError(400, 'At least one salary component is required');

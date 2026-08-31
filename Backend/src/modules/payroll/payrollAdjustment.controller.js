@@ -14,6 +14,7 @@ async function list(req, res, next) {
       status: req.query.status,
       limit,
       offset,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
@@ -38,6 +39,7 @@ async function create(req, res, next) {
       amount,
       description,
       createdByUserId: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.status(201).json({ data: adjustment });
   } catch (err) {
@@ -51,6 +53,7 @@ async function update(req, res, next) {
       companyId: req.auth.companyId,
       id: req.params.id,
       updates: req.body,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: adjustment });
   } catch (err) {
@@ -60,7 +63,11 @@ async function update(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    await service.cancelAdjustment({ companyId: req.auth.companyId, id: req.params.id });
+    await service.cancelAdjustment({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     res.status(204).send();
   } catch (err) {
     next(err);
