@@ -92,12 +92,18 @@ function PasswordCell({ account, canReveal }: { account: ScannerAccount; canReve
 
 // Reused as-is by both /company-admin/scanner-accounts and
 // /brand-admin/scanner-accounts (same pattern as OrganizationPage/
-// HolidaysPage) — the backend's scanner_account:create grant is already
-// brand-scoped for Brand Admin, so no portal-specific branching is needed
-// here at all.
+// HolidaysPage). The backend's scanner_account:create grant is brand-scoped
+// for Brand Admin and requires brandId to be sent explicitly (it's never
+// auto-filled from the caller's own grant — same "omitted brandId must not
+// silently fall through" rule employee/roster create already follow), so
+// this page resolves the caller's own brandId the same way
+// EmployeesPage/ShiftsRostersPage/ApprovalsPage do and threads it through
+// both list (avoids leaking every brand's kiosk accounts to a Brand Admin)
+// and create (avoids the 403 a Brand Admin previously got with no brandId).
 export function ScannerAccountsPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canCreate = hasPermission('scanner_account:create');
+  const ownBrandId = user?.roles.find((role) => role.name === 'Brand Admin')?.brandId ?? null;
 
   const [accounts, setAccounts] = useState<ScannerAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -114,7 +120,7 @@ export function ScannerAccountsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await listScannerAccounts();
+      const result = await listScannerAccounts(ownBrandId ? { brandId: ownBrandId } : {});
       setAccounts(result);
     } catch {
       setError('Could not load kiosk accounts.');
@@ -126,7 +132,8 @@ export function ScannerAccountsPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownBrandId]);
 
   return (
     <div>
@@ -197,6 +204,7 @@ export function ScannerAccountsPage() {
 
       {isModalOpen && (
         <CreateScannerAccountModal
+          brandId={ownBrandId}
           onClose={() => setIsModalOpen(false)}
           onCreated={() => {
             setIsModalOpen(false);
@@ -225,7 +233,15 @@ function extractError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function CreateScannerAccountModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateScannerAccountModal({
+  brandId,
+  onClose,
+  onCreated,
+}: {
+  brandId: string | null;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -235,7 +251,7 @@ function CreateScannerAccountModal({ onClose, onCreated }: { onClose: () => void
     setError(null);
     setIsSubmitting(true);
     try {
-      await createScannerAccount({ email, password });
+      await createScannerAccount({ email, password, brandId });
       onCreated();
     } catch (err) {
       setError(extractError(err, 'Could not create this kiosk account.'));
