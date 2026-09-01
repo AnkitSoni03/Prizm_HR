@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, Users } from 'lucide-react';
+import { Activity, Briefcase, Building2, MoreVertical, Pencil, Plus, ShieldCheck, Users } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
 import { Table } from '../../components/ui/Table';
 import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
+import { Skeleton } from '../../components/ui/Skeleton';
 import { useAuth } from '../../context/auth-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments, listDesignations } from '../../api/companyAdmin/org';
@@ -156,63 +157,143 @@ export function EmployeesPage() {
 
       {(isLoading || employees.length > 0) && (
         <>
-          <Table
-            isLoading={isLoading}
-            rows={employees}
-            rowKey={(employee) => employee.id}
-            columns={[
-              {
-                key: 'name',
-                header: 'Name',
-                render: (employee) => (
+          <div className="hidden md:block">
+            <Table
+              isLoading={isLoading}
+              rows={employees}
+              rowKey={(employee) => employee.id}
+              columns={[
+                {
+                  key: 'name',
+                  header: 'Name',
+                  render: (employee) => (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEmployee(employee)}
+                      title="Click to view or edit"
+                      className="group flex items-center gap-2.5 font-medium text-ink hover:text-primary hover:underline"
+                    >
+                      <Avatar src={employee.photoDownloadUrl} size="sm" />
+                      {employee.name ?? '—'}
+                      <Pencil
+                        className="h-3.5 w-3.5 shrink-0 text-ink-muted group-hover:text-primary"
+                        strokeWidth={1.75}
+                      />
+                    </button>
+                  ),
+                },
+                { key: 'code', header: 'Code', render: (employee) => employee.employeeCode },
+                {
+                  key: 'brand',
+                  header: 'Brand',
+                  render: (employee) => brands.find((b) => b.id === employee.brandId)?.name ?? '—',
+                },
+                {
+                  key: 'department',
+                  header: 'Department',
+                  render: (employee) => departments.find((d) => d.id === employee.departmentId)?.name ?? '—',
+                },
+                {
+                  key: 'designation',
+                  header: 'Designation',
+                  render: (employee) =>
+                    designations.find((d) => d.id === employee.designationId)?.title ?? '—',
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (employee) => <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>,
+                },
+                {
+                  key: 'account',
+                  header: 'Account',
+                  render: (employee) => (
+                    <Badge tone={employee.isActive ? 'success' : 'danger'}>
+                      {employee.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  ),
+                },
+              ]}
+            />
+          </div>
+
+          {/* Mobile: a trimmed, tap-to-expand card — name/department/designation
+              only, everything else lives behind EmployeeDetailModal so the list
+              stays scannable on a phone instead of a cramped stacked table. */}
+          <div className="space-y-2.5 md:hidden">
+            {isLoading &&
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-2xl border border-border bg-card p-3.5 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-11 w-11 shrink-0 rounded-full" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/3" />
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2 border-t border-border pt-3">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-full" />
+                  </div>
+                </div>
+              ))}
+            {!isLoading &&
+              employees.map((employee) => {
+                const department = departments.find((d) => d.id === employee.departmentId)?.name;
+                const designation = designations.find((d) => d.id === employee.designationId)?.title;
+                return (
                   <button
+                    key={employee.id}
                     type="button"
                     onClick={() => setSelectedEmployee(employee)}
-                    title="Click to view or edit"
-                    className="group flex items-center gap-2.5 font-medium text-ink hover:text-primary hover:underline"
+                    className="block w-full rounded-2xl border border-border bg-card p-3.5 text-left shadow-sm transition-transform active:scale-[0.98]"
                   >
-                    <Avatar src={employee.photoDownloadUrl} size="sm" />
-                    {employee.name ?? '—'}
-                    <Pencil
-                      className="h-3.5 w-3.5 shrink-0 text-ink-muted group-hover:text-primary"
-                      strokeWidth={1.75}
-                    />
+                    <div className="flex items-start gap-3">
+                      <Avatar src={employee.photoDownloadUrl} size="lg" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[15px] font-semibold text-ink">{employee.name ?? '—'}</p>
+                        <p className="text-xs text-ink-muted">{employee.employeeCode}</p>
+                      </div>
+                      <MoreVertical className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
+                    </div>
+
+                    <div className="mt-3 space-y-2 border-t border-border pt-3">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="flex items-center gap-1.5 text-ink-muted">
+                          <Building2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                          Department
+                        </span>
+                        <span className="truncate font-medium text-ink">{department ?? '—'}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="flex items-center gap-1.5 text-ink-muted">
+                          <Briefcase className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                          Designation
+                        </span>
+                        <span className="truncate font-medium text-ink">{designation ?? '—'}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="flex items-center gap-1.5 text-ink-muted">
+                          <Activity className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                          Status
+                        </span>
+                        <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="flex items-center gap-1.5 text-ink-muted">
+                          <ShieldCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                          Account
+                        </span>
+                        <Badge tone={employee.isActive ? 'success' : 'danger'}>
+                          {employee.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                    </div>
                   </button>
-                ),
-              },
-              { key: 'code', header: 'Code', render: (employee) => employee.employeeCode },
-              {
-                key: 'brand',
-                header: 'Brand',
-                render: (employee) => brands.find((b) => b.id === employee.brandId)?.name ?? '—',
-              },
-              {
-                key: 'department',
-                header: 'Department',
-                render: (employee) => departments.find((d) => d.id === employee.departmentId)?.name ?? '—',
-              },
-              {
-                key: 'designation',
-                header: 'Designation',
-                render: (employee) =>
-                  designations.find((d) => d.id === employee.designationId)?.title ?? '—',
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (employee) => <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>,
-              },
-              {
-                key: 'account',
-                header: 'Account',
-                render: (employee) => (
-                  <Badge tone={employee.isActive ? 'success' : 'danger'}>
-                    {employee.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                ),
-              },
-            ]}
-          />
+                );
+              })}
+          </div>
+
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
