@@ -433,7 +433,7 @@ export function AppRoutes() {
         element={
           <ProtectedRoute permission="department:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Organization">
-              <BrandAdminOrganizationPage />
+              <BrandAdminOrganizationPage showBrandTools={false} />
             </Layout>
           </ProtectedRoute>
         }

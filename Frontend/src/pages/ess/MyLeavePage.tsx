@@ -217,7 +217,15 @@ export function MyLeavePage() {
                   type="date"
                   label="From"
                   value={fromDate}
-                  onChange={(event) => setFromDate(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setFromDate(value);
+                    // Keep "To" from silently holding a now-invalid date
+                    // before the newly picked "From" — the date picker's
+                    // own min blocks picking one, but a value set before
+                    // this change wouldn't otherwise be corrected.
+                    if (toDate < value) setToDate(value);
+                  }}
                 />
               </div>
               <div className="flex-1">
@@ -226,6 +234,7 @@ export function MyLeavePage() {
                   type="date"
                   label="To"
                   value={toDate}
+                  min={fromDate}
                   onChange={(event) => setToDate(event.target.value)}
                 />
               </div>

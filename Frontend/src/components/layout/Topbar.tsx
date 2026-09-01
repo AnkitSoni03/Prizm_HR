@@ -1,6 +1,6 @@
 import { AlignLeft, ChevronDown, LogOut, Loader2, Moon, Search, Sun, UserRound, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { NavItem } from '../../routes/navConfig';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
@@ -25,12 +25,26 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
   const { user, hasPermission, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [query, setQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // The same icon Sidebar shows next to this page's nav entry — exact path
+  // match wins, otherwise the longest matching prefix (so a nested route
+  // like a detail page doesn't fall back to the portal's Dashboard entry,
+  // whose path is a prefix of every other route in that portal).
+  const TitleIcon = (() => {
+    const exact = navItems.find((item) => item.path === location.pathname);
+    if (exact) return exact.icon;
+    const prefixMatches = navItems
+      .filter((item) => location.pathname.startsWith(`${item.path}/`))
+      .sort((a, b) => b.path.length - a.path.length);
+    return prefixMatches[0]?.icon;
+  })();
 
   const searchableItems = navItems.filter(
     (item) => !item.disabled && (!item.permission || hasPermission(item.permission)),
@@ -78,6 +92,11 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
         >
           <AlignLeft className="h-5 w-5" strokeWidth={1.75} />
         </button>
+        {TitleIcon && (
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
+            <TitleIcon className="h-4 w-4" strokeWidth={1.75} />
+          </div>
+        )}
         <h1 className="truncate text-lg font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
       </div>
 

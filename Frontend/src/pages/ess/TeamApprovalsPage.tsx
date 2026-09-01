@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, History, Users, X } from 'lucide-react';
+import { Bookmark, CalendarRange, CalendarX, Check, Clock, FileText, History, Layers, MapPin, User, Users, X } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
 import { Table } from '../../components/ui/Table';
-import { Badge } from '../../components/ui/Badge';
-import { Select } from '../../components/ui/Select';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
+import { RequestCard, RequestCardSkeleton, RequestStatusBadge } from '../../components/RequestCard';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../context/auth-context';
@@ -33,12 +33,15 @@ import type { Employee } from '../../api/tenancy';
 import { AssignCompOffModal } from '../company-admin/components/AssignCompOffModal';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
+function employeeLabel(employee: RequestEmployee | undefined, employeeId: string) {
+  return employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
+}
+
 function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; employeeId: string }) {
-  const label = employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
   return (
     <div className="flex items-center gap-2.5">
       <Avatar src={employee?.photoDownloadUrl} size="sm" />
-      <span>{label}</span>
+      <span>{employeeLabel(employee, employeeId)}</span>
     </div>
   );
 }
@@ -52,13 +55,6 @@ const STATUS_OPTIONS = [
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ];
-
-const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
-  pending: 'warning',
-  approved: 'success',
-  rejected: 'danger',
-  cancelled: 'neutral',
-};
 
 function ActionButtons({
   canApprove,
@@ -258,20 +254,17 @@ export function TeamApprovalsPage() {
         onChange={(key) => switchTab(key as Tab)}
       />
 
-      <div className="mb-3 flex items-end justify-between gap-3">
-        <div className="w-full sm:w-48">
-          <Select
-            id="team-approvals-status-filter"
-            label="Status"
-            value={statusFilter}
-            onChange={(event) => {
-              setOffset(0);
-              setStatusFilter(event.target.value);
-            }}
-            placeholder="All statuses"
-            options={STATUS_OPTIONS}
-          />
-        </div>
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <FilterSelect
+          value={statusFilter}
+          onChange={(value) => {
+            setOffset(0);
+            setStatusFilter(value);
+          }}
+          placeholder="All statuses"
+          ariaLabel="Filter by status"
+          options={STATUS_OPTIONS}
+        />
         {activeTab === 'compOff' && canAssignCompOff && (
           <Button type="button" onClick={() => setShowAssignCompOff(true)}>
             Assign Comp-Off
@@ -297,156 +290,245 @@ export function TeamApprovalsPage() {
 
       {(isLoading || rows.length > 0) && activeTab === 'leave' && (
         <>
-          <Table
-            isLoading={isLoading}
-            rows={leaveRequests}
-            rowKey={(r) => r.id}
-            columns={[
-              {
-                key: 'employee',
-                header: 'Employee',
-                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
-              },
-              { key: 'type', header: 'Type', render: (r) => r.leaveType?.name ?? '—' },
-              {
-                key: 'dates',
-                header: 'Dates',
-                render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
-              },
-              { key: 'days', header: 'Days', render: (r) => r.days },
-              { key: 'reason', header: 'Reason', render: (r) => r.reason ?? '—' },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (r) => (
-                  <Badge tone={STATUS_TONE[r.status]} title={r.status === 'rejected' ? r.rejectionReason ?? undefined : undefined}>
-                    {r.status}
-                  </Badge>
-                ),
-              },
-              {
-                key: 'actions',
-                header: '',
-                className: 'w-28 text-right',
-                render: (r) => (
-                  <ActionButtons
-                    canApprove={
-                      r.status === 'pending' &&
-                      (hasPermission('leave_request:approve') || hasPermission('leave_request:approve_reports'))
-                    }
-                    canReject={
-                      r.status === 'pending' &&
-                      (hasPermission('leave_request:reject') || hasPermission('leave_request:reject_reports'))
-                    }
-                    onApprove={() => handleLeaveApprove(r.id)}
-                    onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
-                    onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
-                  />
-                ),
-              },
-            ]}
-          />
+          <div className="hidden md:block">
+            <Table
+              isLoading={isLoading}
+              rows={leaveRequests}
+              rowKey={(r) => r.id}
+              columns={[
+                {
+                  key: 'employee',
+                  header: 'Employee',
+                  render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+                },
+                { key: 'type', header: 'Type', render: (r) => r.leaveType?.name ?? '—' },
+                {
+                  key: 'dates',
+                  header: 'Dates',
+                  render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
+                },
+                { key: 'days', header: 'Days', render: (r) => r.days },
+                { key: 'reason', header: 'Reason', render: (r) => r.reason ?? '—' },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  className: 'w-28 text-right',
+                  render: (r) => (
+                    <ActionButtons
+                      canApprove={
+                        r.status === 'pending' &&
+                        (hasPermission('leave_request:approve') || hasPermission('leave_request:approve_reports'))
+                      }
+                      canReject={
+                        r.status === 'pending' &&
+                        (hasPermission('leave_request:reject') || hasPermission('leave_request:reject_reports'))
+                      }
+                      onApprove={() => handleLeaveApprove(r.id)}
+                      onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
+                      onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+            {isLoading && <RequestCardSkeleton />}
+            {!isLoading &&
+              leaveRequests.map((r) => (
+                <RequestCard
+                  key={r.id}
+                  name={employeeLabel(r.employee, r.employeeId)}
+                  photoUrl={r.employee?.photoDownloadUrl}
+                  tag={r.leaveType?.name}
+                  status={r.status}
+                  rejectionReason={r.rejectionReason}
+                  fields={[
+                    { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                    { icon: Layers, label: 'Type', value: r.leaveType?.name ?? '—' },
+                    { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
+                    { icon: Clock, label: 'Days', value: r.days },
+                    { icon: FileText, label: 'Reason', value: r.reason ?? '—' },
+                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                  ]}
+                  canApprove={
+                    r.status === 'pending' &&
+                    (hasPermission('leave_request:approve') || hasPermission('leave_request:approve_reports'))
+                  }
+                  canReject={
+                    r.status === 'pending' &&
+                    (hasPermission('leave_request:reject') || hasPermission('leave_request:reject_reports'))
+                  }
+                  onApprove={() => handleLeaveApprove(r.id)}
+                  onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
+                  onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
+                />
+              ))}
+          </div>
+
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
 
       {(isLoading || rows.length > 0) && activeTab === 'od' && (
         <>
-          <Table
-            isLoading={isLoading}
-            rows={odRequests}
-            rowKey={(r) => r.id}
-            columns={[
-              {
-                key: 'employee',
-                header: 'Employee',
-                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
-              },
-              {
-                key: 'dates',
-                header: 'Dates',
-                render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
-              },
-              { key: 'purpose', header: 'Purpose', render: (r) => r.purpose },
-              { key: 'location', header: 'Location', render: (r) => r.location ?? '—' },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (r) => (
-                  <Badge tone={STATUS_TONE[r.status]} title={r.status === 'rejected' ? r.rejectionReason ?? undefined : undefined}>
-                    {r.status}
-                  </Badge>
-                ),
-              },
-              {
-                key: 'actions',
-                header: '',
-                className: 'w-28 text-right',
-                render: (r) => (
-                  <ActionButtons
-                    canApprove={
-                      r.status === 'pending' &&
-                      (hasPermission('od_request:approve') || hasPermission('od_request:approve_reports'))
-                    }
-                    canReject={
-                      r.status === 'pending' &&
-                      (hasPermission('od_request:reject') || hasPermission('od_request:reject_reports'))
-                    }
-                    onApprove={() => handleOdApprove(r.id)}
-                    onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
-                    onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
-                  />
-                ),
-              },
-            ]}
-          />
+          <div className="hidden md:block">
+            <Table
+              isLoading={isLoading}
+              rows={odRequests}
+              rowKey={(r) => r.id}
+              columns={[
+                {
+                  key: 'employee',
+                  header: 'Employee',
+                  render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+                },
+                {
+                  key: 'dates',
+                  header: 'Dates',
+                  render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
+                },
+                { key: 'purpose', header: 'Purpose', render: (r) => r.purpose },
+                { key: 'location', header: 'Location', render: (r) => r.location ?? '—' },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  className: 'w-28 text-right',
+                  render: (r) => (
+                    <ActionButtons
+                      canApprove={
+                        r.status === 'pending' &&
+                        (hasPermission('od_request:approve') || hasPermission('od_request:approve_reports'))
+                      }
+                      canReject={
+                        r.status === 'pending' &&
+                        (hasPermission('od_request:reject') || hasPermission('od_request:reject_reports'))
+                      }
+                      onApprove={() => handleOdApprove(r.id)}
+                      onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
+                      onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+            {isLoading && <RequestCardSkeleton />}
+            {!isLoading &&
+              odRequests.map((r) => (
+                <RequestCard
+                  key={r.id}
+                  name={employeeLabel(r.employee, r.employeeId)}
+                  photoUrl={r.employee?.photoDownloadUrl}
+                  tag={r.purpose}
+                  status={r.status}
+                  rejectionReason={r.rejectionReason}
+                  fields={[
+                    { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                    { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
+                    { icon: FileText, label: 'Purpose', value: r.purpose },
+                    { icon: MapPin, label: 'Location', value: r.location ?? '—' },
+                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                  ]}
+                  canApprove={
+                    r.status === 'pending' &&
+                    (hasPermission('od_request:approve') || hasPermission('od_request:approve_reports'))
+                  }
+                  canReject={
+                    r.status === 'pending' &&
+                    (hasPermission('od_request:reject') || hasPermission('od_request:reject_reports'))
+                  }
+                  onApprove={() => handleOdApprove(r.id)}
+                  onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
+                  onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
+                />
+              ))}
+          </div>
+
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
 
       {(isLoading || rows.length > 0) && activeTab === 'compOff' && (
         <>
-          <Table
-            isLoading={isLoading}
-            rows={compOffCredits}
-            rowKey={(r) => r.id}
-            columns={[
-              {
-                key: 'employee',
-                header: 'Employee',
-                render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
-              },
-              { key: 'earnedDate', header: 'Earned Date', render: (r) => formatDisplayDate(r.earnedDate) },
-              {
-                key: 'expiryDate',
-                header: 'Expiry Date',
-                render: (r) => (r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never'),
-              },
-              {
-                key: 'status',
-                header: 'Status',
-                render: (r) => (
-                  <Badge tone={STATUS_TONE[r.status] ?? 'neutral'} title={r.status === 'rejected' ? r.rejectionReason ?? undefined : undefined}>
-                    {r.status.replace('_', ' ')}
-                  </Badge>
-                ),
-              },
-              {
-                key: 'actions',
-                header: '',
-                className: 'w-28 text-right',
-                render: (r) => (
-                  <ActionButtons
-                    canApprove={false}
-                    canReject={false}
-                    onApprove={() => {}}
-                    onReject={() => {}}
-                    onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
-                  />
-                ),
-              },
-            ]}
-          />
+          <div className="hidden md:block">
+            <Table
+              isLoading={isLoading}
+              rows={compOffCredits}
+              rowKey={(r) => r.id}
+              columns={[
+                {
+                  key: 'employee',
+                  header: 'Employee',
+                  render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
+                },
+                { key: 'earnedDate', header: 'Earned Date', render: (r) => formatDisplayDate(r.earnedDate) },
+                {
+                  key: 'expiryDate',
+                  header: 'Expiry Date',
+                  render: (r) => (r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never'),
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  className: 'w-28 text-right',
+                  render: (r) => (
+                    <ActionButtons
+                      canApprove={false}
+                      canReject={false}
+                      onApprove={() => {}}
+                      onReject={() => {}}
+                      onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+            {isLoading && <RequestCardSkeleton />}
+            {!isLoading &&
+              compOffCredits.map((r) => (
+                <RequestCard
+                  key={r.id}
+                  name={employeeLabel(r.employee, r.employeeId)}
+                  photoUrl={r.employee?.photoDownloadUrl}
+                  status={r.status}
+                  rejectionReason={r.rejectionReason}
+                  fields={[
+                    { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                    { icon: CalendarRange, label: 'Earned Date', value: formatDisplayDate(r.earnedDate) },
+                    { icon: CalendarX, label: 'Expiry Date', value: r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never' },
+                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                  ]}
+                  canApprove={false}
+                  canReject={false}
+                  onApprove={() => {}}
+                  onReject={() => {}}
+                  onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
+                />
+              ))}
+          </div>
+
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
