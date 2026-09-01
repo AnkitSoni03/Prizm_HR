@@ -253,7 +253,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
         </div>
 
         {/* Mobile-only trust banner — desktop keeps its existing plain footer. */}
-        <div className="px-4 pt-3 md:hidden">
+        {/* <div className="px-4 pt-3 md:hidden">
           <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
               <ShieldCheck className="h-5 w-5" strokeWidth={1.75} />
@@ -264,7 +264,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
             </span>
             <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" strokeWidth={1.75} />
           </div>
-        </div>
+        </div> */}
 
         <div className="border-t border-white/10 px-5 py-3">
           <p className="text-[10px] text-gray-500 sm:text-[11px]">© {new Date().getFullYear()} Sri Sai Group</p>
