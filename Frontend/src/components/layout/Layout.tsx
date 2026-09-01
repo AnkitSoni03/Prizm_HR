@@ -33,7 +33,7 @@ export function Layout({ navItems, portalLabel, title, children }: LayoutProps) 
       </div>
       {/* Hidden while the drawer is open — both sit at the same stacking
           layer as the drawer's own full-width mobile panel. */}
-      {isEss && !isMobileMenuOpen && <BottomNav onOpenMore={() => setIsMobileMenuOpen(true)} />}
+      {isEss && !isMobileMenuOpen && <BottomNav />}
       <HolidayReminderModal />
       <FaceIdReminderModal />
     </div>
