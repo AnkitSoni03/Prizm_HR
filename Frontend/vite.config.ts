@@ -11,6 +11,13 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['pwa-icon.png'],
+      // Off by default in vite-plugin-pwa — without this, `npm run dev`
+      // never registers a service worker at all, so Chrome's installability
+      // check (and therefore beforeinstallprompt, and the Login page's
+      // Install App button) silently never fires there. Only `vite build` +
+      // `vite preview`/production had it. Harmless in dev: it's the same
+      // generated service worker, just also active locally.
+      devOptions: { enabled: true, type: 'module' },
       manifest: {
         name: 'Prizm HR',
         short_name: 'Prizm HR',
