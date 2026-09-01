@@ -400,17 +400,18 @@ export function KioskPage() {
       {/* A contained, bordered panel — instead of the logo/camera/buttons
           floating loose on the raw dark backdrop — reads as a proper kiosk
           terminal card rather than an unfinished page. */}
-      <div className="flex w-full max-w-md flex-col items-center gap-5 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl sm:max-w-lg sm:p-8">
+      <div className="flex w-full max-w-lg flex-col items-center gap-5 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl sm:max-w-xl sm:p-8">
         <div className="flex shrink-0 flex-col items-center gap-1">
           <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-10 w-10 rounded-lg object-cover sm:h-12 sm:w-12" />
           <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then look at the camera</p>
         </div>
 
-        {/* A fixed 4:3 aspect ratio (capped by the card's own max-width)
+        {/* A fixed aspect ratio (capped by the card's own max-width)
             instead of flex-1 stretching to fill the whole screen — a
             camera-proportioned preview reads as a deliberate viewfinder,
-            not a giant blank void. */}
-        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden rounded-2xl bg-black shadow-xl ring-1 ring-white/10">
+            not a giant blank void. Square rather than 4:3 gives a taller,
+            more prominent preview while staying capped. */}
+        <div className="relative aspect-square w-full shrink-0 overflow-hidden rounded-2xl bg-black shadow-xl ring-1 ring-white/10">
           {/* Mirrored (-scale-x-100) so the preview behaves like a normal
               mirror — move your head left, the picture moves left — instead
               of the camera's raw, unmirrored feed which looks reversed to

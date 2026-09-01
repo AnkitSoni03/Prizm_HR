@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { AlertCircle, CheckCircle2, Loader2, Lock, Mail } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Download, Loader2, Lock, Mail } from 'lucide-react';
 import { useAuth, type AuthRole } from '../../context/auth-context';
 import { getDefaultRoute } from '../../routes/roleRedirect';
 import { PasswordInput } from '../../components/ui/PasswordInput';
 import { consumePendingSessionMessage } from '../../api/tokenStore';
+import { usePwaInstall } from '../../hooks/usePwaInstall';
 
 interface LocationState {
   from?: { pathname: string };
@@ -32,6 +33,7 @@ function resolveRedirectTarget(from: string | undefined, roles: AuthRole[]): str
 
 export function LoginPage() {
   const { login, user, isAuthenticated, isLoading } = useAuth();
+  const { canInstall, promptInstall } = usePwaInstall();
   const navigate = useNavigate();
   const location = useLocation();
   const locationState = location.state as LocationState | null;
@@ -186,6 +188,17 @@ export function LoginPage() {
                 {isLoading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />}
                 {isLoading ? 'Signing in…' : 'Sign in'}
               </button>
+
+              {canInstall && (
+                <button
+                  type="button"
+                  onClick={() => promptInstall()}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-semibold text-ink transition-colors hover:border-primary/40 hover:bg-page"
+                >
+                  <Download className="h-4 w-4" strokeWidth={1.75} />
+                  Install App
+                </button>
+              )}
             </form>
           </div>
 
