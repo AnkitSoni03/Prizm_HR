@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { getSignedDownloadUrl } = require('../../utils/gcs');
+const { photoDownloadUrlFor } = require('../../utils/employeePhoto');
 const { getActiveRosterEntry } = require('./shiftRoster.service');
 const { getActiveEmployeeShift } = require('./employeeShift.service');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
@@ -375,12 +376,13 @@ async function leaveTypeNamesForDate({ employeeIds, date }) {
   return new Map(requests.map((r) => [String(r.employeeId), r.leaveType?.name ?? null]));
 }
 
-function toRosterRow(employee, attendance, leaveTypeName) {
+async function toRosterRow(employee, attendance, leaveTypeName) {
   return {
     employeeId: employee.id,
     employeeCode: employee.employeeCode,
     name: employee.name,
     brandId: employee.brandId,
+    photoDownloadUrl: await photoDownloadUrlFor(employee),
     attendanceId: attendance ? attendance.id : null,
     checkIn: attendance ? attendance.checkIn : null,
     checkOut: attendance ? attendance.checkOut : null,
@@ -437,11 +439,18 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
       where: attendanceWhere,
       limit,
       offset,
-      include: [{ model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'brandId'] }],
+      include: [
+        {
+          model: db.Employee,
+          as: 'employee',
+          where: employeeWhere,
+          attributes: ['id', 'employeeCode', 'name', 'brandId', 'photoUrl'],
+        },
+      ],
       order: [[{ model: db.Employee, as: 'employee' }, 'name', 'ASC']],
     });
 
-    return { rows: attendanceRows.map((a) => toRosterRow(a.employee, a, leaveTypeName)), count };
+    return { rows: await Promise.all(attendanceRows.map((a) => toRosterRow(a.employee, a, leaveTypeName))), count };
   }
 
   const { rows: employees, count } = await db.Employee.findAndCountAll({
@@ -449,7 +458,7 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
     limit,
     offset,
     order: [['name', 'ASC']],
-    attributes: ['id', 'employeeCode', 'name', 'brandId'],
+    attributes: ['id', 'employeeCode', 'name', 'brandId', 'photoUrl'],
   });
 
   const employeeIds = employees.map((e) => e.id);
@@ -459,8 +468,10 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
   ]);
   const attendanceByEmployee = new Map(attendanceRows.map((a) => [String(a.employeeId), a]));
 
-  const rows = employees.map((employee) =>
-    toRosterRow(employee, attendanceByEmployee.get(String(employee.id)), leaveTypeNameByEmployee.get(String(employee.id)))
+  const rows = await Promise.all(
+    employees.map((employee) =>
+      toRosterRow(employee, attendanceByEmployee.get(String(employee.id)), leaveTypeNameByEmployee.get(String(employee.id)))
+    )
   );
 
   return { rows, count };

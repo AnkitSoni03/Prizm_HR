@@ -14,6 +14,7 @@ export interface AttendanceRosterRow {
   employeeCode: string;
   name: string | null;
   brandId: string | null;
+  photoDownloadUrl: string | null;
   attendanceId: string | null;
   checkIn: string | null;
   checkOut: string | null;

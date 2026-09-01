@@ -3,6 +3,7 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { uploadBuffer, buildObjectPath, getSignedDownloadUrl } = require('../../utils/gcs');
+const { photoDownloadUrlFor } = require('../../utils/employeePhoto');
 
 async function listFlags({ companyId, limit, offset, reviewed }) {
   const where = { companyId };
@@ -11,7 +12,7 @@ async function listFlags({ companyId, limit, offset, reviewed }) {
   const { rows, count } = await db.FaceVerificationFlag.findAndCountAll({
     where,
     include: [
-      { model: db.Employee, as: 'employee', attributes: ['id', 'name', 'employeeCode'] },
+      { model: db.Employee, as: 'employee', attributes: ['id', 'name', 'employeeCode', 'photoUrl'] },
       { model: db.User, as: 'kioskUser', attributes: ['id', 'email'] },
     ],
     order: [['createdAt', 'DESC']],
@@ -19,7 +20,24 @@ async function listFlags({ companyId, limit, offset, reviewed }) {
     offset,
   });
 
-  return { rows, count };
+  // The claimed identity's own profile photo, alongside the capture clip —
+  // lets an admin visually compare "who this attempt claims to be" against
+  // the video without leaving this list. attendanceId (a plain column, no
+  // attributes restriction on the flag itself) rides along in row.toJSON()
+  // for free — the frontend uses it to reach a non-blocked attempt's video,
+  // which lives on the resulting Attendance row (see uploadFlagCapture's
+  // comment below for why only a blocked attempt has its own clip here).
+  const withPhotos = await Promise.all(
+    rows.map(async (row) => {
+      const plain = row.toJSON();
+      if (plain.employee) {
+        plain.employee.photoDownloadUrl = await photoDownloadUrlFor(row.employee);
+      }
+      return plain;
+    })
+  );
+
+  return { rows: withPhotos, count };
 }
 
 async function getFlagVideoUrl({ companyId, id }) {

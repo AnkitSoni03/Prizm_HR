@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogIn, LogOut } from 'lucide-react';
+import { Camera, LogIn, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/auth-context';
 import { detectFaceOptions, smileRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
 import {
@@ -380,7 +380,7 @@ export function KioskPage() {
   const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
 
   return (
-    <div className="relative flex h-screen w-full flex-col items-center gap-2 overflow-x-hidden bg-sidebar px-4 py-3 text-center sm:gap-4 sm:px-6 sm:py-4">
+    <div className="relative flex h-screen w-full flex-col items-center justify-center overflow-x-hidden bg-sidebar px-4 py-6 text-center">
       {/* Lets whoever set up this device sign the kiosk account out again —
           without this, a kiosk logged in once would stay signed in
           indefinitely (stateless refresh tokens, per CLAUDE.md, no longer
@@ -397,111 +397,121 @@ export function KioskPage() {
         <span className="hidden sm:inline">Sign out kiosk</span>
       </button>
 
-      <div className="flex w-full max-w-[560px] shrink-0 flex-col items-center pt-5 sm:pt-0">
-        <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-10 w-10 rounded-lg object-cover sm:h-12 sm:w-12" />
-        <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then look at the camera</p>
-      </div>
+      {/* A contained, bordered panel — instead of the logo/camera/buttons
+          floating loose on the raw dark backdrop — reads as a proper kiosk
+          terminal card rather than an unfinished page. */}
+      <div className="flex w-full max-w-md flex-col items-center gap-5 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl sm:max-w-lg sm:p-8">
+        <div className="flex shrink-0 flex-col items-center gap-1">
+          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-10 w-10 rounded-lg object-cover sm:h-12 sm:w-12" />
+          <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then look at the camera</p>
+        </div>
 
-      {/* flex-1 (instead of a fixed aspect ratio) so the preview claims
-          whatever vertical space the header/buttons leave on the actual
-          device screen, rather than a fixed small box that wastes most of a
-          tall kiosk/phone screen. */}
-      <div className="relative flex w-full min-h-[220px] max-w-[560px] flex-1 items-center justify-center overflow-hidden rounded-2xl bg-black shadow-xl">
-        {/* Mirrored (-scale-x-100) so the preview behaves like a normal
-            mirror — move your head left, the picture moves left — instead
-            of the camera's raw, unmirrored feed which looks reversed to
-            whoever's standing in front of it. Purely a display transform:
-            face-api.js's detection, the captured descriptor/snapshot, and
-            the recorded clip all read the video element's actual decoded
-            frame buffer, which CSS transforms never touch. */}
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className="h-full w-full -scale-x-100 object-cover"
-        />
+        {/* A fixed 4:3 aspect ratio (capped by the card's own max-width)
+            instead of flex-1 stretching to fill the whole screen — a
+            camera-proportioned preview reads as a deliberate viewfinder,
+            not a giant blank void. */}
+        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden rounded-2xl bg-black shadow-xl ring-1 ring-white/10">
+          {/* Mirrored (-scale-x-100) so the preview behaves like a normal
+              mirror — move your head left, the picture moves left — instead
+              of the camera's raw, unmirrored feed which looks reversed to
+              whoever's standing in front of it. Purely a display transform:
+              face-api.js's detection, the captured descriptor/snapshot, and
+              the recorded clip all read the video element's actual decoded
+              frame buffer, which CSS transforms never touch. */}
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="h-full w-full -scale-x-100 object-cover"
+          />
+
+          {state.phase === 'ready' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-black/70 to-black/85 text-white">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10">
+                <Camera className="h-5 w-5" strokeWidth={1.75} />
+              </div>
+              <p className="max-w-[85%] text-sm text-white/70">
+                {modelsReady ? 'Camera is off — choose an option below' : 'Loading face recognition…'}
+              </p>
+            </div>
+          )}
+
+          {state.phase === 'capturing' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
+              <span className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-white">
+                {state.instruction}
+              </span>
+              <span className="text-xs text-white/80">{state.secondsLeft}s left</span>
+            </div>
+          )}
+
+          {state.phase === 'matching' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-sm font-semibold text-white">
+              Verifying…
+            </div>
+          )}
+
+          {state.phase === 'success' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-success/90 px-6 text-center text-lg font-semibold text-white">
+              {state.message}
+            </div>
+          )}
+
+          {state.phase === 'error' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-danger/90 px-6 text-center text-sm font-semibold text-white">
+              {state.message}
+            </div>
+          )}
+
+          {state.phase === 'confirm_incomplete_shift' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-4 text-center sm:px-6">
+              <p className="text-sm font-semibold text-white">{state.message}</p>
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={confirmCheckoutAnyway}
+                  disabled={state.isConfirming}
+                  className="rounded-xl bg-danger px-5 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {state.isConfirming ? 'Checking Out…' : 'OK, Check Out'}
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissIncompleteShiftCheckout}
+                  disabled={state.isConfirming}
+                  className="rounded-xl bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-50"
+                >
+                  Wait
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {state.phase === 'ready' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-white">
-            {modelsReady ? 'Camera is off — choose an option below' : 'Loading face recognition…'}
-          </div>
-        )}
-
-        {state.phase === 'capturing' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
-            <span className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-white">
-              {state.instruction}
-            </span>
-            <span className="text-xs text-white/80">{state.secondsLeft}s left</span>
-          </div>
-        )}
-
-        {state.phase === 'matching' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-sm font-semibold text-white">
-            Verifying…
-          </div>
-        )}
-
-        {state.phase === 'success' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-success/90 px-6 text-center text-lg font-semibold text-white">
-            {state.message}
-          </div>
-        )}
-
-        {state.phase === 'error' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-danger/90 px-6 text-center text-sm font-semibold text-white">
-            {state.message}
-          </div>
-        )}
-
-        {state.phase === 'confirm_incomplete_shift' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/85 px-4 text-center sm:px-6">
-            <p className="text-sm font-semibold text-white">{state.message}</p>
-            <div className="flex flex-wrap justify-center gap-3">
-              <button
-                type="button"
-                onClick={confirmCheckoutAnyway}
-                disabled={state.isConfirming}
-                className="rounded-xl bg-danger px-5 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-              >
-                {state.isConfirming ? 'Checking Out…' : 'OK, Check Out'}
-              </button>
-              <button
-                type="button"
-                onClick={dismissIncompleteShiftCheckout}
-                disabled={state.isConfirming}
-                className="rounded-xl bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-50"
-              >
-                Wait
-              </button>
-            </div>
+          <div className="flex w-full shrink-0 justify-center gap-3 sm:gap-4">
+            <button
+              type="button"
+              onClick={() => runCapture('checkin')}
+              disabled={!modelsReady}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-success px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:py-3"
+            >
+              <LogIn className="h-4 w-4" strokeWidth={2} />
+              Check In
+            </button>
+            <button
+              type="button"
+              onClick={() => runCapture('checkout')}
+              disabled={!modelsReady}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:py-3"
+            >
+              <LogOut className="h-4 w-4" strokeWidth={2} />
+              Check Out
+            </button>
           </div>
         )}
       </div>
-
-      {state.phase === 'ready' && (
-        <div className="flex w-full max-w-[560px] shrink-0 justify-center gap-3 sm:gap-4">
-          <button
-            type="button"
-            onClick={() => runCapture('checkin')}
-            disabled={!modelsReady}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-success px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:flex-none sm:px-6 sm:py-3"
-          >
-            <LogIn className="h-4 w-4" strokeWidth={2} />
-            Check In
-          </button>
-          <button
-            type="button"
-            onClick={() => runCapture('checkout')}
-            disabled={!modelsReady}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:flex-none sm:px-6"
-          >
-            <LogOut className="h-4 w-4" strokeWidth={2} />
-            Check Out
-          </button>
-        </div>
-      )}
     </div>
   );
 }

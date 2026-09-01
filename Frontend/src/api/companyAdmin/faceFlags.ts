@@ -7,10 +7,16 @@ export interface FaceVerificationFlag {
   blocked: boolean;
   antiSpoofConfidence: number | null;
   screenArtifactScore: number | null;
+  // The resulting Attendance row's id, once the (non-blocked) punch went
+  // through — a blocked attempt has no attendance row at all and always
+  // stays null. Only used to reach that row's own check-in/check-out video
+  // via getAttendanceVideoUrl; a blocked attempt's clip lives directly on
+  // this flag instead (see getFaceFlagVideoUrl).
+  attendanceId: string | null;
   reviewed: boolean;
   reviewedAt: string | null;
   createdAt: string;
-  employee: { id: string; name: string | null; employeeCode: string } | null;
+  employee: { id: string; name: string | null; employeeCode: string; photoDownloadUrl: string | null } | null;
   kioskUser: { id: string; email: string } | null;
 }
 

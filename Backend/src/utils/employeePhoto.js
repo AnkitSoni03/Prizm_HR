@@ -2,30 +2,20 @@
 
 const { getSignedDownloadUrl } = require('./gcs');
 
-// Shared by every approval-list service (leave/OD/regularization/comp-off)
-// that eager-loads a row's `employee` include — resolves that nested
-// employee's photoUrl (a private GCS object path) into a signed
-// photoDownloadUrl, same convention as employee.service.js::withPhotoUrl.
-// Falls back to null (not a throw) on a GCS hiccup so a signing outage never
-// breaks an approvals list. No-ops rows with no `employee` include or no
-// photo set — the common case.
-async function withEmployeePhoto(rows) {
-  return Promise.all(
-    rows.map(async (row) => {
-      const plain = row.toJSON ? row.toJSON() : row;
-      if (!plain.employee) return plain;
-      if (!plain.employee.photoUrl) {
-        return { ...plain, employee: { ...plain.employee, photoDownloadUrl: null } };
-      }
-      try {
-        const photoDownloadUrl = await getSignedDownloadUrl(plain.employee.photoUrl);
-        return { ...plain, employee: { ...plain.employee, photoDownloadUrl } };
-      } catch (err) {
-        console.error('Could not generate signed URL for employee photo:', err);
-        return { ...plain, employee: { ...plain.employee, photoDownloadUrl: null } };
-      }
-    })
-  );
+// Best-effort, logged-not-thrown signed URL for a plain Employee model
+// instance's photoUrl (private GCS object path) — a GCS hiccup should never
+// break a list/read that happens to include employee photos. Shared by
+// attendance.service.js and faceFlag.service.js; employee.service.js keeps
+// its own withPhotoUrl (different input shape — a record it then spreads
+// onto via .toJSON()).
+async function photoDownloadUrlFor(employee) {
+  if (!employee || !employee.photoUrl) return null;
+  try {
+    return await getSignedDownloadUrl(employee.photoUrl);
+  } catch (err) {
+    console.error('Could not generate signed URL for employee photo:', err);
+    return null;
+  }
 }
 
-module.exports = { withEmployeePhoto };
+module.exports = { photoDownloadUrlFor };
