@@ -1,9 +1,22 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { ChevronRight, GripVertical, LogOut, Loader2, Moon, ShieldCheck, Sun, X } from 'lucide-react';
-import type { NavItem } from '../../routes/navConfig';
-import { useAuth } from '../../context/auth-context';
-import { useTheme } from '../../context/theme-context';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import {
+  ChevronRight,
+  GripVertical,
+  LogOut,
+  Loader2,
+  Moon,
+  Sun,
+  X,
+} from "lucide-react";
+import type { NavItem } from "../../routes/navConfig";
+import { useAuth } from "../../context/auth-context";
+import { useTheme } from "../../context/theme-context";
 
 // A shade under a second so it registers as a real transition (session
 // teardown feels intentional) without becoming an actual annoyance to wait
@@ -17,11 +30,11 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-const STORAGE_KEY = 'hrms:sidebarWidth';
+const STORAGE_KEY = "hrms:sidebarWidth";
 const DEFAULT_WIDTH = 256;
 const MIN_WIDTH = 208;
 const MAX_WIDTH = 420;
-const DESKTOP_QUERY = '(min-width: 768px)';
+const DESKTOP_QUERY = "(min-width: 768px)";
 
 function clampWidth(width: number): number {
   return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width));
@@ -32,12 +45,19 @@ function readStoredWidth(): number {
   return stored ? clampWidth(stored) : DEFAULT_WIDTH;
 }
 
-export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps) {
+export function Sidebar({
+  navItems,
+  portalLabel,
+  isOpen,
+  onClose,
+}: SidebarProps) {
   const { hasPermission, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const visibleNavItems = navItems.filter((item) => !item.permission || hasPermission(item.permission));
+  const visibleNavItems = navItems.filter(
+    (item) => !item.permission || hasPermission(item.permission),
+  );
 
   function handleLogout() {
     if (isLoggingOut) return;
@@ -45,16 +65,19 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
     setTimeout(() => {
       logout();
       onClose();
-      navigate('/login', { replace: true });
+      navigate("/login", { replace: true });
     }, LOGOUT_DELAY_MS);
   }
 
   // Resizable width only ever applies at desktop sizes (the "big display" the
   // user asked to customize) — mobile keeps its own full-width slide-over
   // drawer (w-full below) untouched, so this never fights that layout.
-  const [width, setWidth] = useState(() => (typeof window === 'undefined' ? DEFAULT_WIDTH : readStoredWidth()));
+  const [width, setWidth] = useState(() =>
+    typeof window === "undefined" ? DEFAULT_WIDTH : readStoredWidth(),
+  );
   const [isDesktop, setIsDesktop] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
+    () =>
+      typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
   );
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -67,28 +90,32 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
   useEffect(() => {
     const mql = window.matchMedia(DESKTOP_QUERY);
     const handleChange = () => setIsDesktop(mql.matches);
-    mql.addEventListener('change', handleChange);
-    return () => mql.removeEventListener('change', handleChange);
+    mql.addEventListener("change", handleChange);
+    return () => mql.removeEventListener("change", handleChange);
   }, []);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
     dragRef.current = { startX: event.clientX, startWidth: width };
     setIsDragging(true);
-    document.body.style.userSelect = 'none';
+    document.body.style.userSelect = "none";
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     if (!dragRef.current) return;
-    setWidth(clampWidth(dragRef.current.startWidth + (event.clientX - dragRef.current.startX)));
+    setWidth(
+      clampWidth(
+        dragRef.current.startWidth + (event.clientX - dragRef.current.startX),
+      ),
+    );
   }
 
   function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!dragRef.current) return;
     dragRef.current = null;
     setIsDragging(false);
-    document.body.style.userSelect = '';
+    document.body.style.userSelect = "";
     window.localStorage.setItem(STORAGE_KEY, String(widthRef.current));
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -112,16 +139,16 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
 
       <aside
         className={[
-          'fixed inset-y-0 left-0 z-40 flex h-screen w-full shrink-0 flex-col bg-sidebar shadow-2xl ease-in-out',
-          isDragging ? '' : 'transition-transform duration-200',
-          isOpen ? 'translate-x-0' : '-translate-x-full',
+          "fixed inset-y-0 left-0 z-40 flex h-screen w-full shrink-0 flex-col bg-sidebar shadow-2xl ease-in-out",
+          isDragging ? "" : "transition-transform duration-200",
+          isOpen ? "translate-x-0" : "-translate-x-full",
           // md:relative (not md:static) so the drag handle below — an
           // absolutely-positioned child — anchors to the sidebar's own right
           // edge instead of escaping to the nearest positioned ancestor.
           // Full-width only applies below md — the resizable desktop rail
           // (width set inline below) takes back over at md and up.
-          'md:relative md:w-auto md:max-w-none md:translate-x-0 md:shadow-none',
-        ].join(' ')}
+          "md:relative md:w-auto md:max-w-none md:translate-x-0 md:shadow-none",
+        ].join(" ")}
         style={isDesktop ? { width: `${width}px` } : undefined}
       >
         <div className="relative flex flex-col items-center gap-1.5 border-b border-white/10 px-5 py-4 text-center sm:gap-2 sm:py-5">
@@ -133,13 +160,19 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
           >
             <X className="h-5 w-5" strokeWidth={1.75} />
           </button>
-          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-20 w-20 shrink-0 rounded-xl object-cover sm:h-24 sm:w-24" />
+          <img
+            src="/HRMS%20Logo.png"
+            alt="HRMS logo"
+            className="h-20 w-20 shrink-0 rounded-xl object-cover sm:h-24 sm:w-24"
+          />
           {/* Pill badge on mobile (matches the redesigned drawer); plain
               muted text on desktop — unchanged from before that redesign. */}
           <span className="truncate rounded-full bg-primary/20 px-3 py-1 text-xs font-medium text-primary md:hidden">
             {portalLabel}
           </span>
-          <p className="hidden truncate text-sm text-gray-400 md:block">{portalLabel}</p>
+          <p className="hidden truncate text-sm text-gray-400 md:block">
+            {portalLabel}
+          </p>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
@@ -172,11 +205,11 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                 onClick={onClose}
                 className={({ isActive }) =>
                   [
-                    'relative flex items-center gap-3 rounded-xl border-b border-white/10 px-3 py-2 text-[13px] font-medium transition-all duration-150 last:border-b-0 sm:py-2.5 sm:text-sm',
+                    "relative flex items-center gap-3 rounded-xl border-b border-white/10 px-3 py-2 text-[13px] font-medium transition-all duration-150 last:border-b-0 sm:py-2.5 sm:text-sm",
                     isActive
-                      ? 'bg-gradient-to-r from-primary to-primary-hover text-white shadow-sm md:bg-none md:bg-nav-active md:shadow-none'
-                      : 'text-gray-300 hover:translate-x-0.5 hover:bg-white/5 hover:text-white active:scale-[0.98]',
-                  ].join(' ')
+                      ? "bg-gradient-to-r from-primary to-primary-hover text-white shadow-sm md:bg-none md:bg-nav-active md:shadow-none"
+                      : "text-gray-300 hover:translate-x-0.5 hover:bg-white/5 hover:text-white active:scale-[0.98]",
+                  ].join(" ")
                 }
               >
                 {({ isActive }) => (
@@ -186,15 +219,18 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                     )}
                     <span
                       className={[
-                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 md:h-4 md:w-4 md:bg-transparent',
-                        isActive ? 'bg-white/15' : 'bg-white/5',
-                      ].join(' ')}
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 md:h-4 md:w-4 md:bg-transparent",
+                        isActive ? "bg-white/15" : "bg-white/5",
+                      ].join(" ")}
                     >
                       <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                     </span>
                     <span className="flex-1 truncate">{item.label}</span>
                     {!isActive && (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-gray-500 md:hidden" strokeWidth={1.75} />
+                      <ChevronRight
+                        className="h-4 w-4 shrink-0 text-gray-500 md:hidden"
+                        strokeWidth={1.75}
+                      />
                     )}
                   </>
                 )}
@@ -210,11 +246,13 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
           <button
             type="button"
             onClick={toggleTheme}
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
             className="flex w-full items-center justify-between rounded-xl bg-white/5 px-3.5 py-2.5 text-[13px] font-medium text-gray-200 transition-colors hover:bg-white/10"
           >
             <span className="flex items-center gap-2.5">
-              {theme === 'dark' ? (
+              {theme === "dark" ? (
                 <Moon className="h-4 w-4 text-primary" strokeWidth={1.75} />
               ) : (
                 <Sun className="h-4 w-4 text-amber-400" strokeWidth={1.75} />
@@ -224,15 +262,15 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
             {/* Sliding pill switch — circle travels left/right on toggle. */}
             <span
               className={[
-                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200',
-                theme === 'dark' ? 'bg-primary' : 'bg-white/15',
-              ].join(' ')}
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200",
+                theme === "dark" ? "bg-primary" : "bg-white/15",
+              ].join(" ")}
             >
               <span
                 className={[
-                  'inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out',
-                  theme === 'dark' ? 'translate-x-[22px]' : 'translate-x-1',
-                ].join(' ')}
+                  "inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out",
+                  theme === "dark" ? "translate-x-[22px]" : "translate-x-1",
+                ].join(" ")}
               />
             </span>
           </button>
@@ -248,7 +286,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
             ) : (
               <LogOut className="h-4 w-4" strokeWidth={1.75} />
             )}
-            {isLoggingOut ? 'Logging out…' : 'Logout'}
+            {isLoggingOut ? "Logging out…" : "Logout"}
           </button>
         </div>
 
@@ -267,7 +305,9 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
         </div> */}
 
         <div className="border-t border-white/10 px-5 py-3">
-          <p className="text-[10px] text-gray-500 sm:text-[11px]">© {new Date().getFullYear()} Sri Sai Group</p>
+          <p className="text-[10px] text-gray-500 sm:text-[11px]">
+            © {new Date().getFullYear()} Sri Sai Group
+          </p>
         </div>
 
         {/* Desktop-only drag-to-resize handle — double-click resets to the default width. */}
@@ -286,23 +326,29 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
               hover/drag — so it reads as adjustable at a glance. */}
           <span
             className={[
-              'absolute inset-y-0 right-0 w-px transition-colors duration-150',
-              isDragging ? 'bg-primary' : 'bg-white/15 group-hover:bg-primary/70',
-            ].join(' ')}
+              "absolute inset-y-0 right-0 w-px transition-colors duration-150",
+              isDragging
+                ? "bg-primary"
+                : "bg-white/15 group-hover:bg-primary/70",
+            ].join(" ")}
           />
           {/* Grip affordance, centered vertically, hinting the edge can be
               dragged left/right to resize. */}
           <span
             className={[
-              'relative flex h-9 w-2.5 items-center justify-center rounded-full transition-colors duration-150',
-              isDragging ? 'bg-primary' : 'bg-white/10 group-hover:bg-primary/70',
-            ].join(' ')}
+              "relative flex h-9 w-2.5 items-center justify-center rounded-full transition-colors duration-150",
+              isDragging
+                ? "bg-primary"
+                : "bg-white/10 group-hover:bg-primary/70",
+            ].join(" ")}
           >
             <GripVertical
               className={[
-                'h-3.5 w-3.5 transition-colors duration-150',
-                isDragging ? 'text-white' : 'text-gray-400 group-hover:text-white',
-              ].join(' ')}
+                "h-3.5 w-3.5 transition-colors duration-150",
+                isDragging
+                  ? "text-white"
+                  : "text-gray-400 group-hover:text-white",
+              ].join(" ")}
               strokeWidth={2}
             />
           </span>
