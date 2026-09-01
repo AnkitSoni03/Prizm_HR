@@ -379,8 +379,12 @@ export function KioskPage() {
 
   const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
 
+  // py-[10vh]: a deliberate 10% breathing-room gap above and below the card
+  // (not the small fixed py-3/py-4 before) — the card (and its flex-1
+  // camera area) then fills exactly the remaining 80% of the screen's
+  // height.
   return (
-    <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-3 text-center sm:px-4 sm:py-4">
+    <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-[10vh] text-center sm:px-4">
       {/* Lets whoever set up this device sign the kiosk account out again —
           without this, a kiosk logged in once would stay signed in
           indefinitely (stateless refresh tokens, per CLAUDE.md, no longer
