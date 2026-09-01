@@ -380,7 +380,7 @@ export function KioskPage() {
   const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
 
   return (
-    <div className="relative flex h-screen w-full flex-col items-center justify-center overflow-x-hidden bg-sidebar px-4 py-6 text-center">
+    <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-3 text-center sm:px-4 sm:py-4">
       {/* Lets whoever set up this device sign the kiosk account out again —
           without this, a kiosk logged in once would stay signed in
           indefinitely (stateless refresh tokens, per CLAUDE.md, no longer
@@ -399,18 +399,22 @@ export function KioskPage() {
 
       {/* A contained, bordered panel — instead of the logo/camera/buttons
           floating loose on the raw dark backdrop — reads as a proper kiosk
-          terminal card rather than an unfinished page. */}
-      <div className="flex w-full max-w-xl flex-col items-center gap-5 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl sm:max-w-2xl sm:p-8 lg:max-w-3xl">
+          terminal card rather than an unfinished page. flex-1 (fills the
+          page's full height, minus its own padding above) instead of a
+          content-sized box centered with empty dark space above and below
+          it — the whole screen is the kiosk now, not an island in the
+          middle of it. */}
+      <div className="flex w-full max-w-xl flex-1 flex-col items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4 shadow-2xl sm:max-w-2xl sm:gap-5 sm:p-8 lg:max-w-3xl">
         <div className="flex shrink-0 flex-col items-center gap-1">
           <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-10 w-10 rounded-lg object-cover sm:h-12 sm:w-12" />
           <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then look at the camera</p>
         </div>
 
-        {/* Square, and scaling with both the card's width (bigger on a wide
-            screen) and the viewport's height (max-h-[70vh] — bigger on a
-            tall kiosk screen too) — a properly-sized deliberate viewfinder
-            either way, not a fixed small box or a stretched-to-fill void. */}
-        <div className="relative aspect-square w-full max-h-[70vh] shrink-0 overflow-hidden rounded-2xl bg-black shadow-xl ring-1 ring-white/10">
+        {/* flex-1 + min-h-0 (not a fixed aspect ratio) so this claims every
+            bit of vertical space the header/buttons around it leave inside
+            the card — the actual "increase the camera area" ask — while
+            still being width-capped by the card's own max-w-*. */}
+        <div className="relative w-full min-h-0 flex-1 overflow-hidden rounded-2xl bg-black shadow-xl ring-1 ring-white/10">
           {/* Mirrored (-scale-x-100) so the preview behaves like a normal
               mirror — move your head left, the picture moves left — instead
               of the camera's raw, unmirrored feed which looks reversed to
