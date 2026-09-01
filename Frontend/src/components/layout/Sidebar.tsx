@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { GripVertical, LogOut, Loader2, Moon, Sun, X } from 'lucide-react';
+import { ChevronRight, GripVertical, LogOut, Loader2, Moon, ShieldCheck, Sun, X } from 'lucide-react';
 import type { NavItem } from '../../routes/navConfig';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
@@ -134,7 +134,12 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
             <X className="h-5 w-5" strokeWidth={1.75} />
           </button>
           <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-20 w-20 shrink-0 rounded-xl object-cover sm:h-24 sm:w-24" />
-          <p className="truncate text-xs text-gray-400 sm:text-sm">{portalLabel}</p>
+          {/* Pill badge on mobile (matches the redesigned drawer); plain
+              muted text on desktop — unchanged from before that redesign. */}
+          <span className="truncate rounded-full bg-primary/20 px-3 py-1 text-xs font-medium text-primary md:hidden">
+            {portalLabel}
+          </span>
+          <p className="hidden truncate text-sm text-gray-400 md:block">{portalLabel}</p>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
@@ -148,7 +153,9 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                   className="flex cursor-not-allowed items-center gap-3 rounded-xl border-b border-white/10 px-3 py-2 text-[13px] text-gray-600 last:border-b-0 sm:py-2.5 sm:text-sm"
                   title="Coming soon"
                 >
-                  <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 md:h-4 md:w-4 md:bg-transparent">
+                    <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                  </span>
                   <span className="flex-1 truncate">{item.label}</span>
                   <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
                     Soon
@@ -167,7 +174,7 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                   [
                     'relative flex items-center gap-3 rounded-xl border-b border-white/10 px-3 py-2 text-[13px] font-medium transition-all duration-150 last:border-b-0 sm:py-2.5 sm:text-sm',
                     isActive
-                      ? 'bg-nav-active text-white'
+                      ? 'bg-gradient-to-r from-primary to-primary-hover text-white shadow-sm md:bg-none md:bg-nav-active md:shadow-none'
                       : 'text-gray-300 hover:translate-x-0.5 hover:bg-white/5 hover:text-white active:scale-[0.98]',
                   ].join(' ')
                 }
@@ -177,8 +184,18 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
                     {isActive && (
                       <span className="absolute -left-3 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />
                     )}
-                    <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                    <span className="truncate">{item.label}</span>
+                    <span
+                      className={[
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 md:h-4 md:w-4 md:bg-transparent',
+                        isActive ? 'bg-white/15' : 'bg-white/5',
+                      ].join(' ')}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                    </span>
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {!isActive && (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-gray-500 md:hidden" strokeWidth={1.75} />
+                    )}
                   </>
                 )}
               </NavLink>
@@ -233,6 +250,20 @@ export function Sidebar({ navItems, portalLabel, isOpen, onClose }: SidebarProps
             )}
             {isLoggingOut ? 'Logging out…' : 'Logout'}
           </button>
+        </div>
+
+        {/* Mobile-only trust banner — desktop keeps its existing plain footer. */}
+        <div className="px-4 pt-3 md:hidden">
+          <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <ShieldCheck className="h-5 w-5" strokeWidth={1.75} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-white">Your data is safe with us.</p>
+              <p className="truncate text-[11px] text-primary/80">Secure • Reliable • Trusted</p>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" strokeWidth={1.75} />
+          </div>
         </div>
 
         <div className="border-t border-white/10 px-5 py-3">

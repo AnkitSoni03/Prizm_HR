@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Calendar, FileText, LayoutGrid, User, Wallet } from 'lucide-react';
+import { CalendarCheck, ClipboardCheck, LayoutDashboard, User, Wallet } from 'lucide-react';
 
 interface BottomNavTab {
   label: string;
@@ -10,10 +10,13 @@ interface BottomNavTab {
   matchPrefixes: string[];
 }
 
+// Icons are picked to match navConfig.ts's ESS_NAV exactly — Dashboard,
+// My Attendance, Team Approvals, My Payslips — so the same concept never
+// shows a different glyph between this bar and the sidebar/drawer.
 const TABS: BottomNavTab[] = [
-  { label: 'Dashboard', icon: LayoutGrid, path: '/ess', matchPrefixes: ['/ess'] },
-  { label: 'Requests', icon: FileText, path: '/ess/leave', matchPrefixes: ['/ess/leave', '/ess/od', '/ess/comp-off', '/ess/team-approvals'] },
-  { label: 'Calendar', icon: Calendar, path: '/ess/attendance', matchPrefixes: ['/ess/attendance'] },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/ess', matchPrefixes: ['/ess'] },
+  { label: 'Requests', icon: ClipboardCheck, path: '/ess/leave', matchPrefixes: ['/ess/leave', '/ess/od', '/ess/comp-off', '/ess/team-approvals'] },
+  { label: 'Calendar', icon: CalendarCheck, path: '/ess/attendance', matchPrefixes: ['/ess/attendance'] },
   { label: 'Payslips', icon: Wallet, path: '/ess/payslips', matchPrefixes: ['/ess/payslips'] },
   { label: 'Profile', icon: User, path: '/ess/profile', matchPrefixes: ['/ess/profile'] },
 ];
