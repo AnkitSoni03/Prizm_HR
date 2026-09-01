@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['pwa-icon.png'],
+      includeAssets: ['downloaded-icon.png'],
       // Off by default in vite-plugin-pwa — without this, `npm run dev`
       // never registers a service worker at all, so Chrome's installability
       // check (and therefore beforeinstallprompt, and the Login page's
@@ -32,9 +32,9 @@ export default defineConfig({
           // icon `src` breaks Chrome's icon fetch (unlike a normal <img>/
           // <link> tag, which auto-encodes it), which silently fails the
           // installability check with no error, just no install prompt.
-          { src: '/pwa-icon.png', sizes: '192x192', type: 'image/png' },
-          { src: '/pwa-icon.png', sizes: '512x512', type: 'image/png' },
-          { src: '/pwa-icon.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/downloaded-icon.png', sizes: '192x192', type: 'image/png' },
+          { src: '/downloaded-icon.png', sizes: '512x512', type: 'image/png' },
+          { src: '/downloaded-icon.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
