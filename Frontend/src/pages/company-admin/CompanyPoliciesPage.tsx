@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Download, Eye, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
@@ -55,6 +56,7 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
   const [error, setError] = useState<string | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<CompanyPolicy | 'new' | null>(null);
   const [previewPolicy, setPreviewPolicy] = useState<CompanyPolicy | null>(null);
+  const [search, setSearch] = useState('');
 
   async function loadPolicies() {
     setIsLoading(true);
@@ -75,6 +77,14 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extraParams.companyId, extraParams.rosterGroupId]);
 
+  const filteredPolicies = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return policies;
+    return policies.filter(
+      (p) => p.title.toLowerCase().includes(needle) || (p.body ?? '').toLowerCase().includes(needle),
+    );
+  }, [policies, search]);
+
   async function handleDelete(policy: CompanyPolicy) {
     const confirmed = await confirm({
       title: 'Delete policy',
@@ -93,33 +103,49 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 text-sm text-ink-muted">
-          <FileText className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
-          {policies.length > 0 ? `${policies.length} polic${policies.length === 1 ? 'y' : 'ies'} — ` : ''}
-          each only visible to the Roster(s) it's assigned to.
-        </p>
+      <div className="mb-5 flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
+            <FileText className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <p className="text-sm text-ink-muted">
+            {policies.length > 0 && (
+              <span className="font-medium text-ink">
+                {policies.length} polic{policies.length === 1 ? 'y' : 'ies'} —{' '}
+              </span>
+            )}
+            each only visible to the Roster(s) it's assigned to.
+          </p>
+        </div>
         {canCreate && (
-          <Button onClick={() => setEditingPolicy('new')}>
+          <Button onClick={() => setEditingPolicy('new')} className="shrink-0">
             <Plus className="h-4 w-4" strokeWidth={1.75} />
             Add Policy
           </Button>
         )}
       </div>
 
+      <div className="mb-4">
+        <SearchInput placeholder="Search policies…" value={search} onChange={setSearch} />
+      </div>
+
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
-      {!isLoading && !error && policies.length === 0 && (
+      {!isLoading && !error && filteredPolicies.length === 0 && (
         <EmptyStateCard
           icon={FileText}
-          title="No policies yet"
-          description="Add company policies (WFH, code of conduct, etc.) for employees to reference."
+          title={policies.length === 0 ? 'No policies yet' : 'No policies match your search'}
+          description={
+            policies.length === 0
+              ? 'Add company policies (WFH, code of conduct, etc.) for employees to reference.'
+              : 'Try a different search term.'
+          }
         />
       )}
 
       {isLoading && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {Array.from({ length: 2 }).map((_, i) => (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="rounded-2xl border border-border bg-card p-5">
               <Skeleton className="mb-3 h-5 w-1/2" />
               <Skeleton className="mb-2 h-4 w-full" />
@@ -129,9 +155,9 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
         </div>
       )}
 
-      {!isLoading && policies.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {policies.map((policy) => {
+      {!isLoading && filteredPolicies.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredPolicies.map((policy) => {
             const createdByName = policyAuditName(policy.creator);
             const updatedByName = policyAuditName(policy.updater);
             const kind = policy.fileUrl ? getFileKind(policy.fileUrl) : null;

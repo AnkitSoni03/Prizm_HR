@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Pencil, ShieldAlert } from 'lucide-react';
+import { Building2, CreditCard, Hash, Layers, Lock, MonitorSmartphone, Pencil, ShieldAlert, User } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Tabs } from '../../components/ui/Tabs';
+import { DetailRow } from '../../components/ui/DetailRow';
 import { AccountProfileCard } from '../../components/AccountProfileCard';
 import { ChangePasswordCard } from '../../components/ChangePasswordCard';
 import { useAuth } from '../../context/auth-context';
@@ -86,9 +87,9 @@ export function SettingsPage() {
     <div className={activeTab === 'kiosks' ? 'space-y-6' : 'max-w-2xl space-y-6'}>
       <Tabs
         items={[
-          { key: 'profile', label: 'Profile' },
-          { key: 'password', label: 'Reset Password' },
-          ...(canManageKiosks ? [{ key: 'kiosks', label: 'Kiosk Accounts' }] : []),
+          { key: 'profile', label: 'Profile', icon: User },
+          { key: 'password', label: 'Reset Password', icon: Lock },
+          ...(canManageKiosks ? [{ key: 'kiosks', label: 'Kiosk Accounts', icon: MonitorSmartphone }] : []),
         ]}
         active={activeTab}
         onChange={(key) => setActiveTab(key as Tab)}
@@ -105,14 +106,16 @@ export function SettingsPage() {
           )}
 
           {companyId && !isLoading && company && (
-            <div className="rounded-xl border border-border bg-card p-5">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-ink">{company.name}</h2>
-                  <p className="text-sm text-ink-muted">
-                    {company.legalName ?? '—'}
-                    {company.gstNumber ? ` · GST ${company.gstNumber}` : ''}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
+                    <Building2 className="h-5 w-5" strokeWidth={1.75} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-ink">{company.name}</h2>
+                    <p className="text-sm text-ink-muted">Company Profile</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge tone={companyStatusTone(company.status)}>{company.status}</Badge>
@@ -130,23 +133,21 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-xl border border-border bg-page px-4 py-3 text-sm">
-                <p className="text-ink-muted">Legal Name</p>
-                <p className="text-ink">{company.legalName ?? '—'}</p>
-                <p className="text-ink-muted">GST Number</p>
-                <p className="text-ink">{company.gstNumber ?? '—'}</p>
-                <p className="text-ink-muted">Plan</p>
-                <p className="text-ink">{planName}</p>
-                <p className="text-ink-muted">Organization Mode</p>
-                <p className="text-ink">{company.usesBrands ? 'Brands' : 'Direct (no Brands)'}</p>
+              <div className="space-y-2.5 border-t border-border pt-3.5">
+                <DetailRow icon={Building2} label="Legal Name" value={company.legalName ?? '—'} />
+                <DetailRow icon={Hash} label="GST Number" value={company.gstNumber ?? '—'} />
+                <DetailRow icon={CreditCard} label="Plan" value={planName} />
+                <DetailRow icon={Layers} label="Organization Mode" value={company.usesBrands ? 'Brands' : 'Direct (no Brands)'} />
               </div>
             </div>
           )}
 
           {companyId && !isLoading && company && (
-            <div className="rounded-xl border border-border bg-card p-5">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
               <div className="mb-3 flex items-start gap-3">
-                <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-warning" strokeWidth={1.75} />
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning">
+                  <ShieldAlert className="h-5 w-5" strokeWidth={1.75} />
+                </div>
                 <div>
                   <h2 className="text-lg font-semibold text-ink">Kiosk Fraud Detection</h2>
                   <p className="text-sm text-ink-muted">
@@ -157,7 +158,7 @@ export function SettingsPage() {
                   </p>
                 </div>
               </div>
-              <label className="flex items-center gap-3 text-sm">
+              <label className="flex items-center gap-3 border-t border-border pt-3.5 text-sm">
                 <input
                   type="checkbox"
                   className="h-4 w-4 rounded border-border accent-primary disabled:opacity-50"

@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Pencil, Plus, Trash2, Wallet } from 'lucide-react';
+import { ArrowRightLeft, Hash, Pencil, Plus, RotateCw, Trash2, TrendingUp, Wallet } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { DetailRow } from '../../components/ui/DetailRow';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
@@ -28,6 +31,11 @@ function cycleLabel(leaveType: LeaveType): string {
   return CYCLE_LABELS[leaveType.cycleType];
 }
 
+function carryForwardLabel(leaveType: LeaveType): string {
+  if (!leaveType.carryForward) return 'No';
+  return leaveType.maxCarryForwardDays != null ? `Up to ${leaveType.maxCarryForwardDays} days` : 'Unlimited';
+}
+
 const ACCRUAL_LABELS: Record<NonNullable<LeaveType['defaultAccrual']>, string> = {
   yearly: 'Yearly',
   monthly: 'Monthly',
@@ -39,6 +47,95 @@ function extractError(err: unknown, fallback: string): string {
     return err.response.data.error;
   }
   return fallback;
+}
+
+function LeaveTypeCardSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-11 w-11 shrink-0 rounded-xl" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+          </div>
+          <div className="mt-3.5 space-y-2.5 border-t border-border pt-3.5">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-full" />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+interface LeaveTypeCardProps {
+  leaveType: LeaveType;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}
+
+function LeaveTypeCard({ leaveType, onEdit, onDelete }: LeaveTypeCardProps) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
+            <Wallet className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-semibold text-ink">{leaveType.name}</p>
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-muted">
+              <Hash className="h-3 w-3 shrink-0" strokeWidth={1.75} />
+              {leaveType.code}
+            </p>
+          </div>
+        </div>
+        <div className="shrink-0">
+          <Badge tone={leaveType.isPaid ? 'success' : 'neutral'}>{leaveType.isPaid ? 'Paid' : 'Unpaid'}</Badge>
+        </div>
+      </div>
+
+      <div className="mt-3.5 space-y-2.5 border-t border-border pt-3.5">
+        <DetailRow icon={RotateCw} label="Cycle" value={cycleLabel(leaveType)} />
+        <DetailRow icon={ArrowRightLeft} label="Carry Forward" value={carryForwardLabel(leaveType)} />
+        <DetailRow
+          icon={TrendingUp}
+          label="Default Accrual"
+          value={leaveType.defaultAccrual ? ACCRUAL_LABELS[leaveType.defaultAccrual] : '—'}
+        />
+      </div>
+
+      {(onEdit || onDelete) && (
+        <div className="mt-3.5 flex items-center gap-2 border-t border-border pt-3">
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label={`Edit ${leaveType.name}`}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-page hover:text-ink"
+            >
+              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Edit
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Delete ${leaveType.name}`}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-ink-muted transition-colors hover:bg-danger/10 hover:text-danger"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // The catalog of leave types a company offers (Sick Leave, Annual Leave,
@@ -59,6 +156,7 @@ export function LeaveTypesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingType, setEditingType] = useState<LeaveType | 'new' | null>(null);
+  const [search, setSearch] = useState('');
 
   async function loadLeaveTypes() {
     setIsLoading(true);
@@ -76,6 +174,12 @@ export function LeaveTypesPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadLeaveTypes();
   }, []);
+
+  const filteredLeaveTypes = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return leaveTypes;
+    return leaveTypes.filter((lt) => lt.name.toLowerCase().includes(needle) || lt.code.toLowerCase().includes(needle));
+  }, [leaveTypes, search]);
 
   async function handleDelete(leaveType: LeaveType) {
     const confirmed = await confirm({
@@ -111,87 +215,116 @@ export function LeaveTypesPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 text-sm text-ink-muted">
-          <Wallet className="h-4 w-4 shrink-0 text-primary" strokeWidth={1.75} />
-          The leave types your company offers. Set a quota and assign one to a Roster on Leave Policy
-          Settings once it's here.
-        </p>
+      <div className="mb-5 flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
+            <Wallet className="h-5 w-5" strokeWidth={1.75} />
+          </div>
+          <p className="text-sm text-ink-muted">
+            The leave types your company offers. Set a quota and assign one to a Roster on Leave Policy
+            Settings once it's here.
+          </p>
+        </div>
         {canCreate && (
-          <Button onClick={() => setEditingType('new')}>
+          <Button onClick={() => setEditingType('new')} className="shrink-0">
             <Plus className="h-4 w-4" strokeWidth={1.75} />
             Add Leave Type
           </Button>
         )}
       </div>
 
+      <div className="mb-4">
+        <SearchInput placeholder="Search leave types…" value={search} onChange={setSearch} />
+      </div>
+
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
-      {!isLoading && !error && leaveTypes.length === 0 && (
+      {!isLoading && !error && filteredLeaveTypes.length === 0 && (
         <EmptyStateCard
           icon={Wallet}
-          title="No leave types yet"
-          description='Add one to get started — e.g. "Sick Leave" or "Annual Leave".'
+          title={leaveTypes.length === 0 ? 'No leave types yet' : 'No leave types match your search'}
+          description={
+            leaveTypes.length === 0
+              ? 'Add one to get started — e.g. "Sick Leave" or "Annual Leave".'
+              : 'Try a different search term.'
+          }
         />
       )}
 
-      {(isLoading || leaveTypes.length > 0) && (
-        <Table
-          isLoading={isLoading}
-          rows={leaveTypes}
-          rowKey={(lt) => lt.id}
-          columns={[
-            { key: 'name', header: 'Name', render: (lt) => <span className="font-medium text-ink">{lt.name}</span> },
-            { key: 'code', header: 'Code', render: (lt) => lt.code },
-            { key: 'paid', header: 'Paid', render: (lt) => <Badge tone={lt.isPaid ? 'success' : 'neutral'}>{lt.isPaid ? 'Paid' : 'Unpaid'}</Badge> },
-            { key: 'cycle', header: 'Cycle', render: (lt) => cycleLabel(lt) },
-            {
-              key: 'carryForward',
-              header: 'Carry Forward',
-              render: (lt) =>
-                lt.carryForward ? (
-                  <span className="text-ink">{lt.maxCarryForwardDays != null ? `Up to ${lt.maxCarryForwardDays} days` : 'Unlimited'}</span>
-                ) : (
-                  <span className="text-ink-muted">No</span>
-                ),
-            },
-            {
-              key: 'defaultAccrual',
-              header: 'Default Accrual',
-              render: (lt) => (lt.defaultAccrual ? ACCRUAL_LABELS[lt.defaultAccrual] : <span className="text-ink-muted">—</span>),
-            },
-            {
-              key: 'actions',
-              header: '',
-              className: 'w-24 text-right',
-              render: (lt) =>
-                (canUpdate || canDelete) && (
-                  <div className="flex justify-end gap-1">
-                    {canUpdate && (
-                      <button
-                        type="button"
-                        onClick={() => setEditingType(lt)}
-                        aria-label={`Edit ${lt.name}`}
-                        className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
-                      >
-                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(lt)}
-                        aria-label={`Delete ${lt.name}`}
-                        className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                      </button>
-                    )}
-                  </div>
-                ),
-            },
-          ]}
-        />
+      {(isLoading || filteredLeaveTypes.length > 0) && (
+        <>
+          <div className="hidden md:block">
+            <Table
+              isLoading={isLoading}
+              rows={filteredLeaveTypes}
+              rowKey={(lt) => lt.id}
+              columns={[
+                { key: 'name', header: 'Name', render: (lt) => <span className="font-medium text-ink">{lt.name}</span> },
+                { key: 'code', header: 'Code', render: (lt) => lt.code },
+                { key: 'paid', header: 'Paid', render: (lt) => <Badge tone={lt.isPaid ? 'success' : 'neutral'}>{lt.isPaid ? 'Paid' : 'Unpaid'}</Badge> },
+                { key: 'cycle', header: 'Cycle', render: (lt) => cycleLabel(lt) },
+                {
+                  key: 'carryForward',
+                  header: 'Carry Forward',
+                  render: (lt) =>
+                    lt.carryForward ? (
+                      <span className="text-ink">{carryForwardLabel(lt)}</span>
+                    ) : (
+                      <span className="text-ink-muted">No</span>
+                    ),
+                },
+                {
+                  key: 'defaultAccrual',
+                  header: 'Default Accrual',
+                  render: (lt) => (lt.defaultAccrual ? ACCRUAL_LABELS[lt.defaultAccrual] : <span className="text-ink-muted">—</span>),
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  className: 'w-24 text-right',
+                  render: (lt) =>
+                    (canUpdate || canDelete) && (
+                      <div className="flex justify-end gap-1">
+                        {canUpdate && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingType(lt)}
+                            aria-label={`Edit ${lt.name}`}
+                            className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
+                          >
+                            <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(lt)}
+                            aria-label={`Delete ${lt.name}`}
+                            className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        )}
+                      </div>
+                    ),
+                },
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+            {isLoading && <LeaveTypeCardSkeleton />}
+            {!isLoading &&
+              filteredLeaveTypes.map((lt) => (
+                <LeaveTypeCard
+                  key={lt.id}
+                  leaveType={lt}
+                  onEdit={canUpdate ? () => setEditingType(lt) : undefined}
+                  onDelete={canDelete ? () => handleDelete(lt) : undefined}
+                />
+              ))}
+          </div>
+        </>
       )}
 
       {editingType && (
