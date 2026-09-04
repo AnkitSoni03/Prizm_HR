@@ -9,21 +9,27 @@ import { EmployeeTrendChart } from '../../components/charts/EmployeeTrendChart';
 import { LeaveDonutChart } from '../../components/charts/LeaveDonutChart';
 import { DepartmentHeadcountBars } from '../../components/charts/DepartmentHeadcountBars';
 import { useAuth } from '../../context/auth-context';
+import { useTheme } from '../../context/theme-context';
+import { getChartPalette } from '../../utils/chartColors';
 
 interface Tile {
   label: string;
   value: number;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
-  tone: 'soft' | 'filled';
+  accentColor: string;
 }
 
-function tilesFor(summary: DashboardSummary): Tile[] {
+// A distinct hue for the one "count" metric (from the same categorical
+// palette the charts below already use), and a single consistent warning
+// hue across every "Pending ..." tile — ties their shared meaning ("needs
+// your attention") together instead of a decorative rainbow.
+function tilesFor(summary: DashboardSummary, categorical: string[]): Tile[] {
   return [
-    { label: 'Employees', value: summary.employeeCount, icon: Users, tone: 'filled' },
-    { label: 'Pending Leave Requests', value: summary.pendingLeaveRequests, icon: CalendarClock, tone: 'soft' },
-    { label: 'Pending OD Requests', value: summary.pendingOdRequests, icon: Send, tone: 'filled' },
-    { label: 'Pending Regularizations', value: summary.pendingRegularizations, icon: ClipboardCheck, tone: 'soft' },
-    { label: 'Pending Comp-Off Credits', value: summary.pendingCompOffCredits, icon: RefreshCw, tone: 'soft' },
+    { label: 'Employees', value: summary.employeeCount, icon: Users, accentColor: categorical[0] },
+    { label: 'Pending Leave Requests', value: summary.pendingLeaveRequests, icon: CalendarClock, accentColor: 'var(--warning)' },
+    { label: 'Pending OD Requests', value: summary.pendingOdRequests, icon: Send, accentColor: 'var(--warning)' },
+    { label: 'Pending Regularizations', value: summary.pendingRegularizations, icon: ClipboardCheck, accentColor: 'var(--warning)' },
+    { label: 'Pending Comp-Off Credits', value: summary.pendingCompOffCredits, icon: RefreshCw, accentColor: 'var(--warning)' },
   ];
 }
 
@@ -36,6 +42,8 @@ const QUICK_ACTIONS = [
 
 export function BrandAdminDashboard() {
   const { user } = useAuth();
+  const { theme } = useTheme();
+  const palette = getChartPalette(theme);
   const brandId = user?.roles.find((role) => role.name === 'Brand Admin')?.brandId ?? null;
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,8 +80,8 @@ export function BrandAdminDashboard() {
         subtitle="Here's what's happening in your brand today."      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {tilesFor(summary).map((tile) => (
-          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} tone={tile.tone} />
+        {tilesFor(summary, palette.categorical).map((tile) => (
+          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} accentColor={tile.accentColor} />
         ))}
       </div>
 
