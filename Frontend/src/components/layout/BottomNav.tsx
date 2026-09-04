@@ -43,8 +43,8 @@ export function BottomNav() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 sm:hidden">
       <nav
-        className="flex items-center justify-around border-t border-border px-2 pt-2 bg-card shadow-lg"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+        className="flex items-center justify-around rounded-t-3xl px-2 pt-2 shadow-lg"
+        style={{ background: 'var(--banner-gradient)', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
       >
         {TABS.map((tab) => {
           const active = tab.label === 'Dashboard' ? dashboardActive : isActive(pathname, tab.matchPrefixes);
@@ -55,13 +55,13 @@ export function BottomNav() {
               className="flex min-w-[56px] flex-col items-center gap-1 rounded-2xl py-1 active:scale-95"
             >
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
-                  active ? 'bg-primary-light text-primary' : 'text-ink-muted'
+                className={`flex h-8 w-8 items-center justify-center rounded-xl text-white transition-colors ${
+                  active ? 'bg-white/20' : ''
                 }`}
               >
                 <tab.icon className="h-[19px] w-[19px]" strokeWidth={active ? 2.25 : 1.75} />
               </span>
-              <span className={`text-[10px] ${active ? 'font-semibold text-primary' : 'font-medium text-ink-muted'}`}>
+              <span className={`text-[10px] text-white ${active ? 'font-semibold' : 'font-medium text-white/70'}`}>
                 {tab.label}
               </span>
             </Link>

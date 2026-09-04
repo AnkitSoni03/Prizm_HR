@@ -352,6 +352,7 @@ export function EssDashboard() {
   const [employeeCode, setEmployeeCode] = useState<string | null>(null);
   const [designation, setDesignation] = useState<string | null>(null);
   const [department, setDepartment] = useState<string | null>(null);
+  const [dateOfJoining, setDateOfJoining] = useState<string | null>(null);
   const [employeeStatus, setEmployeeStatus] = useState<EmployeeProfile['status'] | null>(null);
   const [upcomingHolidays, setUpcomingHolidays] = useState<Holiday[]>([]);
   const [latestPolicy, setLatestPolicy] = useState<CompanyPolicy | null>(null);
@@ -386,6 +387,7 @@ export function EssDashboard() {
         setEmployeeStatus(profile.status);
         setDesignation(profile.designation?.title ?? null);
         setDepartment(profile.department?.name ?? null);
+        setDateOfJoining(profile.dateOfJoining);
       })
       .catch(() => {
         /* non-critical — falls back to email in the greeting */
@@ -552,7 +554,9 @@ export function EssDashboard() {
             <div className="flex flex-col items-center gap-1 px-1 text-center">
               <CalendarRange className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
               <p className="text-[9px] font-semibold uppercase tracking-wide text-white/60">Date of Joining</p>
-              <p className="truncate text-xs font-semibold text-white">{formatDisplayDate(todayStr())}</p>
+              <p className="truncate text-xs font-semibold text-white">
+                {dateOfJoining ? formatDisplayDate(dateOfJoining) : '—'}
+              </p>
             </div>
             <div className="flex flex-col items-center gap-1 px-1 text-center">
               <Briefcase className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
