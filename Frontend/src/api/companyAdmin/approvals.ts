@@ -29,6 +29,19 @@ export interface LeaveType {
   carryForward: boolean;
 }
 
+// One row per manager snapshotted at submission time — see
+// leave_request_approvals' header comment (Backend migration
+// 20260905090100). 'bypassed' means an admin decided the whole request
+// before this manager got to.
+export interface LeaveRequestManagerApproval {
+  id: string;
+  managerEmployeeId: string;
+  status: 'pending' | 'approved' | 'rejected' | 'bypassed';
+  reason: string | null;
+  decidedAt: string | null;
+  manager?: { id: string; name: string | null; employeeCode: string | null } | null;
+}
+
 export interface LeaveRequest {
   id: string;
   employeeId: string;
@@ -45,6 +58,13 @@ export interface LeaveRequest {
   compOffCreditId: string | null;
   employee?: RequestEmployee;
   leaveType?: LeaveType;
+  // Multi-manager AND-gate approval — see leaveRequest.service.js.
+  // 'manager_consensus' once EVERY row above is 'approved'; 'admin_override'
+  // when a company/brand-wide admin decided it directly, bypassing whichever
+  // managers hadn't voted yet. Null while still pending, or for a request
+  // predating this feature.
+  decisionMode?: 'manager_consensus' | 'admin_override' | null;
+  managerApprovals?: LeaveRequestManagerApproval[];
 }
 
 export interface OdRequest {

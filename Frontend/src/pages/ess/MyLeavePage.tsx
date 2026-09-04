@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Table } from '../../components/ui/Table';
+import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
@@ -180,6 +181,21 @@ export function MyLeavePage() {
             key: 'status',
             header: 'Status',
             render: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>,
+          },
+          {
+            key: 'managers',
+            header: 'Managers',
+            // Only meaningful for a request still going through the
+            // manager chain (pending) or one that finished via manager
+            // consensus — a cancelled request never had a decision, and an
+            // admin-override one shows its own "decided by an admin" note
+            // instead of chips (see ManagerApprovalStatus).
+            render: (r) =>
+              r.status === 'cancelled' ? (
+                '—'
+              ) : (
+                <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+              ),
           },
           {
             key: 'actions',

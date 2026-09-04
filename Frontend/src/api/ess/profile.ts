@@ -34,6 +34,11 @@ export interface EmployeeProfile {
   department?: { id: string; name: string };
   designation?: { id: string; title: string } | null;
   manager?: { id: string; name: string; employeeCode: string } | null;
+  // Any managers beyond the primary one above — an employee can have more
+  // than one, and a leave request needs ALL of them to approve before it's
+  // final (see leaveRequest.service.js). See MyProfilePage.tsx, which
+  // combines this with `manager` into one full list for display.
+  additionalManagerLinks?: { id: string; manager: { id: string; name: string | null; employeeCode: string | null } }[];
   // Filled in only when managerId is null — whichever admin is actually
   // responsible for you (your Brand's Brand Admin, else the Company Admin).
   // Display-only fallback, not a real manager assignment — see
@@ -99,6 +104,22 @@ export interface EmployeeDocument {
 // employeeId.
 export async function getMyProfile(employeeId: string): Promise<EmployeeProfile> {
   const { data } = await apiClient.get<{ data: EmployeeProfile }>(`/employees/${employeeId}`);
+  return data.data;
+}
+
+export interface MyManager {
+  id: string;
+  name: string | null;
+  employeeCode: string | null;
+}
+
+// Your FULL manager set — the primary Manager field plus any additional
+// managers an admin assigned (see EmployeeDetailModal.tsx's "Additional
+// Managers" picker). One or more; empty if you have none assigned. Powers
+// the ESS Dashboard's "Your Managers" card and is what an in-flight leave
+// request's multi-manager approval actually needs ALL of to approve.
+export async function getMyManagers(): Promise<MyManager[]> {
+  const { data } = await apiClient.get<{ data: MyManager[] }>('/employees/me/managers');
   return data.data;
 }
 

@@ -53,14 +53,28 @@ async function create(req, res, next) {
   }
 }
 
+// req.leaveDecisionMode ('admin' | 'manager') was set by requireDecisionAccess
+// based on WHICH grant actually let this caller through — an admin's
+// approve/reject bypasses every manager immediately; a manager's is one vote
+// in the AND-gate (decideLeaveRequestAsManager only finalizes once every
+// other manager has also approved, or immediately on any single reject).
 async function approve(req, res, next) {
   try {
-    const request = await service.approveLeaveRequest({
-      companyId: req.auth.companyId,
-      id: req.params.id,
-      approverId: req.auth.employeeId,
-      approverUserId: req.auth.userId,
-    });
+    const request =
+      req.leaveDecisionMode === 'manager'
+        ? await service.decideLeaveRequestAsManager({
+            companyId: req.auth.companyId,
+            id: req.params.id,
+            managerEmployeeId: req.auth.employeeId,
+            approverUserId: req.auth.userId,
+            decision: 'approved',
+          })
+        : await service.approveLeaveRequest({
+            companyId: req.auth.companyId,
+            id: req.params.id,
+            approverId: req.auth.employeeId,
+            approverUserId: req.auth.userId,
+          });
     res.json({ data: request });
   } catch (err) {
     next(err);
@@ -69,13 +83,23 @@ async function approve(req, res, next) {
 
 async function reject(req, res, next) {
   try {
-    const request = await service.rejectLeaveRequest({
-      companyId: req.auth.companyId,
-      id: req.params.id,
-      approverId: req.auth.employeeId,
-      approverUserId: req.auth.userId,
-      reason: req.body.reason,
-    });
+    const request =
+      req.leaveDecisionMode === 'manager'
+        ? await service.decideLeaveRequestAsManager({
+            companyId: req.auth.companyId,
+            id: req.params.id,
+            managerEmployeeId: req.auth.employeeId,
+            approverUserId: req.auth.userId,
+            decision: 'rejected',
+            reason: req.body.reason,
+          })
+        : await service.rejectLeaveRequest({
+            companyId: req.auth.companyId,
+            id: req.params.id,
+            approverId: req.auth.employeeId,
+            approverUserId: req.auth.userId,
+            reason: req.body.reason,
+          });
     res.json({ data: request });
   } catch (err) {
     next(err);
@@ -109,14 +133,16 @@ async function history(req, res, next) {
 
     const request = await service.getLeaveRequestForDecision({ companyId, id: req.params.id });
 
+    const isSnapshottedManager =
+      req.auth.employeeId != null &&
+      request.managerApprovals.some((approval) => String(approval.managerEmployeeId) === String(req.auth.employeeId));
+
     const allowed =
       (await userHasPermission(req.auth, 'leave_request:read', request.employee.brandId)) ||
       (req.auth.employeeId != null &&
         String(request.employeeId) === String(req.auth.employeeId) &&
         (await userHasPermission(req.auth, 'leave_request:read_own'))) ||
-      (req.auth.employeeId != null &&
-        String(request.employee.managerId) === String(req.auth.employeeId) &&
-        (await userHasPermission(req.auth, 'leave_request:read_reports')));
+      (isSnapshottedManager && (await userHasPermission(req.auth, 'leave_request:read_reports')));
 
     if (!allowed) return res.status(403).json({ error: 'Forbidden', permission: 'leave_request:read' });
 

@@ -4,7 +4,8 @@ import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
-import { assignEmployeePowers, createEmployee, uploadEmployeePhoto } from '../../../api/companyAdmin/employees';
+import { assignEmployeePowers, createEmployee, setEmployeeManagers, uploadEmployeePhoto } from '../../../api/companyAdmin/employees';
+import { ManagerCombobox } from '../../../components/ui/ManagerCombobox';
 import { createDepartment, createDesignation } from '../../../api/companyAdmin/org';
 import { useAuth } from '../../../context/auth-context';
 import { useToast } from '../../../context/toast-context';
@@ -13,7 +14,6 @@ import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
-import { formatEmployeeLabel } from '../../../utils/employeeDisplay';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
@@ -69,7 +69,7 @@ export function EmployeeFormModal({
   const [newDepartmentName, setNewDepartmentName] = useState('');
   const [designationId, setDesignationId] = useState('');
   const [newDesignationTitle, setNewDesignationTitle] = useState('');
-  const [managerId, setManagerId] = useState('');
+  const [managerIds, setManagerIds] = useState<string[]>([]);
   const [rosterGroupId, setRosterGroupId] = useState('');
   const [dateOfJoining, setDateOfJoining] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
@@ -101,19 +101,36 @@ export function EmployeeFormModal({
         resolvedDesignationId = designation.id;
       }
 
+      // The "Manager" field picks one or more managers — the first becomes
+      // the primary managerId (unchanged single-select field underneath),
+      // any rest are saved as additional managers right after creation. A
+      // leave request from this employee needs ALL of them to approve
+      // before it finalizes (see leaveRequest.service.js).
       const employee = await createEmployee({
         name,
         employeeCode,
         brandId: usesBrands ? brandId : undefined,
         departmentId: resolvedDepartmentId,
         designationId: resolvedDesignationId || null,
-        managerId: managerId || null,
+        managerId: managerIds[0] || null,
         rosterGroupId: rosterGroupId || null,
         dateOfJoining,
         dateOfBirth: dateOfBirth || undefined,
         employmentType,
         workState: workState || undefined,
       });
+
+      // Same non-blocking treatment as powers/photo below — the employee
+      // already exists, so a failure here doesn't undo the creation.
+      if (managerIds.length > 1) {
+        try {
+          await setEmployeeManagers(employee.id, managerIds.slice(1));
+        } catch {
+          showToast(
+            `${employee.name ?? employee.employeeCode} was created, but the extra managers could not be saved. You can add them from the employee's details.`
+          );
+        }
+      }
 
       // The employee already exists at this point — a failure here is a
       // separate, non-blocking concern (surfaced but not conflated with
@@ -273,16 +290,14 @@ export function EmployeeFormModal({
             onChange={(event) => setDateOfBirth(event.target.value)}
           />
         </div>
-        <Select
+        <ManagerCombobox
           id="employee-manager"
           label="Manager"
-          value={managerId}
-          onChange={(event) => setManagerId(event.target.value)}
+          employees={employees}
+          selectedIds={managerIds}
+          onChange={setManagerIds}
           placeholder="No manager"
-          options={employees.map((employee) => ({
-            value: employee.id,
-            label: formatEmployeeLabel(employee),
-          }))}
+          helperText="Pick one or more — a leave request needs every manager's approval."
         />
         <Select
           id="employee-roster-group"

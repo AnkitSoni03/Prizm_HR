@@ -9,6 +9,8 @@ import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
 import { RequestCard, RequestCardSkeleton, RequestStatusBadge } from '../../components/RequestCard';
+import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
+import { myManagerApprovalStatus } from '../../utils/managerApproval';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../context/auth-context';
@@ -126,8 +128,28 @@ function resolveScope(hasPermission: (code: string) => boolean, domain: 'leave_r
   return null;
 }
 
+// A leave request's Approve/Reject buttons here need to reflect the
+// multi-manager AND-gate, not just "is it still pending": an admin-wide
+// approve_requests holder can always decide (bypasses the chain), but a
+// caller only holding approve_reports/reject_reports must be one of THIS
+// request's snapshotted managers AND not have already voted — otherwise the
+// buttons would sit there clickable and just 403/409 on click, which is
+// exactly the kind of confusion this feature is meant to avoid.
+function leaveDecisionAccess(r: LeaveRequest, hasPermission: (code: string) => boolean, myEmployeeId?: string | null) {
+  if (r.status !== 'pending') return { canApprove: false, canReject: false };
+  const hasAdminGrant = hasPermission('leave_request:approve') || hasPermission('leave_request:reject');
+  if (hasAdminGrant) return { canApprove: hasPermission('leave_request:approve'), canReject: hasPermission('leave_request:reject') };
+
+  const myStatus = myManagerApprovalStatus(r.managerApprovals, myEmployeeId);
+  const isMyTurn = myStatus === 'pending';
+  return {
+    canApprove: isMyTurn && hasPermission('leave_request:approve_reports'),
+    canReject: isMyTurn && hasPermission('leave_request:reject_reports'),
+  };
+}
+
 export function TeamApprovalsPage() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   // Lets the notification bell deep-link straight into a tab.
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
@@ -315,24 +337,31 @@ export function TeamApprovalsPage() {
                   render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
                 },
                 {
+                  key: 'managers',
+                  header: 'Managers',
+                  render: (r) =>
+                    r.status === 'cancelled' ? (
+                      '—'
+                    ) : (
+                      <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+                    ),
+                },
+                {
                   key: 'actions',
                   header: '',
                   className: 'w-28 text-right',
-                  render: (r) => (
-                    <ActionButtons
-                      canApprove={
-                        r.status === 'pending' &&
-                        (hasPermission('leave_request:approve') || hasPermission('leave_request:approve_reports'))
-                      }
-                      canReject={
-                        r.status === 'pending' &&
-                        (hasPermission('leave_request:reject') || hasPermission('leave_request:reject_reports'))
-                      }
-                      onApprove={() => handleLeaveApprove(r.id)}
-                      onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
-                      onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
-                    />
-                  ),
+                  render: (r) => {
+                    const { canApprove, canReject } = leaveDecisionAccess(r, hasPermission, user?.employeeId);
+                    return (
+                      <ActionButtons
+                        canApprove={canApprove}
+                        canReject={canReject}
+                        onApprove={() => handleLeaveApprove(r.id)}
+                        onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
+                        onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
+                      />
+                    );
+                  },
                 },
               ]}
             />
@@ -341,35 +370,42 @@ export function TeamApprovalsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
-              leaveRequests.map((r) => (
-                <RequestCard
-                  key={r.id}
-                  name={employeeLabel(r.employee, r.employeeId)}
-                  photoUrl={r.employee?.photoDownloadUrl}
-                  tag={r.leaveType?.name}
-                  status={r.status}
-                  rejectionReason={r.rejectionReason}
-                  fields={[
-                    { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
-                    { icon: Layers, label: 'Type', value: r.leaveType?.name ?? '—' },
-                    { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
-                    { icon: Clock, label: 'Days', value: r.days },
-                    { icon: FileText, label: 'Reason', value: r.reason ?? '—' },
-                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
-                  ]}
-                  canApprove={
-                    r.status === 'pending' &&
-                    (hasPermission('leave_request:approve') || hasPermission('leave_request:approve_reports'))
-                  }
-                  canReject={
-                    r.status === 'pending' &&
-                    (hasPermission('leave_request:reject') || hasPermission('leave_request:reject_reports'))
-                  }
-                  onApprove={() => handleLeaveApprove(r.id)}
-                  onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
-                  onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
-                />
-              ))}
+              leaveRequests.map((r) => {
+                const { canApprove, canReject } = leaveDecisionAccess(r, hasPermission, user?.employeeId);
+                return (
+                  <RequestCard
+                    key={r.id}
+                    name={employeeLabel(r.employee, r.employeeId)}
+                    photoUrl={r.employee?.photoDownloadUrl}
+                    tag={r.leaveType?.name}
+                    status={r.status}
+                    rejectionReason={r.rejectionReason}
+                    fields={[
+                      { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                      { icon: Layers, label: 'Type', value: r.leaveType?.name ?? '—' },
+                      { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
+                      { icon: Clock, label: 'Days', value: r.days },
+                      { icon: FileText, label: 'Reason', value: r.reason ?? '—' },
+                      { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                      {
+                        icon: Users,
+                        label: 'Managers',
+                        value:
+                          r.status === 'cancelled' ? (
+                            '—'
+                          ) : (
+                            <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+                          ),
+                      },
+                    ]}
+                    canApprove={canApprove}
+                    canReject={canReject}
+                    onApprove={() => handleLeaveApprove(r.id)}
+                    onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
+                    onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
+                  />
+                );
+              })}
           </div>
 
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />

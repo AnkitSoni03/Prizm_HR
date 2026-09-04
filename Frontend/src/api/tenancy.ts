@@ -181,6 +181,12 @@ export interface Employee {
   // credit for working a holiday/week-off until assigned one on the Comp
   // Off Setting page. Only present when eager-loaded by GET /employees/:id.
   compOffPolicy?: { id: string; name: string } | null;
+  // Additional managers beyond the primary managerId above — an employee
+  // can have more than one; a leave request needs ALL of them (primary +
+  // these) to approve before it finalizes. Only present when eager-loaded
+  // by GET /employees/:id — see EmployeeDetailModal.tsx's "Additional
+  // Managers" picker and employee.service.js::setEmployeeManagers.
+  additionalManagerLinks?: { id: string; manager: { id: string; name: string | null; employeeCode: string | null } }[];
 }
 
 export interface Plan {

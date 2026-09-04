@@ -146,6 +146,16 @@ export async function assignEmployeePowers(id: string, powerKeys: string[]): Pro
   return data.data;
 }
 
+// Replaces this employee's ADDITIONAL managers wholesale — the primary
+// Manager field (managerId, set via updateEmployee) is untouched. Together
+// with the primary manager, this is the full set a multi-manager leave
+// request needs unanimous approval from — see
+// employee.service.js::setEmployeeManagers.
+export async function setEmployeeManagers(id: string, managerIds: string[]): Promise<Employee> {
+  const { data } = await apiClient.put<{ data: Employee }>(`/employees/${id}/managers`, { managerIds });
+  return data.data;
+}
+
 // Replaces this employee's photo wholesale — optional, file-based (not a
 // URL field). Any previous photo is deleted server-side.
 export async function uploadEmployeePhoto(id: string, file: File): Promise<Employee> {

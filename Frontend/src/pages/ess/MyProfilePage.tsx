@@ -161,6 +161,20 @@ export function MyProfilePage() {
     : null;
   const rosterExpiryRemaining = rosterExpiryDate ? daysUntilRosterExpiry(rosterExpiryDate) : null;
 
+  // Full manager list — the primary `manager` plus any additional ones (see
+  // ManagerCombobox.tsx on the admin side) — deduped by id in case the same
+  // person somehow ends up in both. Shows correctly whether there's one,
+  // several, or (falling back to effectiveManager) none at all.
+  const allManagers = [profile.manager, ...(profile.additionalManagerLinks ?? []).map((link) => link.manager)].filter(
+    (m): m is NonNullable<typeof m> => Boolean(m)
+  );
+  const uniqueManagers = allManagers.filter((m, index) => allManagers.findIndex((other) => other.id === m.id) === index);
+  const managerFieldLabel = uniqueManagers.length > 1 ? 'Managers' : 'Manager';
+  const managerFieldValue =
+    uniqueManagers.length > 0
+      ? uniqueManagers.map((m) => m.name || m.employeeCode || 'Unnamed').join(', ')
+      : profile.effectiveManager?.name ?? '—';
+
   async function handlePhotoSelect(file: File) {
     setIsSavingPhoto(true);
     try {
@@ -289,7 +303,7 @@ export function MyProfilePage() {
             )}
             <Field label="Department" value={profile.department?.name ?? '—'} />
             <Field label="Designation" value={profile.designation?.title ?? '—'} />
-            <Field label="Manager" value={profile.manager?.name ?? profile.effectiveManager?.name ?? '—'} />
+            <Field label={managerFieldLabel} value={managerFieldValue} />
             <Field label="Employment Type" value={EMPLOYMENT_TYPE_LABEL[profile.employmentType]} />
             <Field label="Date of Joining" value={formatDisplayDate(profile.dateOfJoining)} />
             <Field label="Date of Birth" value={formatDisplayDate(profile.dateOfBirth)} />

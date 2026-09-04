@@ -5,6 +5,7 @@ export interface AppNotification {
   type:
     | 'approval_decision'
     | 'approval_pending'
+    | 'approval_progress'
     | 'request_cancelled'
     | 'request_expired'
     | 'payroll_run'

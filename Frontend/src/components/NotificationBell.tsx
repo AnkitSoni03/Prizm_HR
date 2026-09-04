@@ -93,7 +93,11 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return '/ess/profile';
   }
 
-  if (notification.type === 'approval_decision' || notification.type === 'request_expired') {
+  if (
+    notification.type === 'approval_decision' ||
+    notification.type === 'request_expired' ||
+    notification.type === 'approval_progress'
+  ) {
     return OWN_REQUEST_PATHS[notification.requestType] ?? null;
   }
 

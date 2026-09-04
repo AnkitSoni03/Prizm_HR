@@ -34,6 +34,9 @@ async function requireEmployeeReadAccess(req, res, next) {
 // RBAC action).
 router.post('/me/photo', upload.single('photo'), controller.uploadMyPhoto);
 router.delete('/me/photo', controller.removeMyPhoto);
+// No permission code — every employee can read their own manager list (same
+// shape as the photo self-service routes above), used by the ESS Dashboard.
+router.get('/me/managers', controller.getMyManagers);
 
 router.get('/', requirePermission('employee:read'), controller.list);
 router.get('/:id', requireEmployeeReadAccess, controller.get);
@@ -48,6 +51,9 @@ router.get('/:id/roster-transfer-history', requirePermission('employee:update'),
 // edit an employee already holds — no separate gate permission, per the
 // user's explicit "all admins have right to assign that power".
 router.put('/:id/powers', requirePermission('employee:update'), controller.assignPowers);
+// Same employee:update gate as the powers route above — any admin who can
+// already edit an employee can manage their additional managers too.
+router.put('/:id/managers', requirePermission('employee:update'), controller.setManagers);
 router.patch('/:id/transfer', requirePermission('employee:transfer'), controller.transfer);
 // Gated by the same employee:update permission as the generic PATCH — no
 // separate gate permission, matching the powers/photo precedent above.

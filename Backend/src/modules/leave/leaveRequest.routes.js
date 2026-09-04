@@ -5,7 +5,7 @@ const controller = require('./leaveRequest.controller');
 const service = require('./leaveRequest.service');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission, getBrandScope } = require('../../middleware/rbac.middleware');
-const { getDirectReportEmployeeIds } = require('../../utils/managerScope');
+const { getManagedEmployeeIds } = require('../../utils/managerScope');
 
 const router = Router();
 router.use(requireAuth);
@@ -33,7 +33,10 @@ async function requireReadAccess(req, res, next) {
 
     if (requestedScope === 'reports') {
       if (await userHasPermission(req.auth, 'leave_request:read_reports') && req.auth.employeeId != null) {
-        req.leaveRequestEmployeeScope = await getDirectReportEmployeeIds({
+        // Multi-manager aware — includes an employee who has the caller as
+        // an ADDITIONAL manager, not just their primary one (see
+        // managerScope.js::getManagedEmployeeIds).
+        req.leaveRequestEmployeeScope = await getManagedEmployeeIds({
           companyId: req.auth.companyId,
           managerEmployeeId: req.auth.employeeId,
         });
@@ -72,17 +75,31 @@ async function requireReadAccess(req, res, next) {
   }
 }
 
-// A manager (any Employee referenced by another employee's managerId — not
-// a distinct RBAC role) may approve/reject their own direct report's leave
-// request without holding the company/brand-wide leave_request:approve or
-// :reject grant. The target request's own employee.managerId is the source
-// of truth (loaded fresh here, not trusted from the client), same shape as
-// employee.routes.js's requireEmployeeReadAccess comparing req.params.id
-// against req.auth.employeeId for employee:read_own.
+// Two independent ways to decide a leave request:
+//   1. Company/brand-wide leave_request:approve|reject (Company Admin, HR
+//      Manager, Brand Admin, or an Employee holding the "Approve Leave/OD
+//      Requests" power) — sets req.leaveDecisionMode = 'admin', which
+//      routes the controller to the ADMIN-BYPASS service functions
+//      (finalizes immediately, overriding whichever managers haven't
+//      decided yet — the explicit "admin approval bypasses everyone"
+//      requirement).
+//   2. leave_request:approve_reports|reject_reports (granted broadly to the
+//      Employee role — see the manager-based-approval seeder) PLUS actually
+//      being one of THIS SPECIFIC request's snapshotted managers. Checked
+//      against the request's own leave_request_approvals rows (the
+//      snapshot taken at submission time — see createLeaveRequest), not a
+//      live re-derivation of "who are this employee's managers right now",
+//      so who's deciding an in-flight request never shifts underneath it.
+//      Sets req.leaveDecisionMode = 'manager', which routes the controller
+//      to decideLeaveRequestAsManager — one vote in the multi-manager
+//      AND-gate, not an automatic finalize.
 function requireDecisionAccess(action) {
   return async function (req, res, next) {
     try {
-      if (await userHasPermission(req.auth, `leave_request:${action}`)) return next();
+      if (await userHasPermission(req.auth, `leave_request:${action}`)) {
+        req.leaveDecisionMode = 'admin';
+        return next();
+      }
 
       if (
         (await userHasPermission(req.auth, `leave_request:${action}_reports`)) &&
@@ -92,7 +109,11 @@ function requireDecisionAccess(action) {
           companyId: req.auth.companyId,
           id: req.params.id,
         });
-        if (String(request.employee.managerId) === String(req.auth.employeeId)) {
+        const isSnapshottedManager = request.managerApprovals.some(
+          (approval) => String(approval.managerEmployeeId) === String(req.auth.employeeId)
+        );
+        if (isSnapshottedManager) {
+          req.leaveDecisionMode = 'manager';
           return next();
         }
       }

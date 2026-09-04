@@ -4,6 +4,7 @@ import { Calendar, Check, CheckCircle2, Copy, FileText, Pencil, Save, Trash2, X 
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
+import { ManagerCombobox } from '../../../components/ui/ManagerCombobox';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { Tabs } from '../../../components/ui/Tabs';
@@ -14,6 +15,7 @@ import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
 import {
   assignEmployeePowers,
+  setEmployeeManagers,
   getEmployee,
   updateEmployee,
   transferEmployee,
@@ -31,7 +33,6 @@ import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import { FileUploadField } from '../../../components/ui/FileUploadField';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 import { Avatar } from '../../../components/ui/Avatar';
-import { formatEmployeeLabel } from '../../../utils/employeeDisplay';
 import {
   listEmployeeDocuments,
   uploadEmployeeDocument,
@@ -156,7 +157,13 @@ export function EmployeeDetailModal({
   // unset; this is where Company Admin/Brand Admin assign or correct it.
   const [employeeCode, setEmployeeCode] = useState(employee.employeeCode ?? '');
   const [designationId, setDesignationId] = useState(employee.designationId ?? '');
-  const [managerId, setManagerId] = useState(employee.managerId ?? '');
+  // One or more — the first is saved as the primary managerId (unchanged
+  // single field underneath), any rest via setEmployeeManagers right after.
+  // A leave request from this employee needs ALL of them to approve before
+  // it finalizes (see leaveRequest.service.js). Starts with just the
+  // primary manager (all `employee` prop has, from the list view); the
+  // effect below fills in any additional ones once the full record loads.
+  const [managerIds, setManagerIds] = useState<string[]>(employee.managerId ? [employee.managerId] : []);
   const [dateOfJoining, setDateOfJoining] = useState(employee.dateOfJoining ?? '');
   const [dateOfBirth, setDateOfBirth] = useState(employee.dateOfBirth ?? '');
   const [employmentType, setEmploymentType] = useState(employee.employmentType);
@@ -164,6 +171,19 @@ export function EmployeeDetailModal({
   const [workState, setWorkState] = useState(employee.workState ?? '');
   const [isSavingDetails, setIsSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canUpdate) return;
+    getEmployee(employee.id)
+      .then((full) => {
+        const additional = (full.additionalManagerLinks ?? []).map((link) => link.manager.id);
+        const primary = full.managerId ? [full.managerId] : [];
+        setManagerIds([...new Set([...primary, ...additional])]);
+      })
+      .catch(() => {
+        /* non-critical — the picker just keeps its initial primary-only value */
+      });
+  }, [canUpdate, employee.id]);
 
   const [transferBrandId, setTransferBrandId] = useState(employee.brandId ?? '');
   const [transferDepartmentId, setTransferDepartmentId] = useState(employee.departmentId ?? '');
@@ -629,9 +649,12 @@ export function EmployeeDetailModal({
         status,
         dateOfJoining: dateOfJoining || null,
         dateOfBirth: dateOfBirth || null,
-        managerId: managerId || null,
+        managerId: managerIds[0] || null,
         workState: workState || null,
       });
+      // Any manager beyond the first — a separate endpoint (employee_managers
+      // is its own table), but saved together as one "Save Changes" action.
+      await setEmployeeManagers(employee.id, managerIds.slice(1));
       onUpdated();
     } catch (err) {
       setDetailsError(extractError(err, 'Could not save changes. Please try again.'));
@@ -1017,16 +1040,15 @@ export function EmployeeDetailModal({
                 placeholder="No designation"
                 options={designations.map((d) => ({ value: d.id, label: d.title }))}
               />
-              <Select
+              <ManagerCombobox
                 id="employee-manager-edit"
                 label="Manager"
-                value={managerId}
-                onChange={(event) => setManagerId(event.target.value)}
+                employees={employees.filter((e) => e.id !== employee.id)}
+                selectedIds={managerIds}
+                onChange={setManagerIds}
                 disabled={!canUpdate}
                 placeholder="No manager"
-                options={employees
-                  .filter((e) => e.id !== employee.id)
-                  .map((e) => ({ value: e.id, label: formatEmployeeLabel(e) }))}
+                helperText="Pick one or more — a leave request needs every manager's approval."
               />
               <Input
                 id="employee-doj-edit"

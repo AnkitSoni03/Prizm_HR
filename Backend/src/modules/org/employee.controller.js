@@ -2,6 +2,7 @@
 
 const service = require('./employee.service');
 const rosterTransferService = require('./rosterTransfer.service');
+const { getManagersForEmployee } = require('../../utils/managerScope');
 const { parsePagination } = require('../../utils/pagination');
 const {
   resolveCompanyScope,
@@ -254,6 +255,39 @@ async function assignPowers(req, res, next) {
   }
 }
 
+async function setManagers(req, res, next) {
+  try {
+    const employee = await service.setEmployeeManagers({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      managerIds: req.body.managerIds,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
+    res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Self-serve, no permission code (same shape as uploadMyPhoto below or
+// /auth/me) — every employee can see their own full manager list (primary +
+// additional), which the ESS Dashboard shows for transparency alongside
+// each leave request's per-manager approval status.
+async function getMyManagers(req, res, next) {
+  try {
+    if (!req.auth.employeeId) {
+      return res.json({ data: [] });
+    }
+    const managers = await getManagersForEmployee({
+      companyId: req.auth.companyId,
+      employeeId: req.auth.employeeId,
+    });
+    res.json({ data: managers });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function uploadPhoto(req, res, next) {
   try {
     if (!req.file) {
@@ -343,6 +377,8 @@ module.exports = {
   remove,
   setActive,
   assignPowers,
+  setManagers,
+  getMyManagers,
   uploadPhoto,
   removePhoto,
   uploadMyPhoto,

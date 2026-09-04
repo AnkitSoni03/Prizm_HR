@@ -18,6 +18,7 @@ import {
   Send,
   ShieldCheck,
   Timer,
+  UserCheck,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -27,7 +28,7 @@ import { getChartPalette } from '../../utils/chartColors';
 import { listMyAttendance, listMyRegularizations, type Attendance } from '../../api/ess/attendance';
 import { listHolidays, listMyLeaveBalances, listMyLeaveRequests, type Holiday } from '../../api/ess/leave';
 import { listMyOdRequests } from '../../api/ess/od';
-import { getMyProfile, type EmployeeProfile } from '../../api/ess/profile';
+import { getMyProfile, getMyManagers, type EmployeeProfile, type MyManager } from '../../api/ess/profile';
 import { listPowers, type Power } from '../../api/powers';
 import { listCompanyPolicies, type CompanyPolicy } from '../../api/companyAdmin/companyPolicies';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
@@ -358,6 +359,7 @@ export function EssDashboard() {
   const [latestPolicy, setLatestPolicy] = useState<CompanyPolicy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [myPowers, setMyPowers] = useState<Power[]>([]);
+  const [myManagers, setMyManagers] = useState<MyManager[]>([]);
 
   const quickActions: QuickAction[] = QUICK_ACTIONS_BASE.map((action, i) => ({
     ...action,
@@ -377,6 +379,18 @@ export function EssDashboard() {
         /* non-critical — the dashboard still works without this section */
       });
   }, [user]);
+
+  // Full manager set (primary + additional) — see
+  // employee.controller.js::getMyManagers. Independent of getMyProfile below
+  // (which only ever resolves the single primary manager field).
+  useEffect(() => {
+    if (!user?.employeeId) return;
+    getMyManagers()
+      .then(setMyManagers)
+      .catch(() => {
+        /* non-critical — the dashboard still works without this section */
+      });
+  }, [user?.employeeId]);
 
   useEffect(() => {
     if (!user?.employeeId) return;
@@ -805,6 +819,38 @@ export function EssDashboard() {
           )}
         </div>
       </div>
+
+      {myManagers.length > 0 && (
+        <div className="mt-4 rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">
+          <div className="mb-2.5 flex items-center gap-2 sm:mb-3">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary sm:h-8 sm:w-8">
+              <UserCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
+            </span>
+            <h3 className="text-sm font-semibold text-ink sm:text-base">
+              Your {myManagers.length > 1 ? `${myManagers.length} Managers` : 'Manager'}
+            </h3>
+          </div>
+          {myManagers.length > 1 && (
+            <p className="mb-2 text-xs text-ink-muted sm:text-sm">
+              A leave request needs every one of them to approve before it's final — see the status on{' '}
+              <Link to="/ess/leave" className="text-primary hover:underline">
+                My Leave
+              </Link>
+              .
+            </p>
+          )}
+          <ul className="flex flex-wrap gap-1.5 sm:gap-2">
+            {myManagers.map((manager) => (
+              <li
+                key={manager.id}
+                className="rounded-full border border-border bg-page px-2.5 py-1 text-xs font-medium text-ink sm:text-sm"
+              >
+                {manager.name || manager.employeeCode || 'Unnamed'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {myPowers.length > 0 && (
         <div className="mt-4 rounded-xl border border-border bg-card p-4 shadow-xs transition-shadow hover:shadow-md sm:p-5">

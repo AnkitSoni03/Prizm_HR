@@ -28,6 +28,19 @@ export interface LeaveBalance {
   accrual: 'yearly' | 'monthly' | 'monthly_reset' | null;
 }
 
+// One row per manager, snapshotted at submission time — see
+// leave_request_approvals' header comment (Backend migration
+// 20260905090100). 'bypassed' means an admin decided the whole request
+// before this manager got to.
+export interface LeaveRequestManagerApproval {
+  id: string;
+  managerEmployeeId: string;
+  status: 'pending' | 'approved' | 'rejected' | 'bypassed';
+  reason: string | null;
+  decidedAt: string | null;
+  manager?: { id: string; name: string | null; employeeCode: string | null } | null;
+}
+
 export interface LeaveRequest {
   id: string;
   employeeId: string;
@@ -40,6 +53,12 @@ export interface LeaveRequest {
   approverId: string | null;
   compOffCreditId: string | null;
   leaveType?: LeaveType;
+  // Multi-manager AND-gate approval — who's approved, who's still pending,
+  // for full transparency on this request's own status. 'manager_consensus'
+  // once every row is 'approved'; 'admin_override' if a company/brand-wide
+  // admin decided it directly instead.
+  decisionMode?: 'manager_consensus' | 'admin_override' | null;
+  managerApprovals?: LeaveRequestManagerApproval[];
 }
 
 export interface Holiday {

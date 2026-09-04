@@ -11,6 +11,7 @@ import { RejectReasonModal } from '../../components/RejectReasonModal';
 import { ApproveRegularizationModal } from '../../components/ApproveRegularizationModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
 import { RequestCard, RequestCardSkeleton, RequestStatusBadge } from '../../components/RequestCard';
+import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
 import { Avatar } from '../../components/ui/Avatar';
 import { useAuth } from '../../context/auth-context';
 import {
@@ -315,6 +316,21 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                   render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
                 },
                 {
+                  key: 'managers',
+                  header: 'Managers',
+                  // Approving/rejecting here always bypasses these — see
+                  // ManagerApprovalStatus's admin_override note — shown so an
+                  // admin can see at a glance whether they'd be overriding an
+                  // in-progress manager decision or there's simply no manager
+                  // assigned at all.
+                  render: (r) =>
+                    r.status === 'cancelled' ? (
+                      '—'
+                    ) : (
+                      <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+                    ),
+                },
+                {
                   key: 'actions',
                   header: '',
                   className: 'w-28 text-right',
@@ -355,6 +371,16 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                     { icon: Clock, label: 'Days', value: r.days },
                     { icon: FileText, label: 'Reason', value: r.reason ?? '—' },
                     { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                    {
+                      icon: User,
+                      label: 'Managers',
+                      value:
+                        r.status === 'cancelled' ? (
+                          '—'
+                        ) : (
+                          <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+                        ),
+                    },
                   ]}
                   canApprove={r.status === 'pending' && hasPermission('leave_request:approve')}
                   canReject={r.status === 'pending' && hasPermission('leave_request:reject')}

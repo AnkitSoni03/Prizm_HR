@@ -134,6 +134,16 @@ async function getEmployeeForRead(id) {
       { model: db.Department, as: 'department', attributes: ['id', 'name'] },
       { model: db.Designation, as: 'designation', attributes: ['id', 'title'] },
       { model: db.Employee, as: 'manager', attributes: ['id', 'name', 'employeeCode'] },
+      // Any managers beyond the primary one above — see
+      // utils/managerScope.js::getManagersForEmployee for the full
+      // (manager + these) set the multi-manager leave-approval workflow
+      // actually uses. Lets EmployeeDetailModal.tsx pre-check who's already
+      // assigned, same shape as customRole's permissions below.
+      {
+        model: db.EmployeeManager,
+        as: 'additionalManagerLinks',
+        include: [{ model: db.Employee, as: 'manager', attributes: ['id', 'name', 'employeeCode'] }],
+      },
       // Same reasoning as brand/department/designation above — an Employee
       // has no roster_group:read of their own to resolve this name
       // client-side, and My Profile now needs to show it (Roster drives
@@ -606,6 +616,39 @@ async function assignEmployeePowers({ companyId, id, powerKeys, scopedBrandIds }
   return getEmployeeForRead(employee.id);
 }
 
+// Replaces this employee's set of ADDITIONAL managers wholesale — the
+// primary manager_id field (the "Manager" select) is untouched here, set
+// separately via the existing updateEmployee, same as always. Powers the
+// Employee Detail Modal's "Additional Managers" picker and the
+// multi-manager leave-approval workflow (see
+// utils/managerScope.js::getManagersForEmployee, which unions this table
+// with manager_id into the full manager set).
+async function setEmployeeManagers({ companyId, id, managerIds, scopedBrandIds }) {
+  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+
+  const ids = [...new Set((Array.isArray(managerIds) ? managerIds : []).map(String))].filter(
+    (managerId) => managerId !== String(employee.id)
+  );
+  for (const managerId of ids) {
+    await assertBelongsToCompany(db.Employee, managerId, employee.companyId, 'Manager');
+  }
+
+  await db.sequelize.transaction(async (t) => {
+    // Hard delete — same reasoning as assignEmployeePowers's RolePermission
+    // wipe above: a soft-deleted row would leave the paranoid-unique
+    // (employee_id, manager_id) slot un-reusable for a later re-add.
+    await db.EmployeeManager.destroy({ where: { employeeId: employee.id }, force: true, transaction: t });
+    if (ids.length > 0) {
+      await db.EmployeeManager.bulkCreate(
+        ids.map((managerId) => ({ companyId: employee.companyId, employeeId: employee.id, managerId })),
+        { transaction: t }
+      );
+    }
+  });
+
+  return getEmployeeForRead(employee.id);
+}
+
 // Replaces this employee's photo wholesale — any previous photo is
 // best-effort deleted from the bucket first so orphaned objects don't
 // accumulate, same pattern as companyPolicy.service.js::uploadPolicyAttachment.
@@ -660,6 +703,7 @@ module.exports = {
   deleteEmployeePermanently,
   setEmployeeActiveStatus,
   assignEmployeePowers,
+  setEmployeeManagers,
   uploadEmployeePhoto,
   removeEmployeePhoto,
 };
