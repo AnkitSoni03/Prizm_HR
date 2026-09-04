@@ -18,21 +18,4 @@ async function photoDownloadUrlFor(employee) {
   }
 }
 
-// Batch version for a findAndCountAll `rows` array where each row has an
-// `employee` association (LeaveRequest/OdRequest/AttendanceRegularization/
-// CompOffCredit list queries) — converts each row to plain JSON and adds
-// `employee.photoDownloadUrl`, matching the field name every list-consuming
-// frontend page already reads (see e.g. company-admin/ApprovalsPage.tsx).
-async function withEmployeePhoto(rows) {
-  return Promise.all(
-    rows.map(async (row) => {
-      const plain = typeof row.toJSON === 'function' ? row.toJSON() : row;
-      if (plain.employee) {
-        plain.employee.photoDownloadUrl = await photoDownloadUrlFor(row.employee);
-      }
-      return plain;
-    })
-  );
-}
-
-module.exports = { photoDownloadUrlFor, withEmployeePhoto };
+module.exports = { photoDownloadUrlFor };
