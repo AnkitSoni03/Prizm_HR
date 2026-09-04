@@ -5,6 +5,7 @@ const cron = require('node-cron');
 const app = require('./app');
 const db = require('./models');
 const { runLeaveAccrual } = require('./jobs/leaveAccrual.job');
+const { runWeekOffLeaveAccrual } = require('./jobs/weekOffLeaveAccrual.job');
 const { sweepExpiredCompOff } = require('./jobs/compOffExpiry.job');
 const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanup.job');
 const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
@@ -23,6 +24,9 @@ const PORT = process.env.PORT || 5000;
 function startLeaveJobs() {
   cron.schedule('0 0 1 * *', () => {
     runLeaveAccrual().catch((err) => console.error('leave-accrual job failed:', err));
+  });
+  cron.schedule('0 0 1 * *', () => {
+    runWeekOffLeaveAccrual().catch((err) => console.error('week-off-leave-accrual job failed:', err));
   });
   cron.schedule('0 0 * * *', () => {
     sweepExpiredCompOff().catch((err) => console.error('comp-off-expiry job failed:', err));

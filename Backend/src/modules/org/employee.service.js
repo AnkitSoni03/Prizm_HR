@@ -10,6 +10,7 @@ const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = re
 const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
 const { getActiveEmployeeShift } = require('../attendance/employeeShift.service');
 const { dateOnly } = require('../../utils/dateRange');
+const { syncWeekOffLeaveForEmployee } = require('../leave/weekOffLeave.service');
 
 // photoUrl stores an internal GCS object path (private bucket), same
 // convention as company_policies.file_url — never handed to the frontend
@@ -344,6 +345,19 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
     }
     throw err;
   }
+
+  // A corrected dateOfJoining should immediately re-prorate an already-
+  // existing "Week Off Leaves" balance for the current month, not sit stale
+  // until some other trigger touches it — best-effort, logged-not-thrown so
+  // a bug here can never block the actual employee edit from saving.
+  if (patch.dateOfJoining !== undefined) {
+    try {
+      await syncWeekOffLeaveForEmployee({ employeeId: employee.id });
+    } catch (err) {
+      console.error('Week Off Leave resync after dateOfJoining change failed:', err);
+    }
+  }
+
   return withPhotoUrl(employee);
 }
 

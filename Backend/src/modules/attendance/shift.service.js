@@ -3,6 +3,7 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
+const { syncWeekOffLeaveForRosterGroup } = require('../leave/weekOffLeave.service');
 
 async function listShifts({ companyId, limit, offset }) {
   // Shift's tenant-scope hook already filters by company_id for a scoped
@@ -56,10 +57,31 @@ async function assertRosterGroupsShiftFree(rosterGroupIds, currentShiftId) {
   }
 }
 
-async function syncShiftRosterGroups(shiftId, rosterGroupIds) {
-  await db.RosterGroupShift.destroy({ where: { shiftId } });
+// `shift` (not just its id) is needed so the eager Week Off Leaves
+// provisioning below has companyId/weeklyOffDays without a re-query — a
+// Roster Group newly linked to a Shift with no weekly-off day gets its
+// "Week Off Leaves" balance seeded immediately here, rather than waiting for
+// weekOffLeaveAccrual.job.js's next monthly run (see
+// weekOffLeave.service.js::syncWeekOffLeaveForRosterGroup — a no-op when
+// weeklyOffDays isn't empty, so this call is unconditional and harmless for
+// every normal Shift). Best-effort, logged-not-thrown — a bug in this side
+// effect must never block saving the Shift/Roster assignment itself.
+async function syncShiftRosterGroups(shift, rosterGroupIds) {
+  await db.RosterGroupShift.destroy({ where: { shiftId: shift.id } });
   if (rosterGroupIds && rosterGroupIds.length > 0) {
-    await db.RosterGroupShift.bulkCreate(rosterGroupIds.map((rosterGroupId) => ({ shiftId, rosterGroupId })));
+    await db.RosterGroupShift.bulkCreate(rosterGroupIds.map((rosterGroupId) => ({ shiftId: shift.id, rosterGroupId })));
+
+    for (const rosterGroupId of rosterGroupIds) {
+      try {
+        await syncWeekOffLeaveForRosterGroup({
+          rosterGroupId,
+          companyId: shift.companyId,
+          weeklyOffDays: shift.weeklyOffDays,
+        });
+      } catch (err) {
+        console.error('Week Off Leaves provisioning failed for roster group', rosterGroupId, err);
+      }
+    }
   }
 }
 
@@ -76,7 +98,7 @@ async function createShift({ companyId, name, startTime, endTime, isNightShift, 
     weeklyOffDays: Array.isArray(weeklyOffDays) ? weeklyOffDays : [],
   });
 
-  if (rosterGroupIds !== undefined) await syncShiftRosterGroups(shift.id, rosterGroupIds);
+  if (rosterGroupIds !== undefined) await syncShiftRosterGroups(shift, rosterGroupIds);
   return getShiftForRead(shift.id);
 }
 
@@ -97,7 +119,7 @@ async function updateShift({ companyId, id, updates }) {
     ...(weeklyOffDays !== undefined && { weeklyOffDays }),
   });
 
-  if (rosterGroupIds !== undefined) await syncShiftRosterGroups(id, rosterGroupIds);
+  if (rosterGroupIds !== undefined) await syncShiftRosterGroups(shift, rosterGroupIds);
   return getShiftForRead(id);
 }
 

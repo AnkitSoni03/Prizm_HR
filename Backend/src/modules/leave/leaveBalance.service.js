@@ -5,6 +5,7 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { toBusinessLocal, dateOnly } = require('../../utils/dateRange');
 const { resolveLeaveCycle } = require('../../utils/leaveCycle');
+const { computeWeekOffQuota } = require('../../utils/weekOffLeave');
 
 // Monthly accrual is credited whole-month, not prorated by day-of-month: an
 // employee who joins on the 20th still gets that month's full share.
@@ -58,14 +59,26 @@ async function resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId, trans
 // a leave type's FRESH allotment would be under a given policy (the "No,
 // don't carry forward — recompute per the new Roster" path) without
 // duplicating the yearly/monthly/monthly_reset branching. `policy: null`
-// (no applicable LeavePolicy) always yields 0.
-function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining, dateStr }) {
+// (no applicable LeavePolicy) always yields 0. `leaveType` is optional (only
+// needed to detect the auto-provisioned "Week Off Leaves" bucket below) —
+// every existing caller that omits it keeps the exact prior behavior.
+function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining, dateStr, leaveType }) {
   if (!policy) return 0;
 
   if (policy.accrual === 'yearly') {
     return Number(policy.annualQuota);
   }
   if (policy.accrual === 'monthly_reset') {
+    // The "Week Off Leaves" bucket's quota isn't a flat configured amount —
+    // it's that calendar month's Sunday count (see weekOffLeave.service.js),
+    // prorated to only the Sundays from the employee's own joining date
+    // onward if dateStr falls in their joining month (a mid-month joiner
+    // isn't credited for Sundays before they existed). Every other
+    // monthly_reset type keeps the flat-amount behavior below unchanged.
+    if (leaveType && leaveType.isWeekOffBucket && dateStr) {
+      const d = new Date(`${dateStr}T00:00:00`);
+      return computeWeekOffQuota({ year: d.getFullYear(), month: d.getMonth() + 1, dateOfJoining });
+    }
     // Flat amount for THIS month's own row — no division/accumulation.
     return Number(policy.annualQuota);
   }
@@ -159,7 +172,7 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
   let balance = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
   if (balance) return balance;
 
-  let allotted = computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining: employee ? employee.dateOfJoining : null, dateStr });
+  let allotted = computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining: employee ? employee.dateOfJoining : null, dateStr, leaveType });
 
   // Carry-forward: if this leave type allows it, roll in whatever remained
   // unused at the end of the immediately-preceding PERIOD (capped at

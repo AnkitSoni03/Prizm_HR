@@ -200,6 +200,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
           cycleEnd: cycle.cycleEnd,
           dateOfJoining: employee.dateOfJoining,
           dateStr,
+          leaveType,
         });
         const used = Number(balanceRow.used);
         await balanceRow.update(

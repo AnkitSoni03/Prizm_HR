@@ -50,6 +50,11 @@ module.exports = (sequelize, DataTypes) => {
       // catalog pickers on the frontend.
       isCarryForwardBucket: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       sourceLeaveTypeId: { type: DataTypes.BIGINT, allowNull: true },
+      // True for the system-generated "Week Off Leaves" type created by
+      // weekOffLeave.service.js for a Roster Group whose Shift has no
+      // weekly-off day — excluded from the normal "Add Leave Type" catalog
+      // pickers, same as isCarryForwardBucket above.
+      isWeekOffBucket: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       sequelize,

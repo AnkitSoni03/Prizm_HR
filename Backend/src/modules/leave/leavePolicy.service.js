@@ -29,12 +29,18 @@ async function listLeavePolicies({ limit, offset, leaveTypeId, rosterGroupId }) 
     order: [['id', 'ASC']],
     include: READ_INCLUDES,
   });
-  const filtered =
+  const scoped =
     rosterGroupId === undefined
       ? rows
       : rosterGroupId === null
         ? rows.filter((p) => p.rosterGroups.length === 0)
         : rows.filter((p) => p.rosterGroups.some((rg) => String(rg.id) === String(rosterGroupId)));
+  // The auto-provisioned "Week Off Leaves" policy (see
+  // weekOffLeave.service.js) is system-managed — its quota is computed
+  // fresh every month, never read from this row's own annualQuota — so it's
+  // excluded from the normal Leave Policy Settings list the same way its
+  // LeaveType is excluded from the "Add Leave Type" catalog.
+  const filtered = scoped.filter((p) => !(p.leaveType && p.leaveType.isWeekOffBucket));
   return { rows: filtered, count };
 }
 

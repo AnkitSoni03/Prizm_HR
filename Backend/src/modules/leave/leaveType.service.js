@@ -20,11 +20,12 @@ async function listLeaveTypes({ limit, offset, rosterGroupId }) {
   if (rosterGroupId === undefined) {
     // Relies on LeaveType's tenant-scope hook for company_id filtering.
     // System-generated "Carry Forward - <name>" bucket types (see
-    // rosterTransfer.service.js) are excluded from this general catalog —
-    // they're not something an admin should be editing/reassigning directly,
-    // only something an employee's own Roster ends up governing.
+    // rosterTransfer.service.js) and the auto-provisioned "Week Off Leaves"
+    // type (see weekOffLeave.service.js) are excluded from this general
+    // catalog — neither is something an admin should be editing/reassigning
+    // directly, only something an employee's own Roster ends up governing.
     const { rows, count } = await db.LeaveType.findAndCountAll({
-      where: { isCarryForwardBucket: false },
+      where: { isCarryForwardBucket: false, isWeekOffBucket: false },
       limit,
       offset,
       order: [['id', 'ASC']],
