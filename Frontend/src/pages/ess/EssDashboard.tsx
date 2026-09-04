@@ -350,6 +350,7 @@ export function EssDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [employeeCode, setEmployeeCode] = useState<string | null>(null);
+  const [dateOfJoining, setDateOfJoining] = useState<string | null>(null);
   const [designation, setDesignation] = useState<string | null>(null);
   const [department, setDepartment] = useState<string | null>(null);
   const [employeeStatus, setEmployeeStatus] = useState<EmployeeProfile['status'] | null>(null);
@@ -383,6 +384,7 @@ export function EssDashboard() {
       .then((profile) => {
         setDisplayName(profile.name);
         setEmployeeCode(profile.employeeCode);
+        setDateOfJoining(profile.dateOfJoining);
         setEmployeeStatus(profile.status);
         setDesignation(profile.designation?.title ?? null);
         setDepartment(profile.department?.name ?? null);
@@ -552,7 +554,7 @@ export function EssDashboard() {
             <div className="flex flex-col items-center gap-1 px-1 text-center">
               <CalendarRange className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />
               <p className="text-[9px] font-semibold uppercase tracking-wide text-white/60">Date of Joining</p>
-              <p className="truncate text-xs font-semibold text-white">{formatDisplayDate(todayStr())}</p>
+              <p className="truncate text-xs font-semibold text-white">{formatDisplayDate(dateOfJoining)}</p>
             </div>
             <div className="flex flex-col items-center gap-1 px-1 text-center">
               <Briefcase className="h-3.5 w-3.5 text-white/60" strokeWidth={2} />

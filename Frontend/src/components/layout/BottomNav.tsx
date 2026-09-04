@@ -43,7 +43,7 @@ export function BottomNav() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 sm:hidden">
       <nav
-        className="flex items-center justify-around border-t border-border px-2 pt-2 bg-card shadow-lg"
+        className="flex items-center justify-around rounded-t-2xl border-t border-border px-2 pt-2 bg-card shadow-lg"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
       >
         {TABS.map((tab) => {
