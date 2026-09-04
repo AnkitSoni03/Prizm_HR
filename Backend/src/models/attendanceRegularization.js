@@ -21,6 +21,13 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       reason: { type: DataTypes.STRING, allowNull: false },
+      // Optional — the employee's own claimed check-in/check-out instant for
+      // this date (e.g. "I was actually here at 10:00, the kiosk just never
+      // caught it"). Applied onto the Attendance row's own checkIn/checkOut
+      // at approval time (see attendanceRegularization.service.js), and
+      // overridable by the approver before approving.
+      requestedCheckIn: { type: DataTypes.DATE, allowNull: true },
+      requestedCheckOut: { type: DataTypes.DATE, allowNull: true },
       approverId: { type: DataTypes.BIGINT, allowNull: true },
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },

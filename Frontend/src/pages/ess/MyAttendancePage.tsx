@@ -20,7 +20,7 @@ import {
   type AttendanceRegularization,
 } from '../../api/ess/attendance';
 import { getMyProfile } from '../../api/ess/profile';
-import { formatDisplayDate } from '../../utils/dateDisplay';
+import { formatDisplayDate, formatDisplayTime } from '../../utils/dateDisplay';
 
 type Tab = 'history' | 'requests';
 
@@ -72,6 +72,11 @@ function monthRange(month: string): { from: string; to: string } {
 function formatTime(value: string | null): string {
   if (!value) return '—';
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatRequestedTimes(r: AttendanceRegularization): string {
+  if (!r.requestedCheckIn && !r.requestedCheckOut) return '—';
+  return `${formatDisplayTime(r.requestedCheckIn)} → ${formatDisplayTime(r.requestedCheckOut)}`;
 }
 
 // Working hours for a single day — only meaningful once both punches exist
@@ -132,6 +137,8 @@ export function MyAttendancePage() {
   const [modalDate, setModalDate] = useState<string | null>(null);
   const [requestedStatus, setRequestedStatus] = useState<Attendance['status']>('present');
   const [reason, setReason] = useState('');
+  const [checkInTime, setCheckInTime] = useState('');
+  const [checkOutTime, setCheckOutTime] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -176,6 +183,8 @@ export function MyAttendancePage() {
     setModalDate(date);
     setRequestedStatus('present');
     setReason('');
+    setCheckInTime('');
+    setCheckOutTime('');
     setSubmitError(null);
   }
 
@@ -184,7 +193,13 @@ export function MyAttendancePage() {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await createRegularization({ date: modalDate, requestedStatus, reason: reason.trim() });
+      await createRegularization({
+        date: modalDate,
+        requestedStatus,
+        reason: reason.trim(),
+        checkInTime: checkInTime || undefined,
+        checkOutTime: checkOutTime || undefined,
+      });
       setModalDate(null);
       if (activeTab === 'requests') load();
     } catch {
@@ -391,6 +406,7 @@ export function MyAttendancePage() {
             columns={[
               { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.attendance?.date) },
               { key: 'requestedStatus', header: 'Requested Status', render: (r) => r.requestedStatus.replace('_', ' ') },
+              { key: 'requestedTimes', header: 'Requested Time', render: formatRequestedTimes },
               { key: 'reason', header: 'Reason', render: (r) => r.reason },
               {
                 key: 'status',
@@ -413,6 +429,26 @@ export function MyAttendancePage() {
               onChange={(event) => setRequestedStatus(event.target.value as Attendance['status'])}
               options={STATUS_OPTIONS}
             />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                id="regularization-check-in"
+                type="time"
+                label="Check-In Time (optional)"
+                value={checkInTime}
+                onChange={(event) => setCheckInTime(event.target.value)}
+              />
+              <Input
+                id="regularization-check-out"
+                type="time"
+                label="Check-Out Time (optional)"
+                value={checkOutTime}
+                onChange={(event) => setCheckOutTime(event.target.value)}
+              />
+            </div>
+            <p className="-mt-2 text-xs text-ink-muted">
+              Fill these in only if the kiosk missed your actual time — once approved, they'll replace the
+              recorded check-in/check-out.
+            </p>
             <div>
               <label htmlFor="regularization-reason" className="mb-1.5 block text-sm font-medium text-ink">
                 Reason

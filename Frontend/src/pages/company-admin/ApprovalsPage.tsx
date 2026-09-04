@@ -8,6 +8,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
+import { ApproveRegularizationModal } from '../../components/ApproveRegularizationModal';
 import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
 import { RequestCard, RequestCardSkeleton, RequestStatusBadge } from '../../components/RequestCard';
 import { Avatar } from '../../components/ui/Avatar';
@@ -38,7 +39,12 @@ import {
 import { listEmployees } from '../../api/companyAdmin/employees';
 import type { Employee } from '../../api/tenancy';
 import { AssignCompOffModal } from './components/AssignCompOffModal';
-import { formatDisplayDate } from '../../utils/dateDisplay';
+import { formatDisplayDate, formatDisplayTime } from '../../utils/dateDisplay';
+
+function formatRequestedTimes(r: AttendanceRegularization): string {
+  if (!r.requestedCheckIn && !r.requestedCheckOut) return '—';
+  return `${formatDisplayTime(r.requestedCheckIn)} → ${formatDisplayTime(r.requestedCheckOut)}`;
+}
 
 function employeeLabel(employee: RequestEmployee | undefined, employeeId: string) {
   return employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
@@ -135,6 +141,9 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ tab: Tab; id: string } | null>(null);
+  const [approveRegularizationTarget, setApproveRegularizationTarget] = useState<AttendanceRegularization | null>(
+    null
+  );
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAssignCompOff, setShowAssignCompOff] = useState(false);
@@ -214,8 +223,10 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     await approveOdRequest(id);
     load();
   }
-  async function handleRegularizationApprove(id: string) {
-    await approveRegularization(id);
+  async function confirmRegularizationApprove(overrides: { checkInTime?: string; checkOutTime?: string }) {
+    if (!approveRegularizationTarget) return;
+    await approveRegularization(approveRegularizationTarget.id, overrides);
+    setApproveRegularizationTarget(null);
     load();
   }
   async function handleCompOffApprove(id: string) {
@@ -454,6 +465,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                 },
                 { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.attendance?.date) },
                 { key: 'requestedStatus', header: 'Requested Status', render: (r) => r.requestedStatus },
+                { key: 'requestedTimes', header: 'Requested Time', render: formatRequestedTimes },
                 { key: 'reason', header: 'Reason', render: (r) => r.reason },
                 {
                   key: 'status',
@@ -468,7 +480,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                     <ActionButtons
                       canApprove={r.status === 'pending' && hasPermission('attendance_regularization:approve')}
                       canReject={r.status === 'pending' && hasPermission('attendance_regularization:reject')}
-                      onApprove={() => handleRegularizationApprove(r.id)}
+                      onApprove={() => setApproveRegularizationTarget(r)}
                       onReject={() => setRejectTarget({ tab: 'regularization', id: r.id })}
                       onHistory={() => setHistoryTarget({ tab: 'regularization', id: r.id })}
                     />
@@ -498,12 +510,13 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                     { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
                     { icon: CalendarRange, label: 'Date', value: formatDisplayDate(r.attendance?.date) },
                     { icon: Tag, label: 'Requested Status', value: r.requestedStatus },
+                    { icon: Clock, label: 'Requested Time', value: formatRequestedTimes(r) },
                     { icon: FileText, label: 'Reason', value: r.reason },
                     { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
                   ]}
                   canApprove={r.status === 'pending' && hasPermission('attendance_regularization:approve')}
                   canReject={r.status === 'pending' && hasPermission('attendance_regularization:reject')}
-                  onApprove={() => handleRegularizationApprove(r.id)}
+                  onApprove={() => setApproveRegularizationTarget(r)}
                   onReject={() => setRejectTarget({ tab: 'regularization', id: r.id })}
                   onHistory={() => setHistoryTarget({ tab: 'regularization', id: r.id })}
                 />
@@ -592,6 +605,14 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
           title="Reject request"
           onClose={() => setRejectTarget(null)}
           onConfirm={confirmReject}
+        />
+      )}
+
+      {approveRegularizationTarget && (
+        <ApproveRegularizationModal
+          regularization={approveRegularizationTarget}
+          onClose={() => setApproveRegularizationTarget(null)}
+          onConfirm={confirmRegularizationApprove}
         />
       )}
 

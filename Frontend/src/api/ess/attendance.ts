@@ -22,6 +22,11 @@ export interface AttendanceRegularization {
   reason: string;
   status: 'pending' | 'approved' | 'rejected';
   approverId: string | null;
+  // The employee's own claimed check-in/check-out instant for this date —
+  // optional. Once approved, this reflects whatever value actually landed
+  // on the Attendance row (the approver's own override, if any).
+  requestedCheckIn: string | null;
+  requestedCheckOut: string | null;
   attendance?: { id: string; date: string; status: string };
 }
 
@@ -58,6 +63,11 @@ export async function createRegularization(input: {
   date: string;
   requestedStatus: Attendance['status'];
   reason: string;
+  // Optional "HH:MM" — what time the employee actually checked in/out, for
+  // when the kiosk never caught it. Applied onto Attendance.checkIn/checkOut
+  // once a manager approves the request.
+  checkInTime?: string;
+  checkOutTime?: string;
 }): Promise<AttendanceRegularization> {
   const { data } = await apiClient.post<{ data: AttendanceRegularization }>('/attendance/regularizations', input);
   return data.data;

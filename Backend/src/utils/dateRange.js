@@ -41,6 +41,17 @@ function toBusinessLocal(date = new Date()) {
   return new Date(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
 }
 
+// Combines a "YYYY-MM-DD" business date with a "HH:MM" wall-clock time into
+// the Date instant that represents in the business timezone (explicit
+// +05:30 offset, same reasoning as the rest of this file — never parsed as
+// server-ambient-local or UTC). Returns null if timeStr is falsy, so callers
+// can pass an optional form field straight through.
+function buildBusinessDateTime(dateStr, timeStr) {
+  if (!timeStr) return null;
+  const d = new Date(`${dateStr}T${timeStr}:00+05:30`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function addDays(dateStr, delta) {
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + delta);
@@ -59,4 +70,4 @@ function datesBetween(fromDate, toDate) {
   return dates;
 }
 
-module.exports = { addDays, datesBetween, dateOnly, toBusinessLocal };
+module.exports = { addDays, datesBetween, dateOnly, toBusinessLocal, buildBusinessDateTime };

@@ -7,6 +7,7 @@ const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
+const { buildBusinessDateTime } = require('../../utils/dateRange');
 
 async function listRegularizations({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
@@ -44,7 +45,15 @@ async function listRegularizations({ companyId, brandId, employeeId, status, lim
 // attendance row exists yet for that date (e.g. the employee never scanned
 // at all), one is created with status 'absent' so the regularization has
 // something concrete to correct.
-async function createRegularization({ companyId, employeeId, date, requestedStatus, reason }) {
+async function createRegularization({
+  companyId,
+  employeeId,
+  date,
+  requestedStatus,
+  reason,
+  checkInTime,
+  checkOutTime,
+}) {
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
 
@@ -59,6 +68,8 @@ async function createRegularization({ companyId, employeeId, date, requestedStat
     requestedStatus,
     reason,
     status: 'pending',
+    requestedCheckIn: buildBusinessDateTime(date, checkInTime),
+    requestedCheckOut: buildBusinessDateTime(date, checkOutTime),
   });
 
   await notifyApprovers({
@@ -101,13 +112,42 @@ async function getRegularizationById({ companyId, id }) {
   return regularization;
 }
 
-async function approveRegularization({ companyId, id, approverId, approverUserId }) {
+// checkInTime/checkOutTime (optional "HH:MM" strings) let the approver
+// adjust the employee's requested time before applying it — e.g. the
+// employee said "10:00" but the manager knows it was actually 10:15.
+// Falls back to whatever the employee originally requested
+// (regularization.requestedCheckIn/Out) when the approver doesn't supply an
+// override; either way, the *applied* value is written back onto the
+// regularization row itself so the request's own record reflects what
+// actually landed on the attendance row, not just what was first asked for.
+async function approveRegularization({ companyId, id, approverId, approverUserId, checkInTime, checkOutTime }) {
   const regularization = await getRegularizationForDecision({ companyId, id });
 
+  const attendanceDate = regularization.attendance.date;
+  const finalCheckIn =
+    checkInTime !== undefined ? buildBusinessDateTime(attendanceDate, checkInTime) : regularization.requestedCheckIn;
+  const finalCheckOut =
+    checkOutTime !== undefined
+      ? buildBusinessDateTime(attendanceDate, checkOutTime)
+      : regularization.requestedCheckOut;
+
   await db.sequelize.transaction(async (t) => {
-    await regularization.attendance.update({ status: regularization.requestedStatus }, { transaction: t });
+    await regularization.attendance.update(
+      {
+        status: regularization.requestedStatus,
+        ...(finalCheckIn ? { checkIn: finalCheckIn } : {}),
+        ...(finalCheckOut ? { checkOut: finalCheckOut } : {}),
+      },
+      { transaction: t }
+    );
     await regularization.update(
-      { status: 'approved', approverId: approverId || null, approverUserId },
+      {
+        status: 'approved',
+        approverId: approverId || null,
+        approverUserId,
+        requestedCheckIn: finalCheckIn,
+        requestedCheckOut: finalCheckOut,
+      },
       { transaction: t }
     );
     await recordApprovalDecision({

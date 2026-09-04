@@ -38,6 +38,25 @@ export function daysUntil(dateStr: string): number {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
+// "HH:MM" (24h, browser-local — matches the business timezone for the
+// deployment's actual users) from a full ISO datetime, e.g. an
+// AttendanceRegularization's requestedCheckIn/requestedCheckOut.
+export function formatDisplayTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Same "HH:MM" shape but '' (not '—') when unset, matching what an
+// `<input type="time">` needs as its `value` to prefill correctly.
+export function toTimeInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export function formatDisplayDateTime(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);

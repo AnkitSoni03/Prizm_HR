@@ -6,6 +6,17 @@ const { resolveCompanyScope, assertCompanyInCallerGroup } = require('../../utils
 const { listApprovalHistory } = require('../../utils/approvalHistory');
 const { userHasPermission } = require('../../middleware/rbac.middleware');
 
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function validateOptionalTime(value, field, res) {
+  if (value === undefined || value === null || value === '') return true;
+  if (typeof value !== 'string' || !TIME_RE.test(value)) {
+    res.status(400).json({ error: `${field} must be a valid HH:MM time` });
+    return false;
+  }
+  return true;
+}
+
 async function list(req, res, next) {
   try {
     const { limit, offset } = parsePagination(req.query);
@@ -31,13 +42,15 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { date, requestedStatus, reason } = req.body;
+    const { date, requestedStatus, reason, checkInTime, checkOutTime } = req.body;
     if (!date || !requestedStatus || !reason) {
       return res.status(400).json({ error: 'date, requestedStatus and reason are required' });
     }
     if (!req.auth.employeeId) {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
+    if (!validateOptionalTime(checkInTime, 'checkInTime', res)) return;
+    if (!validateOptionalTime(checkOutTime, 'checkOutTime', res)) return;
 
     const regularization = await service.createRegularization({
       companyId: req.auth.companyId,
@@ -45,6 +58,8 @@ async function create(req, res, next) {
       date,
       requestedStatus,
       reason,
+      checkInTime: checkInTime || null,
+      checkOutTime: checkOutTime || null,
     });
     res.status(201).json({ data: regularization });
   } catch (err) {
@@ -54,11 +69,21 @@ async function create(req, res, next) {
 
 async function approve(req, res, next) {
   try {
+    const { checkInTime, checkOutTime } = req.body;
+    if (!validateOptionalTime(checkInTime, 'checkInTime', res)) return;
+    if (!validateOptionalTime(checkOutTime, 'checkOutTime', res)) return;
+
     const regularization = await service.approveRegularization({
       companyId: req.auth.companyId,
       id: req.params.id,
       approverId: req.auth.employeeId,
       approverUserId: req.auth.userId,
+      // undefined (field omitted) means "keep whatever the employee
+      // requested"; '' explicitly means "clear it" — both are meaningfully
+      // different from a manager-supplied override, so pass '' through as
+      // null rather than coercing it to undefined.
+      checkInTime: checkInTime === undefined ? undefined : checkInTime || null,
+      checkOutTime: checkOutTime === undefined ? undefined : checkOutTime || null,
     });
     res.json({ data: regularization });
   } catch (err) {

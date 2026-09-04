@@ -75,6 +75,11 @@ export interface AttendanceRegularization {
   rejectionReason: string | null;
   employee?: RequestEmployee;
   attendance?: { id: string; date: string; status: string };
+  // The employee's own claimed check-in/check-out instant for this date —
+  // optional, null when they didn't fill it in. Once approved, reflects
+  // whatever the approver actually applied (their own override, if any).
+  requestedCheckIn: string | null;
+  requestedCheckOut: string | null;
 }
 
 export interface CompOffCredit {
@@ -181,9 +186,16 @@ export async function listRegularizations(
   return data;
 }
 
-export async function approveRegularization(id: string): Promise<AttendanceRegularization> {
+// overrides lets the approver adjust the employee's requested check-in/
+// check-out time before it's applied to the Attendance row — omit a field
+// to keep whatever the employee originally requested for it.
+export async function approveRegularization(
+  id: string,
+  overrides?: { checkInTime?: string; checkOutTime?: string }
+): Promise<AttendanceRegularization> {
   const { data } = await apiClient.patch<{ data: AttendanceRegularization }>(
-    `/attendance/regularizations/${id}/approve`
+    `/attendance/regularizations/${id}/approve`,
+    overrides
   );
   return data.data;
 }
