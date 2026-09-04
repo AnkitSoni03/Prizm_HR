@@ -63,6 +63,12 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return null;
   }
 
+  // A balance edit always belongs to the recipient's own leave balance —
+  // shown on their ESS Dashboard, no dedicated "my balance" route exists.
+  if (notification.type === 'leave_balance_updated') {
+    return portal === '/ess' ? '/ess' : null;
+  }
+
   if (!notification.requestType) return null;
 
   // Payroll notifications (payslip processed / marked paid) always belong

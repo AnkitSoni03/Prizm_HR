@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import axios from 'axios';
-import { Check, CheckCircle2, Copy, FileText, Pencil, Trash2, X } from 'lucide-react';
+import { Calendar, Check, CheckCircle2, Copy, FileText, Pencil, Save, Trash2, X } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
@@ -47,6 +47,7 @@ import {
 } from '../../../api/companyAdmin/employeeDocuments';
 import { listPowers } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
+import { listLeaveBalances, bulkAdjustLeaveBalances, type LeaveBalance } from '../../../api/companyAdmin/leaveBalance';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { assignCompOffPolicy, listCompOffPolicies, type CompOffPolicy } from '../../../api/companyAdmin/compOffPolicies';
@@ -74,7 +75,7 @@ interface EmployeeDetailModalProps {
   // Which tab to open on. Defaults to 'details'; the ESS Document
   // Verification page (a power-holder with no employee:update) opens
   // straight to 'documents' since that's the only tab it cares about.
-  initialTab?: 'details' | 'documents' | 'powers';
+  initialTab?: 'details' | 'documents' | 'powers' | 'leaves';
 }
 
 // Same mapping as ess/MyCompOffPage.tsx's STATUS_TONE.
@@ -143,8 +144,10 @@ export function EmployeeDetailModal({
   const canUploadDocs = hasPermission('employee_document:upload');
   const canVerifyDocs = hasPermission('employee_document:verify');
   const canInviteEss = hasPermission('user:invite');
+  const canReadLeaveBalances = hasPermission('leave_balance:read');
+  const canAdjustLeaveBalances = hasPermission('leave_balance:adjust');
 
-  const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'powers'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'powers' | 'leaves'>(initialTab);
 
   const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
@@ -528,6 +531,66 @@ export function EmployeeDetailModal({
     }
   }
 
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[] | null>(null);
+  const [leaveBalancesError, setLeaveBalancesError] = useState<string | null>(null);
+  // Both keyed by LeaveBalance.id — only holds a row once its input has been
+  // touched, so "no edits yet" (Save disabled) is a plain empty-object check.
+  const [editedAllotted, setEditedAllotted] = useState<Record<string, string>>({});
+  const [editedUsed, setEditedUsed] = useState<Record<string, string>>({});
+  const [isSavingLeaves, setIsSavingLeaves] = useState(false);
+  const [leavesSaveError, setLeavesSaveError] = useState<string | null>(null);
+  const [leavesSaveSuccess, setLeavesSaveSuccess] = useState(false);
+
+  const leaveBalanceYear = new Date().getFullYear();
+
+  useEffect(() => {
+    if (activeTab !== 'leaves' || !canReadLeaveBalances || leaveBalances !== null) return;
+    listLeaveBalances({ employeeId: employee.id, year: leaveBalanceYear })
+      .then(setLeaveBalances)
+      .catch(() => setLeaveBalancesError('Could not load leave balances.'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, canReadLeaveBalances, leaveBalances, employee.id]);
+
+  function isRowChanged(b: LeaveBalance): boolean {
+    return (
+      (editedAllotted[b.id] !== undefined && Number(editedAllotted[b.id]) !== Number(b.allotted)) ||
+      (editedUsed[b.id] !== undefined && Number(editedUsed[b.id]) !== Number(b.used))
+    );
+  }
+
+  const hasLeaveChanges = leaveBalances?.some(isRowChanged) ?? false;
+
+  // Doesn't call onUpdated() — same reasoning as handleSavePowers above, so
+  // the success message stays visible instead of vanishing immediately.
+  async function handleSaveLeaves() {
+    if (!leaveBalances) return;
+    const adjustments = leaveBalances
+      .filter(isRowChanged)
+      .map((b) => ({
+        leaveTypeId: b.leaveTypeId,
+        year: b.year,
+        month: b.month,
+        allotted: editedAllotted[b.id] !== undefined ? Number(editedAllotted[b.id]) : Number(b.allotted),
+        used: editedUsed[b.id] !== undefined ? Number(editedUsed[b.id]) : Number(b.used),
+      }));
+    if (adjustments.length === 0) return;
+    setLeavesSaveError(null);
+    setLeavesSaveSuccess(false);
+    setIsSavingLeaves(true);
+    try {
+      await bulkAdjustLeaveBalances({ employeeId: employee.id, adjustments });
+      const refreshed = await listLeaveBalances({ employeeId: employee.id, year: leaveBalanceYear });
+      setLeaveBalances(refreshed);
+      setEditedAllotted({});
+      setEditedUsed({});
+      setLeavesSaveSuccess(true);
+    } catch (err) {
+      setLeavesSaveError(extractError(err, 'Could not save leave balances. Please try again.'));
+    } finally {
+      setIsSavingLeaves(false);
+    }
+  }
+
   async function handlePhotoSelect(file: File) {
     setIsSavingPhoto(true);
     try {
@@ -716,9 +779,10 @@ export function EmployeeDetailModal({
             { key: 'details', label: 'Details' },
             { key: 'documents', label: 'Documents' },
             { key: 'powers', label: 'Powers' },
+            { key: 'leaves', label: 'Leaves' },
           ]}
           active={activeTab}
-          onChange={(key) => setActiveTab(key as 'details' | 'documents' | 'powers')}
+          onChange={(key) => setActiveTab(key as 'details' | 'documents' | 'powers' | 'leaves')}
         />
       }
     >
@@ -1492,6 +1556,155 @@ export function EmployeeDetailModal({
                   Save Powers
                 </Button>
               </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'leaves' && (
+        <div className="space-y-4">
+          {!canReadLeaveBalances && (
+            <p className="text-sm text-ink-muted">You don&apos;t have access to leave balances.</p>
+          )}
+          {canReadLeaveBalances && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-page px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <Calendar className="h-4.5 w-4.5" strokeWidth={1.75} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-ink">Leave Balance · {leaveBalanceYear}</p>
+                    <p className="text-xs text-ink-muted">
+                      {canAdjustLeaveBalances
+                        ? 'Edit Allotted or Used below, then save.'
+                        : 'Read-only — you do not have permission to edit this.'}
+                    </p>
+                  </div>
+                </div>
+                {canAdjustLeaveBalances && leaveBalances && leaveBalances.length > 0 && (
+                  <Button onClick={handleSaveLeaves} isLoading={isSavingLeaves} disabled={!hasLeaveChanges}>
+                    <Save className="h-4 w-4" strokeWidth={1.75} />
+                    Save Changes
+                  </Button>
+                )}
+              </div>
+
+              {leaveBalancesError && <p className="text-sm text-danger">{leaveBalancesError}</p>}
+              {leaveBalances === null && !leaveBalancesError && (
+                <p className="text-sm text-ink-muted">Loading…</p>
+              )}
+              {leaveBalances?.length === 0 && (
+                <p className="text-sm text-ink-muted">
+                  No leave balances yet — this fills in once a Roster with a Leave Policy is assigned.
+                </p>
+              )}
+
+              {leaveBalances && leaveBalances.length > 0 && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {leaveBalances.map((b) => {
+                    const editedAllottedValue = editedAllotted[b.id];
+                    const editedUsedValue = editedUsed[b.id];
+                    const allottedDisplay = editedAllottedValue ?? String(b.allotted);
+                    const usedDisplay = editedUsedValue ?? String(b.used);
+                    const parsedAllotted =
+                      editedAllottedValue !== undefined ? Number(editedAllottedValue) : Number(b.allotted);
+                    const parsedUsed = editedUsedValue !== undefined ? Number(editedUsedValue) : Number(b.used);
+                    const liveBalance =
+                      Number.isFinite(parsedAllotted) && Number.isFinite(parsedUsed)
+                        ? Math.round((parsedAllotted - parsedUsed) * 100) / 100
+                        : Number(b.balance);
+                    const usagePct =
+                      parsedAllotted > 0 ? Math.min(100, Math.max(0, (parsedUsed / parsedAllotted) * 100)) : 0;
+                    const isOverUsed = liveBalance < 0;
+                    const rowChanged = isRowChanged(b);
+
+                    return (
+                      <div
+                        key={b.id}
+                        className={[
+                          'rounded-xl border bg-page p-4 transition-colors',
+                          rowChanged ? 'border-primary/40 bg-primary-light' : 'border-border',
+                        ].join(' ')}
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-ink">{b.leaveType?.name ?? 'Unknown'}</p>
+                          {b.month && <Badge tone="neutral">This month</Badge>}
+                        </div>
+
+                        <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                          <div
+                            className={`h-full rounded-full transition-all ${isOverUsed ? 'bg-danger' : 'bg-primary'}`}
+                            style={{ width: `${usagePct}%` }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label
+                              htmlFor={`leave-allotted-${b.id}`}
+                              className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                            >
+                              Allotted
+                            </label>
+                            {canAdjustLeaveBalances ? (
+                              <input
+                                id={`leave-allotted-${b.id}`}
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                value={allottedDisplay}
+                                onChange={(event) =>
+                                  setEditedAllotted((prev) => ({ ...prev, [b.id]: event.target.value }))
+                                }
+                                className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              />
+                            ) : (
+                              <p className="px-0.5 py-1.5 text-sm text-ink">{b.allotted}</p>
+                            )}
+                          </div>
+                          <div>
+                            <label
+                              htmlFor={`leave-used-${b.id}`}
+                              className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                            >
+                              Used
+                            </label>
+                            {canAdjustLeaveBalances ? (
+                              <input
+                                id={`leave-used-${b.id}`}
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                value={usedDisplay}
+                                onChange={(event) =>
+                                  setEditedUsed((prev) => ({ ...prev, [b.id]: event.target.value }))
+                                }
+                                className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              />
+                            ) : (
+                              <p className="px-0.5 py-1.5 text-sm text-ink">{b.used}</p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+                              Balance
+                            </p>
+                            <p className={`px-0.5 py-1.5 text-sm font-semibold ${isOverUsed ? 'text-danger' : 'text-ink'}`}>
+                              {liveBalance}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {leavesSaveError && <p className="text-sm text-danger">{leavesSaveError}</p>}
+              {leavesSaveSuccess && (
+                <p className="text-sm text-success">Leave balances updated — the employee has been notified.</p>
+              )}
             </>
           )}
         </div>

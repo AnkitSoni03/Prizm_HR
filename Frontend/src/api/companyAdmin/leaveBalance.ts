@@ -29,6 +29,7 @@ export interface LeaveBalance {
   employeeId: string;
   leaveTypeId: string;
   year: number;
+  month: number | null;
   allotted: number;
   used: number;
   balance: number;
@@ -84,10 +85,9 @@ export async function listLeaveBalances(params: { employeeId: string; year: numb
 }
 
 // Sets `allotted` directly (not a delta) — gated by leave_balance:adjust.
-// No frontend surface calls this anymore (manual balance adjustment was
-// retired in favor of Roster-driven Leave Policies, see
-// leaveBalance.service.js::resolveLeavePolicy); kept as a thin wrapper over
-// the still-live backend endpoint in case a future admin tool needs it.
+// Superseded as the primary write path by bulkAdjustLeaveBalances below (the
+// Employee Detail Modal's "Leaves" tab); kept as a thin wrapper over the
+// still-live backend endpoint in case a single-row caller needs it.
 export async function adjustLeaveBalance(input: {
   employeeId: string;
   leaveTypeId: string;
@@ -96,4 +96,19 @@ export async function adjustLeaveBalance(input: {
 }): Promise<LeaveBalance> {
   const { data } = await apiClient.post<{ data: LeaveBalance }>('/leave/balances/adjust', input);
   return data.data;
+}
+
+// Edits several of one employee's leave types' allotted balance in a single
+// Save (the Employee Detail Modal's "Leaves" tab) — each entry must carry
+// the SAME year/month as the row it came from (see
+// leaveBalance.service.js::bulkAdjustLeaveBalances for why month matters for
+// a 'monthly_reset' leave type). The employee gets one consolidated
+// notification server-side, only if at least one entry's value actually
+// changed. Returns how many rows actually changed.
+export async function bulkAdjustLeaveBalances(input: {
+  employeeId: string;
+  adjustments: Array<{ leaveTypeId: string; year: number; month: number | null; allotted: number; used?: number }>;
+}): Promise<{ changed: number }> {
+  const { data } = await apiClient.post<{ changed: number }>('/leave/balances/bulk-adjust', input);
+  return data;
 }

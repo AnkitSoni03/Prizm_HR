@@ -367,12 +367,54 @@ async function adjustLeaveBalance({ companyId, employeeId, leaveTypeId, year, al
   return balance;
 }
 
+// Bulk manual correction, from the Employee Detail Modal's "Leaves" tab —
+// each entry targets the ALREADY-DISPLAYED row directly by its own
+// (leaveTypeId, year, month), unlike adjustLeaveBalance above (which routes
+// through getOrCreateBalance's `year`-only path — that path always resolves
+// `month: null`, see getOrCreateBalance's header comment, so it would
+// silently create a phantom year-grain row instead of touching a
+// 'monthly_reset' leave type's real month-grain row). `used` is optional —
+// omitting it (or sending the row's current value) leaves it untouched, so a
+// caller that only ever edits `allotted` behaves exactly as before. Returns
+// only the entries where `allotted` and/or `used` actually changed, so the
+// caller can send a single notification listing just what changed rather
+// than one per untouched row.
+async function bulkAdjustLeaveBalances({ companyId, employeeId, adjustments }) {
+  const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
+  if (!employee) throw new HttpError(404, 'Employee not found');
+
+  const changes = [];
+  for (const { leaveTypeId, year, month, allotted, used } of adjustments) {
+    const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId } });
+    if (!leaveType) throw new HttpError(404, 'Leave type not found');
+
+    const monthKey = month ?? null;
+    const [balance] = await db.LeaveBalance.findOrCreate({
+      where: { employeeId, leaveTypeId, year, month: monthKey },
+      defaults: { employeeId, leaveTypeId, year, month: monthKey, allotted: 0, used: 0, balance: 0 },
+    });
+
+    const previousAllotted = Number(balance.allotted);
+    const previousUsed = Number(balance.used);
+    const nextAllotted = allotted !== undefined ? Number(allotted) : previousAllotted;
+    const nextUsed = used !== undefined ? Number(used) : previousUsed;
+
+    if (previousAllotted !== nextAllotted || previousUsed !== nextUsed) {
+      await balance.update({ allotted: nextAllotted, used: nextUsed, balance: nextAllotted - nextUsed });
+      changes.push({ leaveTypeName: leaveType.name, previousAllotted, newAllotted: nextAllotted, previousUsed, newUsed: nextUsed });
+    }
+  }
+
+  return { employee, changes };
+}
+
 module.exports = {
   getOrCreateBalance,
   ensureBalancesForEmployee,
   attachAccrualInfo,
   listLeaveBalances,
   adjustLeaveBalance,
+  bulkAdjustLeaveBalances,
   monthsAccruedInCycle,
   resolveLeavePolicy,
   computeAllottedForPolicy,

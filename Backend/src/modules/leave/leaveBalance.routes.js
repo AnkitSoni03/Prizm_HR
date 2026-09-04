@@ -26,5 +26,6 @@ async function requireReadAccess(req, res, next) {
 
 router.get('/', requireReadAccess, controller.list);
 router.post('/adjust', requirePermission('leave_balance:adjust'), controller.adjust);
+router.post('/bulk-adjust', requirePermission('leave_balance:adjust'), controller.bulkAdjust);
 
 module.exports = router;
