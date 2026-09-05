@@ -6,14 +6,12 @@ const { isCompanyInactive } = require('../utils/companyStatus');
 const { resolveEscalationContact } = require('../utils/accountEscalation');
 const db = require('../models');
 
-async function requireAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const [scheme, token] = header.split(' ');
-
-  if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ error: 'Missing or malformed Authorization header' });
-  }
-
+// Shared by requireAuth (header-only) and requireAuthSSE (header or query
+// token — EventSource can't set custom headers, so the SSE stream route
+// needs a way to authenticate without one). Both run the exact same
+// token-validation/account-status checks; only where the token comes from
+// differs.
+async function authenticate(token, req, res, next) {
   let payload;
   try {
     payload = verifyAccessToken(token);
@@ -84,6 +82,33 @@ async function requireAuth(req, res, next) {
   );
 }
 
+async function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const [scheme, token] = header.split(' ');
+
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ error: 'Missing or malformed Authorization header' });
+  }
+
+  return authenticate(token, req, res, next);
+}
+
+// Query-param auth is only acceptable here because it's the short-lived
+// (~15min) access token, not the refresh token, and this route (the SSE
+// notification stream) is the one place in the app a browser API
+// (EventSource) genuinely cannot attach an Authorization header.
+async function requireAuthSSE(req, res, next) {
+  const header = req.headers.authorization || '';
+  const [scheme, headerToken] = header.split(' ');
+  const token = scheme === 'Bearer' ? headerToken : req.query.token;
+
+  if (!token) {
+    return res.status(401).json({ error: 'Missing token' });
+  }
+
+  return authenticate(token, req, res, next);
+}
+
 // Super Admin is the only role whose users row has BOTH company_id and
 // group_id NULL (it sits above the Group/Company hierarchy) — a Group Admin
 // also has company_id NULL (they're scoped by group_id instead), so both
@@ -102,4 +127,4 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, requireSuperAdmin };
+module.exports = { requireAuth, requireAuthSSE, requireSuperAdmin };

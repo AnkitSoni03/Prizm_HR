@@ -6,12 +6,12 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  subscribeToNotificationStream,
   type AppNotification,
 } from '../api/notifications';
 import { useAuth } from '../context/auth-context';
 import { getDefaultRoute } from '../routes/roleRedirect';
 
-const POLL_INTERVAL_MS = 30_000;
 // Small first page so opening the dropdown feels instant — older
 // notifications only load in as the user actually scrolls for them
 // (loadMore below), instead of fetching everything up front.
@@ -131,11 +131,12 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
 
 // Mounted once in the shared Topbar (portal-agnostic, same as the
 // theme/logout controls), so every portal — Super Admin down to ESS — gets
-// the same bell. Polls the unread count on an interval since this stack has
-// no websocket/push infrastructure (Redis is restricted to QR attendance
-// only); the badge uses Tailwind's built-in animate-ping for a persistent
-// attention-grabbing pulse whenever there's something unread, matching the
-// "blink to get attention" ask.
+// the same bell. Live-updated over SSE (subscribeToNotificationStream) —
+// one open connection per tab, pushed to the instant a notification row is
+// created server-side — rather than polling on an interval; the badge uses
+// Tailwind's built-in animate-ping for a persistent attention-grabbing
+// pulse whenever there's something unread, matching the "blink to get
+// attention" ask.
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -149,12 +150,19 @@ export function NotificationBell() {
   const location = useLocation();
   const { user } = useAuth();
 
-  // Sound cue on new unread notifications (no websocket/push infra — see
-  // POLL_INTERVAL_MS above — so "new" just means the unread count went up
-  // between two polls). previousUnreadCountRef/hasInitializedRef track the
-  // last-known count so the very first load (and any local optimistic
-  // decrease from mark-read/mark-all-read) never falsely triggers a beep —
-  // only a genuine increase does.
+  // Read inside the SSE handler below, which is set up once on mount — a
+  // ref (rather than the isOpen state value itself) is what lets that
+  // stable closure see the dropdown's current open/closed state.
+  const isOpenRef = useRef(false);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  // Sound cue on incoming notifications, via applyUnreadCount's checkForNew
+  // guard below. previousUnreadCountRef/hasInitializedRef track the
+  // last-known count so the very first (baseline) load, and any local
+  // optimistic decrease from mark-read/mark-all-read, never falsely trigger
+  // a beep — only a genuine SSE-pushed increase does.
   const audioContextRef = useRef<AudioContext | null>(null);
   const previousUnreadCountRef = useRef(0);
   const hasInitializedRef = useRef(false);
@@ -212,11 +220,23 @@ export function NotificationBell() {
   }
 
   useEffect(() => {
+    // One-time baseline fetch on mount — the SSE stream below only pushes
+    // notifications created *after* the connection opens, so this is what
+    // establishes the starting unread count (and, via hasInitializedRef,
+    // guarantees that first load never plays the new-notification sound).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshUnreadCount();
-    const interval = setInterval(refreshUnreadCount, POLL_INTERVAL_MS);
+
+    const unsubscribe = subscribeToNotificationStream((notification) => {
+      applyUnreadCount(previousUnreadCountRef.current + 1, { checkForNew: true });
+      if (isOpenRef.current) {
+        setNotifications((prev) => [notification, ...prev]);
+        setOffset((prev) => prev + 1);
+      }
+    });
+
     return () => {
-      clearInterval(interval);
+      unsubscribe();
       void audioContextRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

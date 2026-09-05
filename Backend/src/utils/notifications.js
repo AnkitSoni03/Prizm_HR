@@ -2,6 +2,7 @@
 
 const { Op } = require('sequelize');
 const db = require('../models');
+const sseHub = require('./sseHub');
 
 // Always best-effort, logged-not-thrown — same convention as comp-off
 // auto-detection and the activation/reset emails: a bug in notification
@@ -10,7 +11,7 @@ const db = require('../models');
 async function notifyUser({ companyId, userId, type, requestType, requestId, title, body }) {
   if (!userId) return;
   try {
-    await db.Notification.create({
+    const notification = await db.Notification.create({
       companyId,
       userId,
       type,
@@ -19,6 +20,7 @@ async function notifyUser({ companyId, userId, type, requestType, requestId, tit
       title,
       body: body || null,
     });
+    sseHub.sendToUser(userId, notification.toJSON());
   } catch (err) {
     console.error('Failed to create notification:', err);
   }
@@ -52,8 +54,8 @@ async function notifyApprovers({ companyId, brandId, code, excludeUserId, type, 
     );
 
     await Promise.all(
-      userIds.map((userId) =>
-        db.Notification.create({
+      userIds.map(async (userId) => {
+        const notification = await db.Notification.create({
           companyId,
           userId,
           type,
@@ -61,8 +63,9 @@ async function notifyApprovers({ companyId, brandId, code, excludeUserId, type, 
           requestId: requestId || null,
           title,
           body: body || null,
-        })
-      )
+        });
+        sseHub.sendToUser(userId, notification.toJSON());
+      })
     );
   } catch (err) {
     console.error('Failed to create approver notifications:', err);
