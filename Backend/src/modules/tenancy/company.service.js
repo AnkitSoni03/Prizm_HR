@@ -120,14 +120,13 @@ async function updateCompany({ id, updates }) {
   const company = await db.Company.findByPk(id);
   if (!company) throw new HttpError(404, 'Company not found');
 
-  const { name, legalName, gstNumber, planId, status, faceAntispoofEnforced } = updates;
+  const { name, legalName, gstNumber, planId, status } = updates;
   await company.update({
     ...(name !== undefined && { name }),
     ...(legalName !== undefined && { legalName }),
     ...(gstNumber !== undefined && { gstNumber }),
     ...(planId !== undefined && { planId: planId ?? null }),
     ...(status !== undefined && { status }),
-    ...(faceAntispoofEnforced !== undefined && { faceAntispoofEnforced }),
   });
   return company;
 }

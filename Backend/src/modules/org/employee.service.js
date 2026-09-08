@@ -7,6 +7,7 @@ const { HttpError } = require('../../utils/errors');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { POWER_KEYS, permissionCodesForKeys } = require('../../config/powerCatalog');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
+const { deleteFace: deleteRekognitionFace } = require('../../utils/rekognition');
 const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
 const { getActiveEmployeeShift } = require('../attendance/employeeShift.service');
 const { dateOnly } = require('../../utils/dateRange');
@@ -468,10 +469,9 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
     if (row.videoObjectPathCheckin) gcsPaths.push(row.videoObjectPathCheckin);
     if (row.videoObjectPathCheckout) gcsPaths.push(row.videoObjectPathCheckout);
   }
-  if (faceProfile) {
-    for (const p of [faceProfile.photoObjectPathFront, faceProfile.photoObjectPathLeft, faceProfile.photoObjectPathRight]) {
-      if (p) gcsPaths.push(p);
-    }
+  if (faceProfile?.photoObjectPath) gcsPaths.push(faceProfile.photoObjectPath);
+  if (faceProfile?.rekognitionFaceId) {
+    await deleteRekognitionFace({ companyId, faceId: faceProfile.rekognitionFaceId });
   }
 
   const { userId, customRoleId } = employee;

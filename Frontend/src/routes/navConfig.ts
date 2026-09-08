@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Send,
   Settings,
-  ShieldAlert,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -47,7 +46,6 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Approvals', path: '/company-admin/approvals', icon: ClipboardCheck },
   { label: 'Attendance Records', path: '/company-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/company-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
-  { label: 'Fraud Attempts', path: '/company-admin/fraud-attempts', icon: ShieldAlert, permission: 'attendance:read' },
   { label: 'Holidays', path: '/company-admin/holidays', icon: CalendarClock },
   { label: 'Leave Types', path: '/company-admin/leave-types', icon: Wallet, permission: 'leave_type:read' },
   { label: 'Leave Policy Settings', path: '/company-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
@@ -72,7 +70,6 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Approvals', path: '/brand-admin/approvals', icon: ClipboardCheck },
   { label: 'Attendance Records', path: '/brand-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/brand-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
-  { label: 'Fraud Attempts', path: '/brand-admin/fraud-attempts', icon: ShieldAlert, permission: 'attendance:read' },
   { label: 'Holidays', path: '/brand-admin/holidays', icon: CalendarClock },
   { label: 'Leave Types', path: '/brand-admin/leave-types', icon: Wallet, permission: 'leave_type:read' },
   { label: 'Leave Policy Settings', path: '/brand-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },

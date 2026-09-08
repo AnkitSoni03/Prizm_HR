@@ -2,49 +2,18 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { invalidateCompanyFaceCache } = require('./faceCache');
+const { uploadBuffer, buildObjectPath } = require('../../utils/gcs');
+const { indexFace, deleteFace } = require('../../utils/rekognition');
 
-const EMBEDDING_LENGTH = 128;
-// front/left/right captures of the same person should land well within this
-// distance of each other — anything further suggests a bad capture (wrong
-// face, heavy occlusion) rather than normal angle variation.
-const SELF_CONSISTENCY_MAX_DISTANCE = 0.5;
+const MAX_PHOTO_SIZE_BYTES = 8 * 1024 * 1024; // 8MB — a single still frame, not a video
 
-function euclideanDistance(a, b) {
-  let sum = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const diff = a[i] - b[i];
-    sum += diff * diff;
-  }
-  return Math.sqrt(sum);
-}
-
-function assertValidEmbedding(label, embedding) {
-  if (
-    !Array.isArray(embedding) ||
-    embedding.length !== EMBEDDING_LENGTH ||
-    embedding.some((v) => typeof v !== 'number' || !Number.isFinite(v))
-  ) {
-    throw new HttpError(400, `${label} embedding must be an array of ${EMBEDDING_LENGTH} finite numbers`);
-  }
-}
-
-async function registerFaceProfile({ companyId, employeeId, embeddings, photoObjectPaths }) {
+async function registerFaceProfile({ companyId, employeeId, imageBuffer }) {
   if (!employeeId) throw new HttpError(400, 'No employee record linked to this user');
-  if (!embeddings || !embeddings.front || !embeddings.left || !embeddings.right) {
-    throw new HttpError(400, 'front, left, and right embeddings are all required');
+  if (!Buffer.isBuffer(imageBuffer) || imageBuffer.length === 0) {
+    throw new HttpError(400, 'A photo is required to register your face');
   }
-
-  const { front, left, right } = embeddings;
-  assertValidEmbedding('front', front);
-  assertValidEmbedding('left', left);
-  assertValidEmbedding('right', right);
-
-  const dFrontLeft = euclideanDistance(front, left);
-  const dFrontRight = euclideanDistance(front, right);
-  const dLeftRight = euclideanDistance(left, right);
-  if (Math.max(dFrontLeft, dFrontRight, dLeftRight) > SELF_CONSISTENCY_MAX_DISTANCE) {
-    throw new HttpError(400, 'The three captured angles do not appear to be the same face — please retake all three.');
+  if (imageBuffer.length > MAX_PHOTO_SIZE_BYTES) {
+    throw new HttpError(400, 'Photo is too large');
   }
 
   // Look up including soft-deleted rows so a previously-revoked profile is
@@ -52,15 +21,28 @@ async function registerFaceProfile({ companyId, employeeId, embeddings, photoObj
   // unique index (one active row per employee) on a fresh insert.
   let profile = await db.EmployeeFaceProfile.findOne({ where: { employeeId }, paranoid: false });
 
+  // Re-registering — drop the old AWS-side face first so a stale/replaced
+  // photo doesn't linger in the collection as a second, orphaned match
+  // candidate for the same employee. Best-effort: never blocks re-registration.
+  if (profile && profile.rekognitionFaceId) {
+    await deleteFace({ companyId, faceId: profile.rekognitionFaceId });
+  }
+
+  const { faceId } = await indexFace({ companyId, employeeId, imageBuffer });
+
+  const destination = buildObjectPath({
+    companyId,
+    resource: 'face-profiles',
+    resourceId: employeeId,
+    fileName: `photo-${Date.now()}.jpg`,
+  });
+  await uploadBuffer({ buffer: imageBuffer, destination, contentType: 'image/jpeg' });
+
   const fields = {
     companyId,
     employeeId,
-    embeddingFront: front,
-    embeddingLeft: left,
-    embeddingRight: right,
-    photoObjectPathFront: photoObjectPaths?.front ?? null,
-    photoObjectPathLeft: photoObjectPaths?.left ?? null,
-    photoObjectPathRight: photoObjectPaths?.right ?? null,
+    rekognitionFaceId: faceId,
+    photoObjectPath: destination,
     status: 'active',
     registeredAt: new Date(),
   };
@@ -71,8 +53,6 @@ async function registerFaceProfile({ companyId, employeeId, embeddings, photoObj
   } else {
     profile = await db.EmployeeFaceProfile.create(fields);
   }
-
-  await invalidateCompanyFaceCache(companyId);
 
   return { registered: true, registeredAt: profile.registeredAt };
 }
@@ -86,4 +66,4 @@ async function getMyFaceProfileStatus({ employeeId }) {
     : { registered: false, registeredAt: null, status: null };
 }
 
-module.exports = { registerFaceProfile, getMyFaceProfileStatus, euclideanDistance, assertValidEmbedding };
+module.exports = { registerFaceProfile, getMyFaceProfileStatus };

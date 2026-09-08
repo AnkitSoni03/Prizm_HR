@@ -1,8 +1,8 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { LoginPage } from '../pages/auth/LoginPage';
-import { KioskPage } from '../pages/kiosk/KioskPage';
 import { ActivatePage } from '../pages/auth/ActivatePage';
 import { ForgotPasswordPage } from '../pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/auth/ResetPasswordPage';
@@ -32,7 +32,6 @@ import {
   AttendanceBoardPage as CompanyAdminAttendanceBoardPage,
   AttendanceBoardPage as BrandAdminAttendanceBoardPage,
 } from '../pages/company-admin/AttendanceBoardPage';
-import { FraudAttemptsPage, FraudAttemptsPage as BrandAdminFraudAttemptsPage } from '../pages/company-admin/FraudAttemptsPage';
 import {
   HolidaysPage as CompanyAdminHolidaysPage,
   HolidaysPage as BrandAdminHolidaysPage,
@@ -97,6 +96,12 @@ import {
 } from './navConfig';
 import { useAuth } from '../context/auth-context';
 
+// Lazy-loaded — AWS Amplify's Face Liveness detector pulls in TensorFlow.js
+// and MediaPipe (~1.8MB), which no portal other than the kiosk needs. Static
+// importing it here would put that weight in every user's initial bundle and
+// pushes the whole build over vite-plugin-pwa's default 2MB precache limit.
+const KioskPage = lazy(() => import('../pages/kiosk/KioskPage').then((m) => ({ default: m.KioskPage })));
+
 export function AppRoutes() {
   const { user } = useAuth();
   return (
@@ -104,7 +109,14 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       {/* Fullscreen kiosk view, deliberately outside ProtectedRoute/Layout —
           it does its own login gate and has no use for portal chrome. */}
-      <Route path="/kiosk" element={<KioskPage />} />
+      <Route
+        path="/kiosk"
+        element={
+          <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-sidebar text-sm text-white/70">Loading…</div>}>
+            <KioskPage />
+          </Suspense>
+        }
+      />
       <Route path="/activate" element={<ActivatePage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -247,17 +259,6 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Attendance Board">
               <CompanyAdminAttendanceBoardPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/company-admin/fraud-attempts"
-        element={
-          <ProtectedRoute permission="attendance:read">
-            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Fraud Attempts">
-              <FraudAttemptsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -478,17 +479,6 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Attendance Board">
               <BrandAdminAttendanceBoardPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/brand-admin/fraud-attempts"
-        element={
-          <ProtectedRoute permission="attendance:read">
-            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Fraud Attempts">
-              <BrandAdminFraudAttemptsPage />
             </Layout>
           </ProtectedRoute>
         }

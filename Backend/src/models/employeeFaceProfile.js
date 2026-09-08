@@ -15,16 +15,13 @@ module.exports = (sequelize, DataTypes) => {
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
       employeeId: { type: DataTypes.BIGINT, allowNull: false },
-      // 128-float descriptors from face-api.js's FaceRecognitionNet, one per
-      // registered angle — stored as plain JSON arrays, matched via
-      // Euclidean distance in faceAttendance.service.js.
-      embeddingFront: { type: DataTypes.JSONB, allowNull: false },
-      embeddingLeft: { type: DataTypes.JSONB, allowNull: false },
-      embeddingRight: { type: DataTypes.JSONB, allowNull: false },
-      // GCS object paths, audit-only — never used for matching.
-      photoObjectPathFront: { type: DataTypes.STRING, allowNull: true },
-      photoObjectPathLeft: { type: DataTypes.STRING, allowNull: true },
-      photoObjectPathRight: { type: DataTypes.STRING, allowNull: true },
+      // AWS Rekognition's own id for this face, inside this company's
+      // collection (utils/rekognition.js::companyCollectionId) — the actual
+      // face data/embedding lives entirely on AWS's side now, this is just
+      // the pointer back to it.
+      rekognitionFaceId: { type: DataTypes.STRING, allowNull: false },
+      // GCS object path, audit-only — never sent back to AWS for matching.
+      photoObjectPath: { type: DataTypes.STRING, allowNull: true },
       status: {
         type: DataTypes.ENUM('active', 'revoked'),
         allowNull: false,

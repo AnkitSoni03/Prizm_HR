@@ -2,35 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { ScanFace, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/Button';
-import { detectFaceOptions, faceapi, loadFaceApiModels } from '../lib/faceapi';
 import { getMyFaceProfileStatus, registerFaceProfile, type FaceProfileStatus } from '../api/ess/faceProfile';
-
-type Angle = 'front' | 'left' | 'right';
-const ANGLES: { key: Angle; label: string; instruction: string }[] = [
-  { key: 'front', label: 'Front', instruction: 'Look straight at the camera' },
-  { key: 'left', label: 'Left', instruction: 'Turn your head slightly left' },
-  { key: 'right', label: 'Right', instruction: 'Turn your head slightly right' },
-];
 
 const CAPTURE_GUIDELINES = [
   'Find a well-lit spot — face a light source, avoid strong light or windows behind you.',
   'Remove sunglasses, a mask, or anything covering your face. A cap is fine if your face is clear.',
   'Make sure only your face is in frame — no one else standing behind or beside you.',
-  'Keep a neutral, relaxed expression with both eyes open, and hold still for a second when capturing.',
-  'For each angle, follow the on-screen instruction (straight, slight left, slight right) before tapping it.',
+  'Look straight at the camera with a neutral, relaxed expression and both eyes open.',
 ];
-
-const MIN_DETECTION_SCORE = 0.8;
-// Same self-consistency ceiling as faceProfile.service.js's server-side
-// check — computed here too so a bad capture is caught before the network
-// round trip, not just after.
-const SELF_CONSISTENCY_MAX_DISTANCE = 0.5;
-
-function euclideanDistance(a: number[], b: number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i += 1) sum += (a[i] - b[i]) ** 2;
-  return Math.sqrt(sum);
-}
 
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
@@ -42,20 +21,15 @@ function extractError(err: unknown, fallback: string): string {
 export function RegisterFaceCard() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [modelsReady, setModelsReady] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [status, setStatus] = useState<FaceProfileStatus | null>(null);
-  const [captures, setCaptures] = useState<Partial<Record<Angle, number[]>>>({});
-  const [activeAngle, setActiveAngle] = useState<Angle | null>(null);
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [capturedPhoto, setCapturedPhoto] = useState<Blob | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    loadFaceApiModels()
-      .then(() => setModelsReady(true))
-      .catch(() => setError('Could not load face recognition models. Please refresh and try again.'));
     getMyFaceProfileStatus()
       .then(setStatus)
       .catch(() => setStatus(null));
@@ -64,13 +38,11 @@ export function RegisterFaceCard() {
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The <video> element only mounts once cameraReady is true (see the JSX
-  // below), so attaching the stream has to happen *after* that render, not
-  // inside startCamera itself — videoRef.current is still null at that
-  // point since the element doesn't exist in the DOM yet.
   useEffect(() => {
     if (cameraReady && streamRef.current && videoRef.current) {
       videoRef.current.srcObject = streamRef.current;
@@ -93,67 +65,48 @@ export function RegisterFaceCard() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setCameraReady(false);
-    setActiveAngle(null);
   }
 
-  async function captureAngle(angle: Angle) {
-    if (!videoRef.current) return;
+  function retake() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setCapturedPhoto(null);
     setError(null);
-    setActiveAngle(angle);
-    setIsDetecting(true);
-    try {
-      // Poll for a clean single-face detection rather than grabbing whatever
-      // frame happens to be current — gives the employee a moment to settle
-      // into the requested angle.
-      let descriptor: Float32Array | null = null;
-      const deadline = Date.now() + 8000;
-      while (Date.now() < deadline) {
-        const result = await faceapi
-          .detectSingleFace(videoRef.current, detectFaceOptions())
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-        if (result && result.detection.score >= MIN_DETECTION_SCORE) {
-          descriptor = result.descriptor;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-      if (!descriptor) {
-        setError(`Could not clearly detect your face for the ${angle} angle. Please try again.`);
-        return;
-      }
-      setCaptures((prev) => ({ ...prev, [angle]: Array.from(descriptor!) }));
-    } finally {
-      setIsDetecting(false);
-      setActiveAngle(null);
-    }
   }
 
-  const allCaptured = ANGLES.every(({ key }) => captures[key]);
+  function capturePhoto() {
+    if (!videoRef.current) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setError('Could not capture a photo. Please try again.');
+          return;
+        }
+        setCapturedPhoto(blob);
+        setPreviewUrl(URL.createObjectURL(blob));
+        stopCamera();
+      },
+      'image/jpeg',
+      0.9
+    );
+  }
 
   async function handleSubmit() {
-    if (!captures.front || !captures.left || !captures.right) return;
+    if (!capturedPhoto) return;
     setError(null);
     setSuccess(false);
-
-    const distances = [
-      euclideanDistance(captures.front, captures.left),
-      euclideanDistance(captures.front, captures.right),
-      euclideanDistance(captures.left, captures.right),
-    ];
-    if (Math.max(...distances) > SELF_CONSISTENCY_MAX_DISTANCE) {
-      setError('The three captures do not appear to be the same face. Please retake all three.');
-      setCaptures({});
-      return;
-    }
-
     setIsSubmitting(true);
     try {
-      const result = await registerFaceProfile({ front: captures.front, left: captures.left, right: captures.right });
+      const result = await registerFaceProfile(capturedPhoto);
       setSuccess(true);
       setStatus({ registered: true, registeredAt: result.registeredAt, status: 'active' });
-      setCaptures({});
-      stopCamera();
+      retake();
     } catch (err) {
       setError(extractError(err, 'Could not register your face. Please try again.'));
     } finally {
@@ -194,7 +147,7 @@ export function RegisterFaceCard() {
         </div>
       )}
 
-      {!cameraReady && (
+      {!cameraReady && !previewUrl && (
         <>
           <div className="mt-4 rounded-xl border border-border bg-page px-3 py-3 text-sm text-ink-muted">
             <p className="font-medium text-ink">Before you start, for best results:</p>
@@ -205,47 +158,32 @@ export function RegisterFaceCard() {
             </ul>
           </div>
           <div className="mt-4 flex justify-end">
-            <Button onClick={startCamera} disabled={!modelsReady}>
-              {modelsReady ? 'Start camera' : 'Loading models…'}
-            </Button>
+            <Button onClick={startCamera}>Start camera</Button>
           </div>
         </>
       )}
 
       {cameraReady && (
         <div className="mt-4 space-y-4">
-          {/* CSS-only mirror so this behaves like a normal mirror, not the
-              camera's raw reversed feed — face-api.js detection and the
-              captured descriptor still read the video element's actual
-              unmirrored frame buffer, untouched by the transform. */}
+          {/* CSS-only mirror so this behaves like a normal mirror. */}
           <video ref={videoRef} muted playsInline className="w-full -scale-x-100 rounded-lg bg-black" />
-
-          <div className="grid grid-cols-3 gap-2">
-            {ANGLES.map(({ key, label, instruction }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => captureAngle(key)}
-                disabled={isDetecting}
-                title={instruction}
-                className={`rounded-lg border px-2 py-2 text-xs font-medium transition ${
-                  captures[key]
-                    ? 'border-success/30 bg-success/5 text-success'
-                    : activeAngle === key
-                      ? 'border-primary/40 bg-primary-light text-primary'
-                      : 'border-border text-ink-muted hover:border-primary/30'
-                }`}
-              >
-                {captures[key] ? `${label} ✓` : activeAngle === key ? 'Capturing…' : label}
-              </button>
-            ))}
-          </div>
-
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={stopCamera}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={!allCaptured} isLoading={isSubmitting}>
+            <Button onClick={capturePhoto}>Capture</Button>
+          </div>
+        </div>
+      )}
+
+      {previewUrl && (
+        <div className="mt-4 space-y-4">
+          <img src={previewUrl} alt="Captured face preview" className="w-full -scale-x-100 rounded-lg" />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={retake} disabled={isSubmitting}>
+              Retake
+            </Button>
+            <Button onClick={handleSubmit} isLoading={isSubmitting}>
               Submit
             </Button>
           </div>

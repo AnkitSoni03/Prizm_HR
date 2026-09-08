@@ -42,7 +42,6 @@ export interface Company {
   status: 'trial' | 'active' | 'grace' | 'suspended' | 'terminated';
   planId: string | null;
   usesBrands: boolean;
-  faceAntispoofEnforced: boolean;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -278,7 +277,6 @@ export async function updateCompany(
     gstNumber: string | null;
     planId: string | null;
     status: Company['status'];
-    faceAntispoofEnforced: boolean;
   }>
 ): Promise<Company> {
   const { data } = await apiClient.patch<{ data: Company }>(`/companies/${id}`, input);

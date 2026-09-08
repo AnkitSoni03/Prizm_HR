@@ -1,45 +1,28 @@
 import { apiClient } from './client';
 
-export type LivenessChallenge = 'smile' | 'turn_left' | 'turn_right';
-
-export interface LivenessFrame {
-  t: number;
-  smile: number;
-  yaw: number;
-}
-
 export interface FaceCheckInResult {
   action: 'check_in' | 'check_out';
   attendance: { id: string; date: string };
   employee: { id: string; name: string; employeeCode: string };
 }
 
-export interface FrameBbox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+export async function createFaceLivenessSession(): Promise<{ sessionId: string }> {
+  const { data } = await apiClient.post<{ data: { sessionId: string } }>('/attendance/face-liveness-session', {});
+  return data.data;
 }
 
 export async function faceCheckIn(
   action: 'checkin' | 'checkout',
-  embedding: number[],
-  liveness: { challenge: LivenessChallenge; frames: LivenessFrame[] },
-  frameImage?: string,
-  frameBbox?: FrameBbox,
+  sessionId: string,
   // Set only on the follow-up call after the employee has explicitly
-  // confirmed "check out anyway" on a SHIFT_INCOMPLETE rejection — never on
-  // the first attempt. Reuses the same already-captured embedding/liveness
-  // data rather than making the employee redo the liveness challenge just
-  // to confirm.
+  // confirmed "check out anyway" on a SHIFT_INCOMPLETE rejection — reuses the
+  // same liveness session rather than making the employee redo the liveness
+  // challenge just to confirm.
   confirmIncompleteShift?: boolean
 ): Promise<FaceCheckInResult> {
   const { data } = await apiClient.post<{ data: FaceCheckInResult }>('/attendance/face-checkin', {
     action,
-    embedding,
-    liveness,
-    frameImage,
-    frameBbox,
+    sessionId,
     confirmIncompleteShift,
   });
   return data.data;
@@ -50,15 +33,4 @@ export async function uploadFaceCapture(attendanceId: string, action: 'checkin' 
   const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
   formData.append('video', blob, `${action}.${extension}`);
   await apiClient.post(`/attendance/face-capture/${attendanceId}`, formData, { params: { action } });
-}
-
-// Uploaded only for a blocked (anti-spoof-rejected) attempt — there's no
-// attendance row to attach the clip to, so it goes straight to the
-// FaceVerificationFlag record instead, for the admin Fraud Attempts review
-// page (KioskPage.tsx's runCapture catch branch).
-export async function uploadFaceFlagCapture(flagId: string, blob: Blob): Promise<void> {
-  const formData = new FormData();
-  const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
-  formData.append('video', blob, `flag.${extension}`);
-  await apiClient.post(`/attendance/face-flags/${flagId}/capture`, formData);
 }

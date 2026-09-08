@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, CreditCard, Hash, Layers, Lock, MonitorSmartphone, Pencil, ShieldAlert, User } from 'lucide-react';
+import { Building2, CreditCard, Hash, Layers, Lock, MonitorSmartphone, Pencil, User } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Tabs } from '../../components/ui/Tabs';
 import { DetailRow } from '../../components/ui/DetailRow';
@@ -8,8 +8,7 @@ import { AccountProfileCard } from '../../components/AccountProfileCard';
 import { ChangePasswordCard } from '../../components/ChangePasswordCard';
 import { useAuth } from '../../context/auth-context';
 import { EditCompanyModal } from '../super-admin/components/EditCompanyModal';
-import { getCompany, listPlans, updateCompany, type Company, type Plan } from '../../api/tenancy';
-import { useToast } from '../../context/toast-context';
+import { getCompany, listPlans, type Company, type Plan } from '../../api/tenancy';
 import { ScannerAccountsPage } from './ScannerAccountsPage';
 
 type Tab = 'profile' | 'password' | 'kiosks';
@@ -28,7 +27,6 @@ function companyStatusTone(status: Company['status']) {
 // only), so this page is deliberately silent about lifecycle status too.
 export function SettingsPage() {
   const { user, hasPermission } = useAuth();
-  const showToast = useToast();
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const initialTab: Tab =
@@ -43,21 +41,6 @@ export function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isSavingAntispoof, setIsSavingAntispoof] = useState(false);
-
-  async function toggleAntispoofEnforcement(enabled: boolean) {
-    if (!company) return;
-    setIsSavingAntispoof(true);
-    try {
-      const updated = await updateCompany(company.id, { faceAntispoofEnforced: enabled });
-      setCompany(updated);
-      showToast(enabled ? 'Fraud detection is now blocking check-ins.' : 'Fraud detection is back to review-only mode.', 'success');
-    } catch {
-      showToast('Could not update this setting.', 'error');
-    } finally {
-      setIsSavingAntispoof(false);
-    }
-  }
 
   async function loadCompany(id: string) {
     setIsLoading(true);
@@ -142,36 +125,6 @@ export function SettingsPage() {
             </div>
           )}
 
-          {companyId && !isLoading && company && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div className="mb-3 flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning">
-                  <ShieldAlert className="h-5 w-5" strokeWidth={1.75} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-ink">Kiosk Fraud Detection</h2>
-                  <p className="text-sm text-ink-muted">
-                    The kiosk anti-spoof check always runs and logs suspicious attempts to{' '}
-                    <span className="font-medium text-ink">Fraud Attempts</span>. Turn this on once you've confirmed
-                    real employees aren't being falsely flagged there — from then on, a detected photo, video, or
-                    screen is rejected outright instead of just logged.
-                  </p>
-                </div>
-              </div>
-              <label className="flex items-center gap-3 border-t border-border pt-3.5 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-border accent-primary disabled:opacity-50"
-                  checked={company.faceAntispoofEnforced}
-                  disabled={!canEdit || isSavingAntispoof}
-                  onChange={(event) => toggleAntispoofEnforcement(event.target.checked)}
-                />
-                <span className="text-ink">
-                  {company.faceAntispoofEnforced ? 'Blocking suspicious check-ins' : 'Review-only (not blocking check-ins yet)'}
-                </span>
-              </label>
-            </div>
-          )}
         </div>
       )}
 

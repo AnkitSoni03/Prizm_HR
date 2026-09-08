@@ -2,71 +2,47 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Camera, LogIn, LogOut } from 'lucide-react';
+import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
+import { ThemeProvider, type Theme } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
 import { useAuth } from '../../context/auth-context';
-import { detectFaceOptions, smileRatio, faceapi, estimateYaw, loadFaceApiModels } from '../../lib/faceapi';
-import {
-  faceCheckIn,
-  uploadFaceCapture,
-  uploadFaceFlagCapture,
-  type FrameBbox,
-  type LivenessChallenge,
-  type LivenessFrame,
-} from '../../api/kiosk';
+import { configureAmplify } from '../../lib/amplifyConfig';
+import { createFaceLivenessSession, faceCheckIn, uploadFaceCapture } from '../../api/kiosk';
 
-const CHALLENGES: { key: LivenessChallenge; instruction: string }[] = [
-  { key: 'smile', instruction: 'Please smile' },
-  { key: 'turn_left', instruction: 'Please turn your head left' },
-  { key: 'turn_right', instruction: 'Please turn your head right' },
-];
+const AWS_REGION = import.meta.env.VITE_AWS_REGION;
 
-// The person has up to 10s to actually perform the challenge — sampling
-// stops the instant it's detected (usually well before that), so a quick
-// smile/turn doesn't force anyone to sit through the full window. If
-// nothing is detected by the deadline, capture is abandoned with a timeout
-// message rather than sending a burst to the backend that we already know
-// didn't satisfy the challenge.
-const MAX_CAPTURE_MS = 10000;
-const SAMPLE_INTERVAL_MS = 120;
-const CAMERA_WARMUP_MS = 150;
-
-// Mirrors faceAttendance.service.js::validateLiveness's own thresholds —
-// this client-side copy is only used to decide *when to stop sampling
-// early*; the backend re-validates the same thing from the raw numbers
-// independently and is the actual authority (never trusts a client-side
-// "passed" claim).
-const MIN_FRAMES = 8;
-const MIN_BURST_MS = 1200;
-// Uncalibrated (no labelled sample set in this environment) — set to a
-// moderate rise in mouth-width/jaw-width ratio, loose enough for a small
-// smile to register rather than requiring a wide grin.
-const SMILE_DELTA_THRESHOLD = 0.06;
-const YAW_DELTA_THRESHOLD = 12;
-
-function isChallengeSatisfied(challenge: LivenessChallenge, frames: LivenessFrame[]): boolean {
-  if (frames.length < MIN_FRAMES) return false;
-  if (frames[frames.length - 1].t - frames[0].t < MIN_BURST_MS) return false;
-
-  if (challenge === 'smile') {
-    const smiles = frames.map((f) => f.smile);
-    const baseline = smiles[0];
-    return Math.max(...smiles) - baseline >= SMILE_DELTA_THRESHOLD;
-  }
-
-  const yaws = frames.map((f) => f.yaw);
-  const baseline = yaws[0];
-  const extremum = challenge === 'turn_left' ? Math.min(...yaws) : Math.max(...yaws);
-  return Math.abs(extremum - baseline) >= YAW_DELTA_THRESHOLD;
-}
+// AWS's own component ships a light theme by default, which clashes with
+// this page's dark kiosk shell — same brand colors as index.css's dark-mode
+// tokens (--bg-sidebar/--bg-card/--brand there), duplicated here as plain
+// hex since Amplify's ThemeProvider doesn't read this app's CSS variables.
+const LIVENESS_THEME: Theme = {
+  name: 'kiosk-dark',
+  tokens: {
+    colors: {
+      background: {
+        primary: { value: '#0c0c0f' },
+        secondary: { value: '#17181d' },
+      },
+      font: {
+        primary: { value: '#ffffff' },
+        secondary: { value: '#9ca3af' },
+      },
+      brand: {
+        primary: {
+          10: { value: '#1e3c72' },
+          80: { value: '#3354a4' },
+          90: { value: '#3354a4' },
+          100: { value: '#3354a4' },
+        },
+      },
+    },
+  },
+};
 
 type KioskState =
-  | {
-      phase: 'capturing';
-      action: 'checkin' | 'checkout';
-      challenge: LivenessChallenge;
-      instruction: string;
-      secondsLeft: number;
-    }
   | { phase: 'ready' }
+  | { phase: 'starting'; action: 'checkin' | 'checkout' }
+  | { phase: 'liveness'; action: 'checkin' | 'checkout'; sessionId: string }
   | { phase: 'matching'; action: 'checkin' | 'checkout' }
   | { phase: 'success'; message: string }
   | { phase: 'error'; message: string }
@@ -78,13 +54,11 @@ type KioskState =
 
 // checkInTime/checkOutTime/workedMinutes/requiredMinutes are only present
 // for the specific attendance-state error codes below (see
-// attendance.service.js::applyAttendancePunch); flagId only for a blocked
-// anti-spoof rejection. Every other rejection (unknown face, liveness
-// challenge failed) has none of these.
+// attendance.service.js::applyAttendancePunch). Every other rejection
+// (unknown face, liveness failed) has none of these.
 interface FaceCheckInErrorDetails {
   message: string;
   code?: string;
-  flagId?: string;
   checkInTime?: string;
   checkOutTime?: string;
   workedMinutes?: number;
@@ -110,229 +84,159 @@ function formatTime(iso: string): string {
 // in once as a dedicated Scanner account and is meant to stay on this screen
 // indefinitely. Deliberately outside ProtectedRoute's normal portal shell
 // (see AppRoutes.tsx) since a kiosk has no use for navigation, a
-// notification bell, or any of the rest of the app chrome. Face recognition
-// happens directly on this device's own camera — no employee phone, QR
-// code, or WebAuthn passkey involved at all.
+// notification bell, or any of the rest of the app chrome.
 //
-// The camera is only ever open for the duration of one capture burst: it
-// opens the instant Check In/Check Out is tapped and is stopped again as
-// soon as the descriptor + liveness frames are captured, before the
-// network round-trip even starts — it never sits on in the background.
+// Face identification and liveness/anti-spoof detection both run on AWS
+// (Rekognition + Face Liveness) — AWS's own <FaceLivenessDetector> component
+// owns the camera for the actual liveness challenge and streams straight to
+// AWS; this page never sees the raw liveness video. A second, independent
+// getUserMedia capture runs alongside it purely to keep the existing 90-day
+// audit-clip trail (attendanceVideoCleanup.job.js) working unchanged — most
+// browsers happily support two concurrent consumers of the same camera on
+// one page, and this capture is best-effort (never blocks a punch if it
+// fails to start).
 export function KioskPage() {
   const { isAuthenticated, logout } = useAuth();
 
-  const [modelsReady, setModelsReady] = useState(false);
   const [state, setState] = useState<KioskState>({ phase: 'ready' });
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const auditRef = useRef<{ stream: MediaStream; recorder: MediaRecorder; chunks: BlobPart[] } | null>(null);
   // Everything needed to resubmit the exact same checkout attempt with
   // confirmIncompleteShift: true after the employee taps "Check Out Anyway"
-  // — set right before the first faceCheckIn call, so confirming doesn't
-  // require the employee to redo the liveness challenge in front of the
-  // camera a second time. Cleared once the confirm dialog resolves either
-  // way (confirm or Wait).
-  const pendingCheckoutRef = useRef<{
-    descriptor: number[];
-    liveness: { challenge: LivenessChallenge; frames: LivenessFrame[] };
-    frameImage?: string;
-    frameBbox?: FrameBbox;
-    blob: Blob;
-  } | null>(null);
+  // — the liveness session is still valid, so this reuses it rather than
+  // making the employee redo the liveness challenge a second time.
+  const pendingCheckoutRef = useRef<{ sessionId: string; blob: Blob | null } | null>(null);
+  // Auto-cancels the liveness screen if the employee never completes the
+  // challenge (walks away, gets confused, etc.) — a kiosk must not sit
+  // waiting on one attempt indefinitely. Cleared any time the liveness phase
+  // ends on its own (analysis completes or AWS reports an error) so it never
+  // fires after the fact.
+  const livenessTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    loadFaceApiModels()
-      .then(() => setModelsReady(true))
-      .catch(() => setState({ phase: 'error', message: 'Could not load face recognition models.' }));
-  }, []);
-
-  useEffect(() => {
+    configureAmplify();
     return () => {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (livenessTimeoutRef.current) window.clearTimeout(livenessTimeoutRef.current);
     };
   }, []);
 
-  function stopCamera() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
+  function clearLivenessTimeout() {
+    if (livenessTimeoutRef.current) {
+      window.clearTimeout(livenessTimeoutRef.current);
+      livenessTimeoutRef.current = null;
+    }
   }
 
-  const runCapture = useCallback(async (action: 'checkin' | 'checkout') => {
-    const challenge = CHALLENGES[Math.floor(Math.random() * CHALLENGES.length)];
-    setState({
-      phase: 'capturing',
-      action,
-      challenge: challenge.key,
-      instruction: challenge.instruction,
-      secondsLeft: Math.ceil(MAX_CAPTURE_MS / 1000),
-    });
-
-    let stream: MediaStream;
+  async function startAuditRecording() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    } catch {
-      setState({ phase: 'error', message: 'Could not access the camera.' });
-      setTimeout(() => setState({ phase: 'ready' }), 3000);
-      return;
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.start();
+      auditRef.current = { stream, recorder, chunks };
+    } catch (err) {
+      console.error('Audit clip recording could not start (non-blocking):', err);
+      auditRef.current = null;
     }
-    streamRef.current = stream;
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play().catch(() => {});
-    }
-    // Brief settle so the sensor has a real frame before sampling starts.
-    await new Promise((resolve) => setTimeout(resolve, CAMERA_WARMUP_MS));
+  }
 
-    const frames: LivenessFrame[] = [];
-    const startedAt = Date.now();
-    const chunks: BlobPart[] = [];
-    const recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data);
-    };
-    const stopped = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
+  function stopAuditRecording(): Promise<Blob | null> {
+    const audit = auditRef.current;
+    auditRef.current = null;
+    if (!audit) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      audit.recorder.onstop = () => {
+        audit.stream.getTracks().forEach((track) => track.stop());
+        resolve(new Blob(audit.chunks, { type: audit.recorder.mimeType || 'video/webm' }));
+      };
+      audit.recorder.stop();
     });
-    recorder.start();
+  }
 
-    // Landmarks only while watching for the action — the recognition
-    // descriptor is the expensive step, computed once at the end, not on
-    // every sampled frame. Stops the instant the challenge is satisfied
-    // (usually well under 10s); only runs the full window if the person
-    // never performs it.
-    let satisfied = false;
-    while (Date.now() - startedAt < MAX_CAPTURE_MS) {
-      if (!videoRef.current) break;
-      const elapsed = Date.now() - startedAt;
-      const result = await faceapi.detectSingleFace(videoRef.current, detectFaceOptions()).withFaceLandmarks();
-      if (result) {
-        frames.push({ t: elapsed, smile: smileRatio(result.landmarks), yaw: estimateYaw(result.landmarks) });
+  const handleLivenessTimeout = useCallback(async () => {
+    clearLivenessTimeout();
+    await stopAuditRecording();
+    setState({ phase: 'error', message: 'Face verification timed out. Please try again.' });
+    setTimeout(() => setState({ phase: 'ready' }), 3000);
+  }, []);
+
+  const runCapture = useCallback(
+    async (action: 'checkin' | 'checkout') => {
+      setState({ phase: 'starting', action });
+      try {
+        const session = await createFaceLivenessSession();
+        // Fire-and-forget: this opens a second, independent camera stream
+        // purely for our own audit clip (see the class comment above) — it
+        // was previously awaited here, which meant the employee stared at a
+        // blank "Preparing camera…" screen until a SECOND getUserMedia
+        // handshake finished, on top of AWS's own liveness camera. It's
+        // best-effort by design (startAuditRecording already swallows its
+        // own errors), so there's no reason to block AWS's UI on it.
+        startAuditRecording();
+        setState({ phase: 'liveness', action, sessionId: session.sessionId });
+        // AWS's own flow (get-ready screen -> centering -> the actual
+        // light-flash challenge -> analysis) routinely takes well past 10s
+        // end to end even for a cooperative user — 10s (copied from the old
+        // custom challenge's much shorter flow) was firing before a normal
+        // attempt could ever finish. 35s comfortably covers the real flow
+        // while still guaranteeing the kiosk never hangs indefinitely.
+        livenessTimeoutRef.current = window.setTimeout(() => {
+          handleLivenessTimeout();
+        }, 35000);
+      } catch {
+        setState({ phase: 'error', message: 'Could not start face verification. Please try again.' });
+        setTimeout(() => setState({ phase: 'ready' }), 3000);
       }
-      setState((prev) =>
-        prev.phase === 'capturing'
-          ? { ...prev, secondsLeft: Math.max(0, Math.ceil((MAX_CAPTURE_MS - elapsed) / 1000)) }
-          : prev
-      );
-      if (isChallengeSatisfied(challenge.key, frames)) {
-        satisfied = true;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, SAMPLE_INTERVAL_MS));
-    }
+    },
+    [handleLivenessTimeout]
+  );
 
-    if (!satisfied) {
-      recorder.stop();
-      await stopped;
-      stopCamera();
-      setState({ phase: 'error', message: 'No action detected within 10 seconds. Please try again.' });
-      setTimeout(() => setState({ phase: 'ready' }), 3000);
-      return;
-    }
-
-    let descriptor: Float32Array | null = null;
-    // Captured from the same video element, at the same instant as the
-    // descriptor, so the anti-spoof/screen-artifact check on the backend
-    // (antiSpoof.service.js, screenArtifact.service.js) looks at the exact
-    // frame the recognition match was made from.
-    let frameImage: string | undefined;
-    let frameBbox: FrameBbox | undefined;
-    if (videoRef.current) {
-      const finalResult = await faceapi
-        .detectSingleFace(videoRef.current, detectFaceOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptor();
-      descriptor = finalResult?.descriptor ?? null;
-
-      if (finalResult) {
-        const canvas = document.createElement('canvas');
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          frameImage = canvas.toDataURL('image/jpeg', 0.85);
-          const box = finalResult.detection.box;
-          frameBbox = {
-            x: Math.round(box.x),
-            y: Math.round(box.y),
-            width: Math.round(box.width),
-            height: Math.round(box.height),
-          };
-        }
-      }
-    }
-
-    recorder.stop();
-    await stopped;
-
-    // Camera is no longer needed once the descriptor + liveness frames are
-    // captured — turn it off now, before the network round-trip, not after.
-    stopCamera();
-
-    if (!descriptor) {
-      setState({ phase: 'error', message: 'Could not detect a face. Please try again.' });
-      setTimeout(() => setState({ phase: 'ready' }), 3000);
-      return;
-    }
-
-    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-
-    // Suppressed only when this attempt lands on the "check out anyway?"
-    // confirmation instead of a normal terminal state — that dialog waits
-    // on the employee's own OK/Wait tap, not a timer.
-    let autoResetToReady = true;
-
+  const completeLiveness = useCallback(async (action: 'checkin' | 'checkout', sessionId: string) => {
+    clearLivenessTimeout();
+    const blob = await stopAuditRecording();
     setState({ phase: 'matching', action });
     try {
-      const result = await faceCheckIn(
-        action,
-        Array.from(descriptor),
-        { challenge: challenge.key, frames },
-        frameImage,
-        frameBbox
-      );
+      const result = await faceCheckIn(action, sessionId);
       setState({
         phase: 'success',
         message: `Welcome, ${result.employee.name} — ${result.action === 'check_in' ? 'Checked In' : 'Checked Out'}`,
       });
-
-      uploadFaceCapture(result.attendance.id, action, blob).catch((err) =>
-        console.error('Face capture upload failed:', err)
-      );
+      if (blob) {
+        uploadFaceCapture(result.attendance.id, action, blob).catch((err) =>
+          console.error('Face capture upload failed:', err)
+        );
+      }
+      setTimeout(() => setState({ phase: 'ready' }), 3000);
     } catch (err) {
       const details = extractErrorDetails(err, 'Face not recognized. Please try again.');
 
       if (details.code === 'SHIFT_INCOMPLETE') {
-        // Keep everything needed to resubmit as a confirmed checkout — the
-        // employee shouldn't have to redo the liveness challenge just to
-        // say "yes, check me out anyway".
-        pendingCheckoutRef.current = { descriptor: Array.from(descriptor), liveness: { challenge: challenge.key, frames }, frameImage, frameBbox, blob };
+        pendingCheckoutRef.current = { sessionId, blob };
         setState({ phase: 'confirm_incomplete_shift', message: details.message, isConfirming: false });
-        autoResetToReady = false;
-      } else if (details.code === 'ALREADY_CHECKED_IN' && details.checkInTime) {
+        return;
+      }
+      if (details.code === 'ALREADY_CHECKED_IN' && details.checkInTime) {
         setState({ phase: 'error', message: `Already Checked-In at ${formatTime(details.checkInTime)}` });
       } else if (details.code === 'ALREADY_CHECKED_OUT' && details.checkOutTime) {
         setState({ phase: 'error', message: `Already Checked-Out at ${formatTime(details.checkOutTime)}` });
       } else {
         setState({ phase: 'error', message: details.message });
       }
-
-      // Blocked anti-spoof attempt — preserve the capture clip against the
-      // flag record so an admin can review it on the Fraud Attempts page,
-      // same as a normal successful check-in always preserves its clip.
-      if (details.code === 'SPOOF_DETECTED' && details.flagId) {
-        uploadFaceFlagCapture(details.flagId, blob).catch((uploadErr) =>
-          console.error('Fraud attempt capture upload failed:', uploadErr)
-        );
-      }
-    } finally {
-      if (autoResetToReady) setTimeout(() => setState({ phase: 'ready' }), 3000);
+      setTimeout(() => setState({ phase: 'ready' }), 3000);
     }
   }, []);
 
-  // "Check Out Anyway" on the SHIFT_INCOMPLETE confirmation — resubmits the
-  // exact same descriptor/liveness/frame data already captured, just with
+  const handleLivenessError = useCallback(async () => {
+    clearLivenessTimeout();
+    await stopAuditRecording();
+    setState({ phase: 'error', message: 'Face verification was interrupted. Please try again.' });
+    setTimeout(() => setState({ phase: 'ready' }), 3000);
+  }, []);
+
+  // "Check Out Anyway" on the SHIFT_INCOMPLETE confirmation — resubmits with
+  // the same already-verified liveness session, just with
   // confirmIncompleteShift: true, rather than reopening the camera.
   const confirmCheckoutAnyway = useCallback(async () => {
     const pending = pendingCheckoutRef.current;
@@ -340,18 +244,13 @@ export function KioskPage() {
 
     setState((prev) => (prev.phase === 'confirm_incomplete_shift' ? { ...prev, isConfirming: true } : prev));
     try {
-      const result = await faceCheckIn(
-        'checkout',
-        pending.descriptor,
-        pending.liveness,
-        pending.frameImage,
-        pending.frameBbox,
-        true
-      );
+      const result = await faceCheckIn('checkout', pending.sessionId, true);
       setState({ phase: 'success', message: `Welcome, ${result.employee.name} — Checked Out` });
-      uploadFaceCapture(result.attendance.id, 'checkout', pending.blob).catch((err) =>
-        console.error('Face capture upload failed:', err)
-      );
+      if (pending.blob) {
+        uploadFaceCapture(result.attendance.id, 'checkout', pending.blob).catch((err) =>
+          console.error('Face capture upload failed:', err)
+        );
+      }
     } catch (err) {
       const { message } = extractErrorDetails(err, 'Could not check out. Please try again.');
       setState({ phase: 'error', message });
@@ -379,17 +278,8 @@ export function KioskPage() {
 
   const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
 
-  // py-[10vh]: a deliberate 10% breathing-room gap above and below the card
-  // (not the small fixed py-3/py-4 before) — the card (and its flex-1
-  // camera area) then fills exactly the remaining 80% of the screen's
-  // height.
   return (
     <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-[10vh] text-center sm:px-4">
-      {/* Lets whoever set up this device sign the kiosk account out again —
-          without this, a kiosk logged in once would stay signed in
-          indefinitely (stateless refresh tokens, per CLAUDE.md, no longer
-          expire early on their own). Disabled mid-capture/matching so a stray
-          tap can't abandon an in-flight check-in/out. */}
       <button
         type="button"
         onClick={() => canLogout && logout()}
@@ -401,56 +291,31 @@ export function KioskPage() {
         <span className="hidden sm:inline">Sign out kiosk</span>
       </button>
 
-      {/* A contained, bordered panel — instead of the logo/camera/buttons
-          floating loose on the raw dark backdrop — reads as a proper kiosk
-          terminal card rather than an unfinished page. flex-1 (fills the
-          page's full height, minus its own padding above) instead of a
-          content-sized box centered with empty dark space above and below
-          it — the whole screen is the kiosk now, not an island in the
-          middle of it. */}
       <div className="flex w-full max-w-xl flex-1 flex-col items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4 shadow-2xl sm:max-w-2xl sm:gap-5 sm:p-8 lg:max-w-3xl">
         <div className="flex shrink-0 flex-col items-center gap-1">
           <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-10 w-10 rounded-lg object-cover sm:h-12 sm:w-12" />
-          <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then look at the camera</p>
+          <p className="text-[11px] text-white/60 sm:mt-1 sm:text-sm">Choose Check In or Check Out, then follow the on-screen instructions</p>
         </div>
 
-        {/* flex-1 + min-h-0 (not a fixed aspect ratio) so this claims every
-            bit of vertical space the header/buttons around it leave inside
-            the card — the actual "increase the camera area" ask — while
-            still being width-capped by the card's own max-w-*. */}
         <div className="relative w-full min-h-0 flex-1 overflow-hidden rounded-2xl bg-black shadow-xl ring-1 ring-white/10">
-          {/* Mirrored (-scale-x-100) so the preview behaves like a normal
-              mirror — move your head left, the picture moves left — instead
-              of the camera's raw, unmirrored feed which looks reversed to
-              whoever's standing in front of it. Purely a display transform:
-              face-api.js's detection, the captured descriptor/snapshot, and
-              the recorded clip all read the video element's actual decoded
-              frame buffer, which CSS transforms never touch. */}
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="h-full w-full -scale-x-100 object-cover"
-          />
-
           {state.phase === 'ready' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-black/70 to-black/85 text-white">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10">
                 <Camera className="h-5 w-5" strokeWidth={1.75} />
               </div>
-              <p className="max-w-[85%] text-sm text-white/70">
-                {modelsReady ? 'Camera is off — choose an option below' : 'Loading face recognition…'}
-              </p>
+              <p className="max-w-[85%] text-sm text-white/70">Camera is off — choose an option below</p>
             </div>
           )}
 
-          {state.phase === 'capturing' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40">
-              <span className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-white">
-                {state.instruction}
-              </span>
-              <span className="text-xs text-white/80">{state.secondsLeft}s left</span>
+          {state.phase === 'starting' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-sm font-semibold text-white">
+              Preparing camera…
+            </div>
+          )}
+
+          {state.phase === 'liveness' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-sm font-semibold text-white">
+              Starting…
             </div>
           )}
 
@@ -502,7 +367,6 @@ export function KioskPage() {
             <button
               type="button"
               onClick={() => runCapture('checkin')}
-              disabled={!modelsReady}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-success px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:py-3"
             >
               <LogIn className="h-4 w-4" strokeWidth={2} />
@@ -511,7 +375,6 @@ export function KioskPage() {
             <button
               type="button"
               onClick={() => runCapture('checkout')}
-              disabled={!modelsReady}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 sm:py-3"
             >
               <LogOut className="h-4 w-4" strokeWidth={2} />
@@ -520,6 +383,33 @@ export function KioskPage() {
           </div>
         )}
       </div>
+
+      {/* Rendered as a full-viewport overlay, not confined to the camera box
+          above — AWS's own UI (photosensitivity banner + instructions + oval
+          guide) needs more height than that box has, and was getting clipped
+          by its overflow-hidden. The backdrop is `fixed` (escapes that
+          regardless of the box's own size), but the component itself sits in
+          a moderately-sized, capped box — AWS scales its oval guide to fill
+          whatever container it's given, so handing it the full physical
+          screen (tried first) made the oval comically oversized on a large
+          monitor. AWS's own guidance is to never resize the oval itself via
+          CSS since that affects liveness accuracy — sizing the *container*
+          reasonably is the correct way to control this. */}
+      {state.phase === 'liveness' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-[#0c0c0f]" style={{ height: '600px', maxHeight: '85vh' }}>
+            <ThemeProvider theme={LIVENESS_THEME}>
+              <FaceLivenessDetector
+                sessionId={state.sessionId}
+                region={AWS_REGION}
+                onAnalysisComplete={() => completeLiveness(state.action, state.sessionId)}
+                onError={handleLivenessError}
+                disableStartScreen
+              />
+            </ThemeProvider>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
