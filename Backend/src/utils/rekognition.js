@@ -143,12 +143,35 @@ async function getLivenessSessionResults(sessionId) {
   };
 }
 
+// A group-level kiosk serves every employee of every Company under its
+// Group, but Rekognition collections are per-company (see
+// companyCollectionId above) — AWS can only search one collection per call.
+// So fan out across the group's companies and merge. Each match is tagged
+// with the company it came from so the caller can resolve the right
+// EmployeeFaceProfile row afterwards, and the merged list is re-sorted by
+// Similarity so the caller's best-vs-runner-up ambiguity check still
+// compares across the whole group rather than within one company.
+//
+// Groups hold a handful of companies in practice, and these calls run in
+// parallel, so this is one round trip's worth of latency, not N.
+async function searchFaceAcrossCompanies({ companyIds, imageBuffer, maxFaces = 4 }) {
+  const perCompany = await Promise.all(
+    companyIds.map(async (companyId) => {
+      const matches = await searchFaceByImage({ companyId, imageBuffer, maxFaces });
+      return matches.map((match) => ({ ...match, companyId }));
+    })
+  );
+
+  return perCompany.flat().sort((a, b) => b.Similarity - a.Similarity);
+}
+
 module.exports = {
   companyCollectionId,
   ensureCompanyCollection,
   indexFace,
   deleteFace,
   searchFaceByImage,
+  searchFaceAcrossCompanies,
   createLivenessSession,
   getLivenessSessionResults,
 };

@@ -3,7 +3,7 @@
 const { Router } = require('express');
 const multer = require('multer');
 const controller = require('./officeKiosk.controller');
-const { requireAuth } = require('../../middleware/auth.middleware');
+const { requireAuth, requireSuperAdmin } = require('../../middleware/auth.middleware');
 const { requirePermission } = require('../../middleware/rbac.middleware');
 const { HttpError } = require('../../utils/errors');
 
@@ -26,8 +26,10 @@ const uploadVideo = multer({
 const router = Router();
 router.use(requireAuth);
 
-// A kiosk that can face-verify can also upload its own capture clip — no
-// separate permission needed, it's the same trust boundary.
+// --- Kiosk-side: the Scanner account acting as itself ----------------------
+
+// A kiosk that can face-verify can also upload its own capture clip and
+// manage its own location claim — same trust boundary, no extra permission.
 router.post(
   '/face-capture/:attendanceId',
   requirePermission('attendance:face_verify'),
@@ -35,17 +37,25 @@ router.post(
   controller.uploadFaceCapture
 );
 
-router.post('/scanner-accounts', requirePermission('scanner_account:create'), controller.createScannerAccount);
-router.get('/scanner-accounts', requirePermission('scanner_account:create'), controller.listScannerAccounts);
-router.patch(
-  '/scanner-accounts/:id/password',
-  requirePermission('scanner_account:create'),
-  controller.resetScannerAccountPassword
-);
-router.get(
-  '/scanner-accounts/:id/password',
-  requirePermission('scanner_account:create'),
-  controller.getScannerAccountPassword
-);
+router.get('/kiosk/locations', requirePermission('attendance:face_verify'), controller.listMyLocations);
+router.post('/kiosk/locations/claim', requirePermission('attendance:face_verify'), controller.claimLocation);
+router.post('/kiosk/locations/heartbeat', requirePermission('attendance:face_verify'), controller.heartbeatLocation);
+router.post('/kiosk/locations/release', requirePermission('attendance:face_verify'), controller.releaseLocation);
+
+// --- Super Admin only: provisioning kiosk accounts -------------------------
+//
+// Gated structurally (requireSuperAdmin: company_id AND group_id both NULL)
+// rather than by a permission code, for the same reason
+// auth.service.js's signup-invite endpoints are: a Company or Brand Admin
+// can legitimately hold broad codes within their own tenant without that
+// ever granting a platform-level provisioning action. `scanner_account:create`
+// is correspondingly revoked from every admin role in
+// 20260910100000-seed-super-admin-only-kiosk-accounts.js.
+router.post('/scanner-accounts', requireSuperAdmin, controller.createKioskAccount);
+router.get('/scanner-accounts', requireSuperAdmin, controller.listKioskAccounts);
+router.patch('/scanner-accounts/:id/locations', requireSuperAdmin, controller.updateKioskAccountLocations);
+router.patch('/scanner-accounts/:id/password', requireSuperAdmin, controller.resetKioskAccountPassword);
+router.get('/scanner-accounts/:id/password', requireSuperAdmin, controller.getKioskAccountPassword);
+router.delete('/scanner-accounts/:id', requireSuperAdmin, controller.deleteKioskAccount);
 
 module.exports = router;

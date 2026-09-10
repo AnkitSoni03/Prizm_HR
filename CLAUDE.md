@@ -56,7 +56,9 @@ Super Admin → Group → Company → [Brand] → (Roster mandatory) → Departm
    flow, no GPS/free-text punch (superseded 2026-08-03 — see Progress log). Flow:
    employee self-registers 3 angle face embeddings once (ESS Settings → Face ID,
    `face-api.js` client-side); at the kiosk (a logged-in Scanner-role `User`, its own
-   camera — admin-provisioned via email/password Scanner accounts), the employee taps
+   camera — a **group-level** email/password account provisioned by Super Admin only,
+   each device claiming one of its locations at sign-in, see the 2026-09-10 entry),
+   the employee taps
    Check-In or Check-Out, completes a random on-screen liveness challenge (blink /
    head-turn, checked via face-api.js landmark tracking across a short frame burst —
    this does **not** defeat a determined pre-recorded-video attack, an accepted known
@@ -1093,6 +1095,81 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   count only drove an informational badge); that badge's copy was softened from "Ready
   for employees" to "Roster set" so it no longer implies a hard block that no longer
   exists.
+- ✅ Kiosk accounts are group-level and Super-Admin-only (2026-09-10): kiosk (Scanner)
+  account provisioning was removed from every admin role and moved to Super Admin, and a
+  kiosk account became a **Group**-level machine account with named physical locations
+  instead of a company/brand-scoped one. One shared login now covers every employee of
+  every Company and Brand under that Group; each physical device claims one of the
+  account's locations at sign-in so two devices can never run as the same place.
+  - **Provisioning**: Super Admin creates it from the Group detail page (new
+    `Frontend/src/pages/super-admin/components/KioskAccountsSection.tsx`, mounted on
+    `GroupDetailPage.tsx`) with email + password + one-or-more locations. The routes
+    (`POST/GET/PATCH/DELETE /attendance/scanner-accounts*`) are gated by
+    `requireSuperAdmin` (structural: `company_id` AND `group_id` both NULL) rather than a
+    permission code — same reasoning as the signup-invite endpoints: a Company Admin can
+    legitimately hold broad codes inside their own tenant without that reaching a
+    platform-level action. `scanner_account:create` is additionally revoked from Company
+    Admin / HR Manager / Brand Admin (seeder `20260910100000`, `role_permissions` rows
+    hard-deleted per the assignEmployeePowers precedent; the `permissions` row itself is
+    left dormant), so `/auth/me` stops advertising it. Company Admin's and Brand Admin's
+    "Kiosk Accounts" Settings tabs, their `/…/scanner-accounts` routes,
+    `company-admin/ScannerAccountsPage.tsx` and `api/companyAdmin/scannerAccounts.ts` are
+    all deleted.
+  - **The kiosk User row now looks like a Group Admin's**: `company_id` NULL, `group_id`
+    set. That shape is what makes RBAC work unchanged (`rbac.middleware.js` keys its
+    `UserRole` lookup on `req.auth.companyId`, so NULL must match NULL) — but it also means
+    `models/hooks/tenant-scope.js`'s `company_id` filter goes **dormant** for every query a
+    kiosk request makes, so `officeKiosk.service.js`/`faceAttendance.service.js` scope by
+    group/company ids explicitly rather than leaning on the hook. Verified live end-to-end.
+  - **New `kiosk_locations` table** (migration `20260910090000`) — deliberately has no
+    `company_id` and does **not** call `applyTenantScope` (a Group spans companies). The
+    claim lives on the row itself (`active_session_id` / `session_claimed_at` /
+    `session_last_seen_at`) rather than in a separate sessions table. The session id is
+    minted server-side at claim time and kept in that device's `localStorage` — the kiosk
+    User id can't distinguish devices, it's shared by all of them. Claiming is a single
+    conditional `UPDATE` (not read-then-write) so two devices tapping the same location at
+    the same instant can't both win. A claim with no heartbeat for
+    `STALE_SESSION_MS` (3 min; the page beats every 60s) is treated as abandoned and the
+    location becomes selectable again — without that, a crashed device would hold its
+    location hostage forever. `GET /attendance/kiosk/locations` returns only locations no
+    *other* live device holds (a device's own claim still shows, so a reload re-attaches
+    instead of being told it's occupied by itself).
+  - **`attendance.kiosk_location_id`** (migration `20260910090100`, nullable, ON DELETE SET
+    NULL) records which office the punch happened at. Stamped on check-in only; a dropped
+    location is soft-deleted rather than hard-deleted precisely so historical rows keep
+    naming where they happened. No read surface for it yet in the attendance
+    lists/exports — the column is populated, surfacing it is a follow-up.
+  - **Face matching now spans the group**: Rekognition collections are per-company
+    (`companyCollectionId`), and AWS only searches one collection per call, so
+    `rekognition.js` gained `searchFaceAcrossCompanies` — fans out across the group's
+    companies in parallel, merges, and re-sorts by Similarity so the existing
+    best-vs-runner-up ambiguity margin still compares across the *whole* group rather than
+    within one company. The old per-kiosk brand filter in `checkInWithFace` is gone (a group
+    kiosk serves every brand by definition).
+  - **`applyAttendancePunch` gained `kioskLocationId`** and nothing else — the one function
+    every check-in mechanism shares stays otherwise untouched, so payroll, comp-off
+    detection, leave and regularizations remain provably unaffected.
+  - **Kiosk sign-in is its own two-step screen again** (`pages/kiosk/KioskPage.tsx`), not a
+    bounce to `/login`: credentials first, then the account's available locations listed
+    right underneath (the list can only be fetched once the credentials are accepted). A
+    `LOCATION_LOST`/`LOCATION_REQUIRED` code on any kiosk call sends the device back to the
+    picker instead of showing a dead-end error.
+  - **Every pre-existing Scanner account was deleted** (same seeder) — they were
+    company/brand-scoped with no locations, a shape the new flow has no code path for.
+    Explicitly requested; kiosks get re-provisioned by Super Admin at group level. Their
+    attendance rows are untouched (`kiosk_user_id` is ON DELETE SET NULL).
+  - Verified live against dev Supabase: a 32-assertion service-level test (create,
+    de-duplicated location names, group-level User/UserRole shape, duplicate-email and
+    zero-location rejections, claim, cross-device refusal, hidden-from-the-other-device
+    listing, own-claim-survives-reload, heartbeat, release, stale takeover, one-device-one-
+    location, wholesale location replacement kicking out an affected device, and the
+    non-kiosk-user-id guards) plus a 17-assertion HTTP test against a running server
+    (Super Admin creates/lists/deletes; the kiosk account itself logs in, resolves its
+    Scanner role and `attendance:face_verify`, lists and claims a location, heartbeats with
+    the `X-Kiosk-Session` header, and is **403** on both create and list; unauthenticated is
+    401; a deleted kiosk can no longer sign in). Migrations and the seeder applied cleanly.
+    `tsc -p tsconfig.app.json --noEmit`, `eslint` and `vite build` all pass. Test fixtures
+    hard-deleted afterward (verified zero rows left).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import axios from 'axios';
-import { Camera, LogIn, LogOut } from 'lucide-react';
+import { Camera, LogIn, LogOut, MapPin } from 'lucide-react';
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
 import { ThemeProvider, type Theme } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import { useAuth } from '../../context/auth-context';
 import { configureAmplify } from '../../lib/amplifyConfig';
-import { createFaceLivenessSession, faceCheckIn, uploadFaceCapture } from '../../api/kiosk';
+import {
+  claimKioskLocation,
+  clearKioskSessionId,
+  createFaceLivenessSession,
+  faceCheckIn,
+  heartbeatKioskLocation,
+  listKioskLocations,
+  releaseKioskLocation,
+  uploadFaceCapture,
+  type KioskLocationOption,
+} from '../../api/kiosk';
 
 const AWS_REGION = import.meta.env.VITE_AWS_REGION;
+
+// Must stay comfortably under the backend's STALE_SESSION_MS (3 minutes in
+// kioskLocation.service.js) so a couple of dropped beats don't hand this
+// device's location to another one.
+const HEARTBEAT_INTERVAL_MS = 60_000;
 
 // AWS's own component ships a light theme by default, which clashes with
 // this page's dark kiosk shell — same brand colors as index.css's dark-mode
@@ -76,15 +90,25 @@ function extractErrorDetails(err: unknown, fallback: string): FaceCheckInErrorDe
   return { message: fallback };
 }
 
+function extractMessage(err: unknown, fallback: string): string {
+  return extractErrorDetails(err, fallback).message;
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// Fullscreen, no Layout/Sidebar/Topbar chrome — a physical kiosk device logs
-// in once as a dedicated Scanner account and is meant to stay on this screen
-// indefinitely. Deliberately outside ProtectedRoute's normal portal shell
-// (see AppRoutes.tsx) since a kiosk has no use for navigation, a
-// notification bell, or any of the rest of the app chrome.
+// Fullscreen, no Layout/Sidebar/Topbar chrome — a physical kiosk device
+// signs in once and is meant to stay on this screen indefinitely.
+// Deliberately outside ProtectedRoute's normal portal shell (see
+// AppRoutes.tsx) since a kiosk has no use for navigation, a notification
+// bell, or any of the rest of the app chrome.
+//
+// Sign-in is two steps on one screen: credentials, then the location this
+// physical device is standing at. The kiosk account itself is shared by the
+// whole Group (Super Admin provisions it — no admin role can), so the
+// location is what makes each device distinct; a location another live
+// device already holds is simply not offered.
 //
 // Face identification and liveness/anti-spoof detection both run on AWS
 // (Rekognition + Face Liveness) — AWS's own <FaceLivenessDetector> component
@@ -98,6 +122,8 @@ function formatTime(iso: string): string {
 export function KioskPage() {
   const { isAuthenticated, logout } = useAuth();
 
+  const [location, setLocation] = useState<KioskLocationOption | null>(null);
+  const [isRestoring, setIsRestoring] = useState(true);
   const [state, setState] = useState<KioskState>({ phase: 'ready' });
   const auditRef = useRef<{ stream: MediaStream; recorder: MediaRecorder; chunks: BlobPart[] } | null>(null);
   // Everything needed to resubmit the exact same checkout attempt with
@@ -118,6 +144,44 @@ export function KioskPage() {
       if (livenessTimeoutRef.current) window.clearTimeout(livenessTimeoutRef.current);
     };
   }, []);
+
+  // On (re)load, try to re-attach to whatever location this device was
+  // already running as — the claim lives server-side keyed by the session id
+  // in localStorage, so a browser restart or an accidental refresh doesn't
+  // make somebody walk over and re-pick the location.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsRestoring(false);
+      setLocation(null);
+      return;
+    }
+    let cancelled = false;
+    heartbeatKioskLocation()
+      .then((restored) => {
+        if (!cancelled) setLocation(restored);
+      })
+      .catch(() => {
+        if (!cancelled) setLocation(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsRestoring(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  // Keeps the claim alive. A failure here means the claim is gone (another
+  // device took the location over after this one went quiet) — drop back to
+  // the picker rather than go on punching under a location we no longer own.
+  useEffect(() => {
+    if (!location) return;
+    const timer = window.setInterval(() => {
+      heartbeatKioskLocation().catch(() => setLocation(null));
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [location]);
 
   function clearLivenessTimeout() {
     if (livenessTimeoutRef.current) {
@@ -217,6 +281,14 @@ export function KioskPage() {
         setState({ phase: 'confirm_incomplete_shift', message: details.message, isConfirming: false });
         return;
       }
+      // This device's location was taken over or removed while it sat idle —
+      // send it back to the picker instead of showing a generic failure the
+      // employee can do nothing about.
+      if (details.code === 'LOCATION_LOST' || details.code === 'LOCATION_REQUIRED') {
+        setLocation(null);
+        setState({ phase: 'ready' });
+        return;
+      }
       if (details.code === 'ALREADY_CHECKED_IN' && details.checkInTime) {
         setState({ phase: 'error', message: `Already Checked-In at ${formatTime(details.checkInTime)}` });
       } else if (details.code === 'ALREADY_CHECKED_OUT' && details.checkOutTime) {
@@ -252,8 +324,7 @@ export function KioskPage() {
         );
       }
     } catch (err) {
-      const { message } = extractErrorDetails(err, 'Could not check out. Please try again.');
-      setState({ phase: 'error', message });
+      setState({ phase: 'error', message: extractMessage(err, 'Could not check out. Please try again.') });
     } finally {
       pendingCheckoutRef.current = null;
       setTimeout(() => setState({ phase: 'ready' }), 3000);
@@ -267,22 +338,44 @@ export function KioskPage() {
     setState({ phase: 'ready' });
   }
 
-  // No separate "Kiosk Sign In" form anymore — bounces to the same /login
-  // page every other portal uses, carrying `from: /kiosk` so LoginPage's own
-  // resolveRedirectTarget sends a Scanner account straight back here after
-  // signing in (Scanner's own default route is already /kiosk, see
-  // roleRedirect.ts), instead of stranding the device on a bespoke form.
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: { pathname: '/kiosk' } }} replace />;
+  // Releasing the location before signing out is what frees it for another
+  // device immediately, instead of leaving it locked until the claim goes
+  // stale a few minutes later.
+  async function signOutKiosk() {
+    try {
+      await releaseKioskLocation();
+    } catch {
+      /* best-effort: the claim expires on its own if this fails */
+    }
+    clearKioskSessionId();
+    setLocation(null);
+    logout();
+  }
+
+  if (isRestoring) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-sidebar text-sm text-white/60">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !location) {
+    return <KioskSignIn location={location} onReady={setLocation} onSignOut={signOutKiosk} />;
   }
 
   const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
 
   return (
     <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-[10vh] text-center sm:px-4">
+      <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1.5 text-xs font-medium text-white/70 sm:left-4 sm:top-4">
+        <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
+        {location.name}
+      </div>
+
       <button
         type="button"
-        onClick={() => canLogout && logout()}
+        onClick={() => canLogout && signOutKiosk()}
         disabled={!canLogout}
         title="Sign out this kiosk"
         className="absolute right-2 top-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/50 hover:bg-white/10 hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30 sm:right-4 sm:top-4"
@@ -410,6 +503,205 @@ export function KioskPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// The kiosk's own sign-in screen: email + password, then the locations that
+// account covers, listed right underneath. It deliberately does NOT reuse
+// /login — a kiosk is a shared device with an extra required step (picking
+// which physical place it is standing at), and the location list can only be
+// fetched once the credentials are accepted, so the two steps live on one
+// screen with the second revealed after the first.
+function KioskSignIn({
+  location,
+  onReady,
+  onSignOut,
+}: {
+  location: KioskLocationOption | null;
+  onReady: (location: KioskLocationOption) => void;
+  onSignOut: () => void;
+}) {
+  const { isAuthenticated, login } = useAuth();
+
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [locations, setLocations] = useState<KioskLocationOption[] | null>(null);
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const loadLocations = useCallback(async () => {
+    setIsLoadingLocations(true);
+    setError(null);
+    try {
+      const rows = await listKioskLocations();
+      setLocations(rows);
+      setSelectedId((prev) => prev ?? rows[0]?.id ?? null);
+    } catch (err) {
+      setLocations([]);
+      setError(extractMessage(err, 'Could not load this kiosk’s locations.'));
+    } finally {
+      setIsLoadingLocations(false);
+    }
+  }, []);
+
+  // Covers the case where the device is already signed in but has no claim
+  // (its location was taken over, or it was never picked) — go straight to
+  // the location step rather than asking for credentials it already has.
+  useEffect(() => {
+    if (isAuthenticated && locations === null && !isLoadingLocations) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadLocations();
+    }
+  }, [isAuthenticated, locations, isLoadingLocations, loadLocations]);
+
+  async function handleSignIn() {
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await login(email, password);
+      await loadLocations();
+    } catch (err) {
+      setError(extractMessage(err, 'Could not sign in. Check the email and password.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleStart() {
+    if (!selectedId) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await claimKioskLocation(selectedId);
+      onReady(result.location);
+    } catch (err) {
+      setError(extractMessage(err, 'Could not start this kiosk at that location.'));
+      // Whatever just went wrong (most likely another device claimed it a
+      // moment ago), the list on screen is now out of date.
+      await loadLocations();
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const showLocationStep = isAuthenticated && !location;
+
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center bg-sidebar px-4 py-10">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl sm:p-8">
+        <div className="mb-6 flex flex-col items-center gap-2 text-center">
+          <img src="/HRMS%20Logo.png" alt="HRMS logo" className="h-12 w-12 rounded-lg object-cover" />
+          <h1 className="text-lg font-semibold text-white">Attendance Kiosk</h1>
+          <p className="text-xs text-white/60">
+            Sign in with the kiosk account your group was given, then pick where this device is placed.
+          </p>
+        </div>
+
+        {!showLocationStep && (
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="kiosk-signin-email" className="mb-1.5 block text-sm font-medium text-white/80">
+                Email
+              </label>
+              <input
+                id="kiosk-signin-email"
+                type="email"
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-white/40"
+                placeholder="kiosk@yourgroup.com"
+              />
+            </div>
+            <div>
+              <label htmlFor="kiosk-signin-password" className="mb-1.5 block text-sm font-medium text-white/80">
+                Password
+              </label>
+              <input
+                id="kiosk-signin-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && email && password) handleSignIn();
+                }}
+                className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-white/40"
+              />
+            </div>
+          </div>
+        )}
+
+        {showLocationStep && (
+          <div>
+            <span className="mb-2 block text-sm font-medium text-white/80">Location</span>
+            {isLoadingLocations && <p className="text-sm text-white/50">Loading locations…</p>}
+            {!isLoadingLocations && locations?.length === 0 && (
+              <p className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white/60">
+                Every location on this kiosk account is already in use on another device. Ask your administrator to
+                add one, or sign out the other device first.
+              </p>
+            )}
+            <div className="space-y-2">
+              {locations?.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setSelectedId(option.id)}
+                  className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                    selectedId === option.id
+                      ? 'border-white/50 bg-white/[0.12] text-white'
+                      : 'border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  <MapPin className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                  <span className="flex-1">{option.name}</span>
+                  {option.heldByThisDevice && <span className="text-xs text-white/40">this device</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {error && <p className="mt-4 text-sm text-danger">{error}</p>}
+
+        <div className="mt-6 space-y-2">
+          {!showLocationStep && (
+            <button
+              type="button"
+              onClick={handleSignIn}
+              disabled={isSubmitting || !email || !password}
+              className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Signing in…' : 'Continue'}
+            </button>
+          )}
+
+          {showLocationStep && (
+            <>
+              <button
+                type="button"
+                onClick={handleStart}
+                disabled={isSubmitting || !selectedId}
+                className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {isSubmitting ? 'Starting…' : 'Start Kiosk'}
+              </button>
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="w-full rounded-xl px-4 py-2 text-xs font-medium text-white/50 hover:bg-white/10 hover:text-white/80"
+              >
+                Use a different account
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   HelpCircle,
   LogIn,
   LogOut,
+  MapPin,
   PartyPopper,
   Search,
   TimerReset,
@@ -184,10 +185,11 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
         <DetailRow icon={LogIn} label="Check In" value={formatTime(record.checkIn)} />
         <DetailRow icon={LogOut} label="Check Out" value={formatTime(record.checkOut)} />
         <DetailRow icon={TimerReset} label="Working Hrs" value={worked ?? '—'} />
+        {record.kioskLocationName && <DetailRow icon={MapPin} label="Location" value={record.kioskLocationName} />}
       </div>
 
-      {record.attendanceId && (
-        <div className="mt-3.5 flex items-center gap-1 border-t border-border pt-3">
+      <div className="mt-3.5 flex items-center gap-1 border-t border-border pt-3">
+        {record.attendanceId && record.checkIn ? (
           <button
             type="button"
             onClick={() => onOpenVideo('checkin')}
@@ -196,6 +198,10 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
             <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
             Check-in
           </button>
+        ) : (
+          <span className="flex flex-1 items-center justify-center py-1.5 text-xs font-medium text-ink-muted">—</span>
+        )}
+        {record.attendanceId && record.checkOut ? (
           <button
             type="button"
             onClick={() => onOpenVideo('checkout')}
@@ -204,8 +210,10 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
             <Video className="h-3.5 w-3.5 rotate-180" strokeWidth={1.75} />
             Check-out
           </button>
-        </div>
-      )}
+        ) : (
+          <span className="flex flex-1 items-center justify-center py-1.5 text-xs font-medium text-ink-muted">—</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -468,6 +476,19 @@ export function AttendanceRecordsPage() {
                   render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
                 },
                 {
+                  key: 'location',
+                  header: 'Location',
+                  render: (r) =>
+                    r.kioskLocationName ? (
+                      <span className="inline-flex items-center gap-1 text-ink-muted">
+                        <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} />
+                        {r.kioskLocationName}
+                      </span>
+                    ) : (
+                      '—'
+                    ),
+                },
+                {
                   key: 'status',
                   header: 'Status',
                   render: (r) => <StatusBadge record={r} />,
@@ -476,29 +497,40 @@ export function AttendanceRecordsPage() {
                   key: 'video',
                   header: 'Video',
                   className: 'w-28',
+                  // One slot per leg, independently — a check-in video button
+                  // only when the employee actually checked in, a check-out
+                  // one only when they actually checked out, a plain dash for
+                  // whichever leg hasn't happened yet.
                   render: (r) => {
                     const attendanceId = r.attendanceId;
-                    if (!attendanceId) return '—';
                     return (
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openVideo(attendanceId, 'checkin')}
-                          aria-label="View check-in video"
-                          title="Check-in video"
-                          className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
-                        >
-                          <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openVideo(attendanceId, 'checkout')}
-                          aria-label="View check-out video"
-                          title="Check-out video"
-                          className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
-                        >
-                          <Video className="h-3.5 w-3.5 rotate-180" strokeWidth={1.75} />
-                        </button>
+                      <div className="flex items-center gap-1">
+                        {attendanceId && r.checkIn ? (
+                          <button
+                            type="button"
+                            onClick={() => openVideo(attendanceId, 'checkin')}
+                            aria-label="View check-in video"
+                            title="Check-in video"
+                            className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
+                          >
+                            <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </button>
+                        ) : (
+                          <span className="w-7 text-center text-ink-muted">—</span>
+                        )}
+                        {attendanceId && r.checkOut ? (
+                          <button
+                            type="button"
+                            onClick={() => openVideo(attendanceId, 'checkout')}
+                            aria-label="View check-out video"
+                            title="Check-out video"
+                            className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
+                          >
+                            <Video className="h-3.5 w-3.5 rotate-180" strokeWidth={1.75} />
+                          </button>
+                        ) : (
+                          <span className="w-7 text-center text-ink-muted">—</span>
+                        )}
                       </div>
                     );
                   },

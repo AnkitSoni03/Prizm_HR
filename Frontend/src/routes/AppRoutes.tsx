@@ -21,10 +21,6 @@ import {
 import { ApprovalsPage } from '../pages/company-admin/ApprovalsPage';
 import { PayrollPage, PayrollPage as BrandAdminPayrollPage } from '../pages/company-admin/PayrollPage';
 import {
-  ScannerAccountsPage as CompanyAdminScannerAccountsPage,
-  ScannerAccountsPage as BrandAdminScannerAccountsPage,
-} from '../pages/company-admin/ScannerAccountsPage';
-import {
   AttendanceRecordsPage as CompanyAdminAttendanceRecordsPage,
   AttendanceRecordsPage as BrandAdminAttendanceRecordsPage,
 } from '../pages/company-admin/AttendanceRecordsPage';
@@ -265,17 +261,6 @@ export function AppRoutes() {
       />
 
       <Route
-        path="/company-admin/scanner-accounts"
-        element={
-          <ProtectedRoute permission="scanner_account:create">
-            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Kiosk Accounts">
-              <CompanyAdminScannerAccountsPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
         path="/company-admin/holidays"
         element={
           <ProtectedRoute permission="holiday:read">
@@ -479,17 +464,6 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Attendance Board">
               <BrandAdminAttendanceBoardPage />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/brand-admin/scanner-accounts"
-        element={
-          <ProtectedRoute permission="scanner_account:create">
-            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Kiosk Accounts">
-              <BrandAdminScannerAccountsPage />
             </Layout>
           </ProtectedRoute>
         }

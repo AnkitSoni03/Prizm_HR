@@ -10,6 +10,7 @@ import { useToast } from '../../context/toast-context';
 import { CreateCompanyModal } from './components/CreateCompanyModal';
 import { EditGroupModal } from './components/EditGroupModal';
 import { CompanyCard } from './components/CompanyCard';
+import { KioskAccountsSection } from './components/KioskAccountsSection';
 import {
   deleteGroup,
   listCompanies,
@@ -190,6 +191,10 @@ export function GroupDetailPage() {
           ))}
         </div>
       )}
+
+      <div className="mt-8 border-t border-border pt-6">
+        <KioskAccountsSection groupId={group.id} />
+      </div>
 
       {isCompanyModalOpen && (
         <CreateCompanyModal

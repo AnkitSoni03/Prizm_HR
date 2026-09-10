@@ -117,7 +117,15 @@ async function detectCompOffSafely({ employeeId, attendanceId, dateStr }) {
 // rejects with `code: 'SHIFT_INCOMPLETE'` and the worked/required minutes,
 // giving the frontend a chance to ask the employee to confirm; only a
 // second call with this flag set actually commits the checkout early.
-async function applyAttendancePunch({ employeeId, now, source, kioskUserId = null, action, confirmIncompleteShift = false }) {
+async function applyAttendancePunch({
+  employeeId,
+  now,
+  source,
+  kioskUserId = null,
+  kioskLocationId = null,
+  action,
+  confirmIncompleteShift = false,
+}) {
   if (action !== 'checkin' && action !== 'checkout') {
     throw new HttpError(400, "action must be 'checkin' or 'checkout'");
   }
@@ -154,11 +162,14 @@ async function applyAttendancePunch({ employeeId, now, source, kioskUserId = nul
 
       if (!attendance) {
         attendance = await db.Attendance.create(
-          { employeeId, date: businessDate, checkIn: now, source, kioskUserId, status: 'present' },
+          { employeeId, date: businessDate, checkIn: now, source, kioskUserId, kioskLocationId, status: 'present' },
           { transaction: t }
         );
       } else {
-        await attendance.update({ checkIn: now, source, kioskUserId, status: 'present' }, { transaction: t });
+        await attendance.update(
+          { checkIn: now, source, kioskUserId, kioskLocationId, status: 'present' },
+          { transaction: t }
+        );
       }
       await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
       return { action: 'check_in', attendance };
@@ -388,6 +399,11 @@ async function toRosterRow(employee, attendance, leaveTypeName) {
     checkOut: attendance ? attendance.checkOut : null,
     status: attendance ? attendance.status : 'not_marked',
     source: attendance ? attendance.source : null,
+    // Which physical kiosk location the punch was taken at — only ever set
+    // for source: 'face' rows (see faceAttendance.service.js::checkInWithFace).
+    // KioskLocation is group-level, not company-scoped, so this is a plain
+    // association include, never a tenant-scoped lookup of its own.
+    kioskLocationName: attendance?.kioskLocation ? attendance.kioskLocation.name : null,
     leaveTypeName: attendance?.status === 'leave' ? leaveTypeName ?? null : null,
   };
 }
@@ -446,6 +462,7 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
           where: employeeWhere,
           attributes: ['id', 'employeeCode', 'name', 'brandId', 'photoUrl'],
         },
+        { model: db.KioskLocation, as: 'kioskLocation', attributes: ['id', 'name'] },
       ],
       order: [[{ model: db.Employee, as: 'employee' }, 'name', 'ASC']],
     });
@@ -463,7 +480,12 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
 
   const employeeIds = employees.map((e) => e.id);
   const [attendanceRows, leaveTypeNameByEmployee] = await Promise.all([
-    employeeIds.length ? db.Attendance.findAll({ where: { employeeId: { [Op.in]: employeeIds }, date } }) : [],
+    employeeIds.length
+      ? db.Attendance.findAll({
+          where: { employeeId: { [Op.in]: employeeIds }, date },
+          include: [{ model: db.KioskLocation, as: 'kioskLocation', attributes: ['id', 'name'] }],
+        })
+      : [],
     leaveTypeNamesForDate({ employeeIds, date }),
   ]);
   const attendanceByEmployee = new Map(attendanceRows.map((a) => [String(a.employeeId), a]));

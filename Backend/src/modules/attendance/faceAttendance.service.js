@@ -2,8 +2,9 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { searchFaceByImage, getLivenessSessionResults } = require('../../utils/rekognition');
+const { searchFaceAcrossCompanies, getLivenessSessionResults } = require('../../utils/rekognition');
 const { resolveKioskScope } = require('./officeKiosk.service');
+const { requireClaimedLocation } = require('./kioskLocation.service');
 const { applyAttendancePunch } = require('./attendance.service');
 
 // AWS recommends ~90 as the pass bar for Face Liveness's own 0-100
@@ -26,22 +27,38 @@ const LIVENESS_CONFIDENCE_THRESHOLD = 70;
 const MATCH_SIMILARITY_THRESHOLD = 92;
 const AMBIGUITY_MARGIN = 5;
 
+// faceMatches arrives sorted by Similarity descending across every company
+// in the group (searchFaceAcrossCompanies re-sorts the merged list), so the
+// ambiguity check correctly catches two similar-looking people even when
+// they work for different companies under the same Group.
 function pickBestMatch(faceMatches) {
   if (!faceMatches.length) return null;
 
-  // AWS returns FaceMatches already sorted by Similarity descending.
   const [best, runnerUp] = faceMatches;
   if (best.Similarity < MATCH_SIMILARITY_THRESHOLD) return null;
   if (runnerUp && best.Similarity - runnerUp.Similarity < AMBIGUITY_MARGIN) return null;
 
-  return { faceId: best.Face.FaceId, similarity: best.Similarity };
+  return { faceId: best.Face.FaceId, companyId: best.companyId, similarity: best.Similarity };
 }
 
-async function checkInWithFace({ companyId, kioskUserId, action, sessionId, confirmIncompleteShift = false }) {
+async function checkInWithFace({
+  kioskUserId,
+  kioskSessionId,
+  action,
+  sessionId,
+  confirmIncompleteShift = false,
+}) {
   if (action !== 'checkin' && action !== 'checkout') {
     throw new HttpError(400, "action must be 'checkin' or 'checkout'");
   }
   if (!sessionId) throw new HttpError(400, 'sessionId is required');
+
+  // Resolved before anything expensive runs: a device that has lost its
+  // location claim (another device took it over while this one slept) must
+  // be sent back to the picker rather than allowed to punch under a
+  // location it no longer owns.
+  const { companyIds } = await resolveKioskScope({ userId: kioskUserId });
+  const location = await requireClaimedLocation({ kioskUserId, sessionId: kioskSessionId });
 
   const liveness = await getLivenessSessionResults(sessionId);
   // Temporary diagnostic while tuning LIVENESS_CONFIDENCE_THRESHOLD against
@@ -58,30 +75,29 @@ async function checkInWithFace({ companyId, kioskUserId, action, sessionId, conf
     );
   }
 
-  const { brandId: kioskBrandId } = await resolveKioskScope({ userId: kioskUserId, companyId });
+  if (companyIds.length === 0) {
+    throw new HttpError(401, 'Face not recognized. Please try again or contact HR.');
+  }
 
-  const faceMatches = await searchFaceByImage({ companyId, imageBuffer: liveness.referenceImage });
+  const faceMatches = await searchFaceAcrossCompanies({ companyIds, imageBuffer: liveness.referenceImage });
   const match = pickBestMatch(faceMatches);
   if (!match) throw new HttpError(401, 'Face not recognized. Please try again or contact HR.');
 
   const profile = await db.EmployeeFaceProfile.findOne({
-    where: { companyId, rekognitionFaceId: match.faceId, status: 'active' },
-    include: [{ model: db.Employee, as: 'employee', attributes: ['id', 'brandId', 'name', 'employeeCode'] }],
+    where: { companyId: match.companyId, rekognitionFaceId: match.faceId, status: 'active' },
+    include: [{ model: db.Employee, as: 'employee', attributes: ['id', 'companyId', 'name', 'employeeCode'] }],
   });
   // No local row for this FaceId, or the employee behind it is gone — treat
-  // identically to "no match" rather than a 500, and identically to a
-  // brand-scope mismatch below, so a kiosk can't distinguish "unknown face"
-  // from "a real employee outside my scope" by response shape.
+  // identically to "no match" rather than a 500, so a kiosk can't
+  // distinguish "unknown face" from any other failure by response shape.
   if (!profile || !profile.employee) throw new HttpError(401, 'Face not recognized. Please try again or contact HR.');
-  if (kioskBrandId && String(profile.employee.brandId) !== String(kioskBrandId)) {
-    throw new HttpError(401, 'Face not recognized. Please try again or contact HR.');
-  }
 
   const result = await applyAttendancePunch({
     employeeId: profile.employeeId,
     now: new Date(),
     source: 'face',
     kioskUserId,
+    kioskLocationId: location.id,
     action,
     confirmIncompleteShift,
   });
@@ -94,6 +110,7 @@ async function checkInWithFace({ companyId, kioskUserId, action, sessionId, conf
   return {
     ...result,
     employee: { id: profile.employeeId, name: profile.employee.name, employeeCode: profile.employee.employeeCode },
+    location: { id: String(location.id), name: location.name },
   };
 }
 

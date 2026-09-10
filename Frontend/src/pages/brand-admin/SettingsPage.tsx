@@ -1,22 +1,18 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Lock, MonitorSmartphone, User } from 'lucide-react';
+import { Lock, User } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
 import { AccountProfileCard } from '../../components/AccountProfileCard';
 import { ChangePasswordCard } from '../../components/ChangePasswordCard';
-import { ScannerAccountsPage } from '../company-admin/ScannerAccountsPage';
-import { useAuth } from '../../context/auth-context';
 
-type Tab = 'profile' | 'password' | 'kiosks';
+type Tab = 'profile' | 'password';
 
+// Kiosk (Scanner) accounts are no longer managed here — provisioning them is
+// Super Admin only, at Group level, from the Group detail page. See
+// Backend/src/modules/attendance/officeKiosk.routes.js's requireSuperAdmin gate.
 export function SettingsPage() {
-  const { hasPermission } = useAuth();
-  const canManageKiosks = hasPermission('scanner_account:create');
-
   const [searchParams] = useSearchParams();
-  const requestedTab = searchParams.get('tab');
-  const initialTab: Tab =
-    requestedTab === 'password' ? 'password' : requestedTab === 'kiosks' ? 'kiosks' : 'profile';
+  const initialTab: Tab = searchParams.get('tab') === 'password' ? 'password' : 'profile';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
   return (
@@ -25,14 +21,12 @@ export function SettingsPage() {
         items={[
           { key: 'profile', label: 'Profile', icon: User },
           { key: 'password', label: 'Reset Password', icon: Lock },
-          ...(canManageKiosks ? [{ key: 'kiosks', label: 'Kiosk Accounts', icon: MonitorSmartphone }] : []),
         ]}
         active={activeTab}
         onChange={(key) => setActiveTab(key as Tab)}
       />
       {activeTab === 'profile' && <AccountProfileCard />}
       {activeTab === 'password' && <ChangePasswordCard />}
-      {activeTab === 'kiosks' && canManageKiosks && <ScannerAccountsPage />}
     </div>
   );
 }

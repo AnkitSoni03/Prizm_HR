@@ -20,6 +20,11 @@ export interface AttendanceRosterRow {
   checkOut: string | null;
   status: AttendanceRosterStatus;
   source: 'qr' | 'od' | 'office_kiosk' | 'face' | null;
+  // Which physical kiosk location the punch was taken at — only ever set
+  // for source: 'face' rows from a group kiosk account (see
+  // Backend's KioskLocation). Null for every other source, and for a face
+  // punch recorded before kiosk locations existed.
+  kioskLocationName: string | null;
   leaveTypeName: string | null;
 }
 

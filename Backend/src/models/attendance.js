@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       Attendance.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
       Attendance.belongsTo(models.User, { foreignKey: 'kioskUserId', as: 'kioskUser' });
+      Attendance.belongsTo(models.KioskLocation, { foreignKey: 'kioskLocationId', as: 'kioskLocation' });
       Attendance.hasMany(models.AttendanceRegularization, { foreignKey: 'attendanceId', as: 'regularizations' });
     }
   }
@@ -23,6 +24,10 @@ module.exports = (sequelize, DataTypes) => {
       // is ever created with those values again.
       source: { type: DataTypes.ENUM('qr', 'od', 'office_kiosk', 'face'), allowNull: true },
       kioskUserId: { type: DataTypes.BIGINT, allowNull: true },
+      // Which physical kiosk location the punch was taken at (group-level
+      // kiosk accounts each define one or more; a device claims exactly one
+      // at sign-in). Null for non-kiosk sources and pre-feature rows.
+      kioskLocationId: { type: DataTypes.BIGINT, allowNull: true },
       videoObjectPathCheckin: { type: DataTypes.STRING, allowNull: true },
       videoObjectPathCheckout: { type: DataTypes.STRING, allowNull: true },
       status: {
