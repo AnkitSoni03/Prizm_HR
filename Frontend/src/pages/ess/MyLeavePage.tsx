@@ -18,7 +18,9 @@ import {
   type LeaveRequest,
   type LeaveType,
 } from '../../api/ess/leave';
+import { getMyProfile } from '../../api/ess/profile';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+import { WEEKDAY_LABELS } from '../../utils/weekdays';
 
 const LIMIT = 20;
 
@@ -47,6 +49,7 @@ export function MyLeavePage() {
   const { user } = useAuth();
   const confirm = useConfirm();
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>([]);
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [offset, setOffset] = useState(0);
@@ -61,12 +64,22 @@ export function MyLeavePage() {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [dateWarning, setDateWarning] = useState<string | null>(null);
 
   useEffect(() => {
     listLeaveTypes({ rosterGroupId: user?.rosterGroupId ?? 'none' })
       .then(setLeaveTypes)
       .catch(() => setError('Could not load leave types.'));
   }, [user?.rosterGroupId]);
+
+  useEffect(() => {
+    if (!user?.employeeId) return;
+    getMyProfile(user.employeeId)
+      .then((profile) => setWeekOffLeaveBlockedDays(profile.weekOffLeaveBlockedDays ?? []))
+      .catch(() => {
+        /* non-critical — worst case the calendar just doesn't pre-block a day, server still enforces it */
+      });
+  }, [user?.employeeId]);
 
   async function loadRequests() {
     setIsLoading(true);
@@ -94,11 +107,39 @@ export function MyLeavePage() {
     setToDate(formatDate(new Date()));
     setReason('');
     setSubmitError(null);
+    setDateWarning(null);
     setIsModalOpen(true);
   }
 
+  const selectedLeaveType = leaveTypes.find((t) => t.id === leaveTypeId);
+  // Admin-assigned restriction only applies to the Week Off Leave bucket —
+  // every other leave type is unaffected. The date inputs below are native
+  // <input type="date">, which can't grey out individual weekdays, so a
+  // blocked day is instead rejected right when picked (reverted + a message)
+  // and the range is re-checked before submit as a backstop (the backend
+  // enforces this regardless — see leaveRequest.service.js::createLeaveRequest).
+  const isWeekOffLeaveSelected = !!selectedLeaveType?.isWeekOffBucket && weekOffLeaveBlockedDays.length > 0;
+
+  function isDateBlocked(dateStr: string): boolean {
+    if (!isWeekOffLeaveSelected) return false;
+    return weekOffLeaveBlockedDays.includes(new Date(`${dateStr}T00:00:00`).getDay());
+  }
+
+  function rangeHasBlockedDay(from: string, to: string): boolean {
+    if (!isWeekOffLeaveSelected) return false;
+    const start = new Date(`${from}T00:00:00`);
+    const end = new Date(`${to}T00:00:00`);
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (weekOffLeaveBlockedDays.includes(d.getDay())) return true;
+    }
+    return false;
+  }
+
+  const blockedDayLabels = weekOffLeaveBlockedDays.map((d) => WEEKDAY_LABELS[d]).join(', ');
+  const rangeBlocked = rangeHasBlockedDay(fromDate, toDate);
+
   async function handleSubmit() {
-    if (!leaveTypeId) return;
+    if (!leaveTypeId || rangeBlocked) return;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -223,9 +264,17 @@ export function MyLeavePage() {
               id="apply-leave-type"
               label="Leave Type"
               value={leaveTypeId}
-              onChange={(event) => setLeaveTypeId(event.target.value)}
+              onChange={(event) => {
+                setLeaveTypeId(event.target.value);
+                setDateWarning(null);
+              }}
               options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
             />
+            {isWeekOffLeaveSelected && (
+              <p className="-mt-2 text-xs text-ink-muted">
+                You can't take Week Off Leave on: {blockedDayLabels}.
+              </p>
+            )}
             <div className="flex gap-3">
               <div className="flex-1">
                 <Input
@@ -235,6 +284,13 @@ export function MyLeavePage() {
                   value={fromDate}
                   onChange={(event) => {
                     const value = event.target.value;
+                    if (isDateBlocked(value)) {
+                      setDateWarning(
+                        `${WEEKDAY_LABELS[new Date(`${value}T00:00:00`).getDay()]} is blocked for Week Off Leave — pick another day.`
+                      );
+                      return;
+                    }
+                    setDateWarning(null);
                     setFromDate(value);
                     // Keep "To" from silently holding a now-invalid date
                     // before the newly picked "From" — the date picker's
@@ -251,10 +307,26 @@ export function MyLeavePage() {
                   label="To"
                   value={toDate}
                   min={fromDate}
-                  onChange={(event) => setToDate(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (isDateBlocked(value)) {
+                      setDateWarning(
+                        `${WEEKDAY_LABELS[new Date(`${value}T00:00:00`).getDay()]} is blocked for Week Off Leave — pick another day.`
+                      );
+                      return;
+                    }
+                    setDateWarning(null);
+                    setToDate(value);
+                  }}
                 />
               </div>
             </div>
+            {dateWarning && <p className="text-xs text-danger">{dateWarning}</p>}
+            {!dateWarning && rangeBlocked && (
+              <p className="text-xs text-danger">
+                This range includes a day you can't take Week Off Leave on — pick a narrower range.
+              </p>
+            )}
             <div>
               <label htmlFor="apply-leave-reason" className="mb-1.5 block text-sm font-medium text-ink">
                 Reason (optional)
@@ -272,7 +344,7 @@ export function MyLeavePage() {
               <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit} isLoading={isSubmitting} disabled={!leaveTypeId}>
+              <Button onClick={handleSubmit} isLoading={isSubmitting} disabled={!leaveTypeId || rangeBlocked}>
                 Submit request
               </Button>
             </div>

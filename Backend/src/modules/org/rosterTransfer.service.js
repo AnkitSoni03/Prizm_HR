@@ -154,10 +154,20 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
   const currentMonth = toBusinessLocal().getMonth() + 1;
   const dateStr = dateOnly(toBusinessLocal());
 
-  const [oldMap, newMap] = await Promise.all([
+  const [oldMap, newMap, newRosterGroup] = await Promise.all([
     loadRosterLeaveTypeMap(oldRosterGroupId),
     loadRosterLeaveTypeMap(resolvedNewRosterGroupId),
+    resolvedNewRosterGroupId
+      ? db.RosterGroup.findOne({
+          where: { id: resolvedNewRosterGroupId },
+          include: [{ model: db.Shift, as: 'shifts', through: { attributes: [] } }],
+        })
+      : null,
   ]);
+  // Only used for the Week Off Leaves bucket's fresh-allotment recompute
+  // below — the NEW Roster's own Shift decides which day(s) count, not the
+  // old one.
+  const newWeekOffBasisDays = newRosterGroup?.shifts?.[0]?.weekOffLeaveBasisDays ?? null;
 
   const details = [];
   let rosterTransferLogId = null;
@@ -201,6 +211,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
           dateOfJoining: employee.dateOfJoining,
           dateStr,
           leaveType,
+          weekOffBasisDays: newWeekOffBasisDays,
         });
         const used = Number(balanceRow.used);
         await balanceRow.update(

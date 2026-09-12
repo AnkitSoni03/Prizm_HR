@@ -46,6 +46,11 @@ export async function createShift(input: {
   endTime: string;
   isNightShift: boolean;
   weeklyOffDays: number[];
+  // Only meaningful when weeklyOffDays is empty — see
+  // shift.service.js::normalizeWeekOffLeaveConfig, which forces both back to
+  // "not configured" otherwise.
+  weekOffLeaveEnabled?: boolean;
+  weekOffLeaveBasisDays?: number[];
   rosterGroupIds?: string[];
 }): Promise<Shift> {
   const { data } = await apiClient.post<{ data: Shift }>('/attendance/shifts', input);
@@ -60,6 +65,8 @@ export async function updateShift(
     endTime: string;
     isNightShift: boolean;
     weeklyOffDays: number[];
+    weekOffLeaveEnabled?: boolean;
+    weekOffLeaveBasisDays?: number[];
     rosterGroupIds?: string[];
   }
 ): Promise<Shift> {

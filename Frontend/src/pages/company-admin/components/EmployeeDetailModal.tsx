@@ -55,7 +55,7 @@ import { assignCompOffPolicy, listCompOffPolicies, type CompOffPolicy } from '..
 import { INDIAN_STATES } from '../../../utils/indianStates';
 import { holidayAuditName } from '../../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime, daysUntil } from '../../../utils/dateDisplay';
-import { weeklyOffLabel } from '../../../utils/weekdays';
+import { WEEKDAY_LABELS, weeklyOffLabel } from '../../../utils/weekdays';
 import { listCompOffCredits, type CompOffCredit } from '../../../api/companyAdmin/approvals';
 
 interface EmployeeDetailModalProps {
@@ -169,6 +169,13 @@ export function EmployeeDetailModal({
   const [employmentType, setEmploymentType] = useState(employee.employmentType);
   const [status, setStatus] = useState(employee.status);
   const [workState, setWorkState] = useState(employee.workState ?? '');
+  const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>(
+    employee.weekOffLeaveBlockedDays ?? []
+  );
+  // Only present once the full record (fetched below) loads — the list
+  // view's `employee` prop doesn't eager-load defaultShift/todayRoster, so
+  // there's nothing to gate the "Can't Take Leave On" field on until then.
+  const [resolvedShift, setResolvedShift] = useState<Employee['defaultShift']>(null);
   const [isSavingDetails, setIsSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
@@ -179,11 +186,21 @@ export function EmployeeDetailModal({
         const additional = (full.additionalManagerLinks ?? []).map((link) => link.manager.id);
         const primary = full.managerId ? [full.managerId] : [];
         setManagerIds([...new Set([...primary, ...additional])]);
+        setWeekOffLeaveBlockedDays(full.weekOffLeaveBlockedDays ?? []);
+        setResolvedShift(full.defaultShift ?? full.todayRoster?.shift ?? null);
       })
       .catch(() => {
         /* non-critical — the picker just keeps its initial primary-only value */
       });
   }, [canUpdate, employee.id]);
+
+  // Only meaningful for a 0-weekly-off + Week-Off-Leave-enabled Shift.
+  const showWeekOffBlockField =
+    canUpdate && !!resolvedShift && resolvedShift.weeklyOffDays.length === 0 && resolvedShift.weekOffLeaveEnabled === true;
+
+  function toggleBlockedDay(day: number) {
+    setWeekOffLeaveBlockedDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)));
+  }
 
   const [transferBrandId, setTransferBrandId] = useState(employee.brandId ?? '');
   const [transferDepartmentId, setTransferDepartmentId] = useState(employee.departmentId ?? '');
@@ -651,6 +668,7 @@ export function EmployeeDetailModal({
         dateOfBirth: dateOfBirth || null,
         managerId: managerIds[0] || null,
         workState: workState || null,
+        weekOffLeaveBlockedDays,
       });
       // Any manager beyond the first — a separate endpoint (employee_managers
       // is its own table), but saved together as one "Save Changes" action.
@@ -1094,6 +1112,33 @@ export function EmployeeDetailModal({
                 options={INDIAN_STATES.map((state) => ({ value: state, label: state }))}
               />
             </div>
+            {showWeekOffBlockField && (
+              <div>
+                <p className="mb-1.5 text-sm font-medium text-ink">Can't Take Leave On (optional)</p>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAY_LABELS.map((label, day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => toggleBlockedDay(day)}
+                      disabled={!canUpdate}
+                      className={[
+                        'rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                        weekOffLeaveBlockedDays.includes(day)
+                          ? 'border-danger bg-danger/10 text-danger'
+                          : 'border-border text-ink-muted hover:bg-page',
+                      ].join(' ')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-ink-muted">
+                  This employee won't be able to apply Week Off Leave on the selected day(s) — any
+                  other eligible day is unaffected.
+                </p>
+              </div>
+            )}
             {canUpdate && (
               <div className="flex justify-end">
                 <Button type="submit" isLoading={isSavingDetails}>

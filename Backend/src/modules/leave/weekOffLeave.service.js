@@ -76,18 +76,36 @@ async function ensureWeekOffLeavePolicy({ companyId, leaveTypeId, rosterGroupId 
   return policy.id;
 }
 
-// Provisions the Week Off Leaves type/policy/link for one Roster Group (if
-// its Shift has no weekly-off day at all) and immediately seeds/corrects
-// every one of its current employees' balance for whichever month `asOf`
-// falls in — a no-op if weeklyOffDays isn't empty, so callers can invoke
-// this unconditionally without duplicating the eligibility check.
+// Provisions the Week Off Leaves type/policy/link for one Roster Group —
+// only when its Shift has no weekly-off day at all AND its admin has
+// explicitly opted in (weekOffLeaveEnabled: true, with at least one basis
+// day picked) — and immediately seeds/corrects every one of its current
+// employees' balance for whichever month `asOf` falls in. A no-op whenever
+// weeklyOffDays isn't empty, weekOffLeaveEnabled isn't true, or
+// weekOffLeaveBasisDays is empty, so callers can invoke this unconditionally
+// without duplicating the eligibility check.
 // Shared by weekOffLeaveAccrual.job.js (the monthly catch-up sweep across
 // every Roster Group) and shift.service.js::syncShiftRosterGroups (an eager
-// call the moment an admin actually links a no-weekly-off Shift to a Roster
-// Group) — the eager call is what closes the gap that would otherwise leave
-// an employee seeing nothing until the 1st of next month.
-async function syncWeekOffLeaveForRosterGroup({ rosterGroupId, companyId, weeklyOffDays, asOf = toBusinessLocal() }) {
-  if (!Array.isArray(weeklyOffDays) || weeklyOffDays.length !== 0) return { processed: 0 };
+// call the moment an admin actually links/reconfigures a no-weekly-off Shift
+// on a Roster Group) — the eager call is what closes the gap that would
+// otherwise leave an employee seeing nothing until the 1st of next month.
+async function syncWeekOffLeaveForRosterGroup({
+  rosterGroupId,
+  companyId,
+  weeklyOffDays,
+  weekOffLeaveEnabled,
+  weekOffLeaveBasisDays,
+  asOf = toBusinessLocal(),
+}) {
+  if (
+    !Array.isArray(weeklyOffDays) ||
+    weeklyOffDays.length !== 0 ||
+    !weekOffLeaveEnabled ||
+    !Array.isArray(weekOffLeaveBasisDays) ||
+    weekOffLeaveBasisDays.length === 0
+  ) {
+    return { processed: 0 };
+  }
 
   // Lazy require — leaveBalance.service.js doesn't import this file, so
   // there's no real cycle, but requiring inline keeps this module's own
@@ -116,7 +134,7 @@ async function syncWeekOffLeaveForRosterGroup({ rosterGroupId, companyId, weekly
     // mid-month joiner's quota is prorated to Sundays from their own
     // joining date onward, so it can legitimately differ from a longer-
     // tenured colleague's full-month count in the same run.
-    const target = computeWeekOffQuota({ year, month, dateOfJoining: employee.dateOfJoining });
+    const target = computeWeekOffQuota({ year, month, dateOfJoining: employee.dateOfJoining, basisDays: weekOffLeaveBasisDays });
     const balance = await getOrCreateBalance({ employeeId: employee.id, leaveTypeId: leaveType.id, dateStr: asOfStr });
     if (Number(balance.allotted) !== target) {
       await balance.update({ allotted: target, balance: target - Number(balance.used) });
@@ -149,7 +167,16 @@ async function syncWeekOffLeaveForEmployee({ employeeId, asOf = toBusinessLocal(
     where: { id: employee.rosterGroupId },
     include: [{ model: db.Shift, as: 'shifts', through: { attributes: [] } }],
   });
-  if (!group || group.shifts.length !== 1 || group.shifts[0].weeklyOffDays.length !== 0) return;
+  if (!group || group.shifts.length !== 1) return;
+  const shift = group.shifts[0];
+  if (
+    shift.weeklyOffDays.length !== 0 ||
+    !shift.weekOffLeaveEnabled ||
+    !shift.weekOffLeaveBasisDays ||
+    shift.weekOffLeaveBasisDays.length === 0
+  ) {
+    return;
+  }
 
   const leaveType = await db.LeaveType.findOne({ where: { companyId: employee.companyId, isWeekOffBucket: true } });
   if (!leaveType) return;
@@ -161,7 +188,7 @@ async function syncWeekOffLeaveForEmployee({ employeeId, asOf = toBusinessLocal(
   });
   if (!balance) return;
 
-  const target = computeWeekOffQuota({ year, month, dateOfJoining: employee.dateOfJoining });
+  const target = computeWeekOffQuota({ year, month, dateOfJoining: employee.dateOfJoining, basisDays: shift.weekOffLeaveBasisDays });
   if (Number(balance.allotted) !== target) {
     await balance.update({ allotted: target, balance: target - Number(balance.used) });
   }

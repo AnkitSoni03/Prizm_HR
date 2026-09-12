@@ -4,7 +4,13 @@ import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
-import { assignEmployeePowers, createEmployee, setEmployeeManagers, uploadEmployeePhoto } from '../../../api/companyAdmin/employees';
+import {
+  assignEmployeePowers,
+  createEmployee,
+  setEmployeeManagers,
+  updateEmployee,
+  uploadEmployeePhoto,
+} from '../../../api/companyAdmin/employees';
 import { ManagerCombobox } from '../../../components/ui/ManagerCombobox';
 import { createDepartment, createDesignation } from '../../../api/companyAdmin/org';
 import { useAuth } from '../../../context/auth-context';
@@ -14,6 +20,7 @@ import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
+import { WEEKDAY_LABELS } from '../../../utils/weekdays';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
@@ -77,10 +84,21 @@ export function EmployeeFormModal({
     'full_time' | 'part_time' | 'contract' | 'probation'
   >('full_time');
   const [workState, setWorkState] = useState('');
+  const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>([]);
   const [powerKeys, setPowerKeys] = useState<string[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Only meaningful for a 0-weekly-off + Week-Off-Leave-enabled Roster — a
+  // Roster has at most one Shift, so shifts[0] is the whole picture.
+  const selectedShift = rosterGroups.find((rg) => rg.id === rosterGroupId)?.shifts?.[0];
+  const showWeekOffBlockField =
+    canAssignPowers && !!selectedShift && selectedShift.weeklyOffDays.length === 0 && selectedShift.weekOffLeaveEnabled === true;
+
+  function toggleBlockedDay(day: number) {
+    setWeekOffLeaveBlockedDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)));
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -128,6 +146,18 @@ export function EmployeeFormModal({
         } catch {
           showToast(
             `${employee.name ?? employee.employeeCode} was created, but the extra managers could not be saved. You can add them from the employee's details.`
+          );
+        }
+      }
+
+      // Same non-blocking treatment — only sent when the field was actually
+      // shown and used (showWeekOffBlockField gates the UI itself).
+      if (showWeekOffBlockField && weekOffLeaveBlockedDays.length > 0) {
+        try {
+          await updateEmployee(employee.id, { weekOffLeaveBlockedDays });
+        } catch {
+          showToast(
+            `${employee.name ?? employee.employeeCode} was created, but the "Can't take leave" days could not be saved. You can set them from the employee's details.`
           );
         }
       }
@@ -311,6 +341,32 @@ export function EmployeeFormModal({
           Assigns this employee's default shift, region-specific holidays, and leave policy from
           the group in one go.
         </p>
+        {showWeekOffBlockField && (
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-ink">Can't Take Leave On (optional)</p>
+            <div className="flex flex-wrap gap-2">
+              {WEEKDAY_LABELS.map((label, day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleBlockedDay(day)}
+                  className={[
+                    'rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                    weekOffLeaveBlockedDays.includes(day)
+                      ? 'border-danger bg-danger/10 text-danger'
+                      : 'border-border text-ink-muted hover:bg-page',
+                  ].join(' ')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-ink-muted">
+              This employee won't be able to apply Week Off Leave on the selected day(s) — any other
+              eligible day is unaffected.
+            </p>
+          </div>
+        )}
         <Select
           id="employee-work-state"
           label="Work State"

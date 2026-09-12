@@ -195,6 +195,11 @@ async function getEmployeeForRead(id) {
       endTime: shift.endTime,
       isNightShift: shift.isNightShift,
       weeklyOffDays: shift.weeklyOffDays,
+      // Lets EmployeeFormModal.tsx/EmployeeDetailModal.tsx decide whether to
+      // show the "Can't take leave" field — only meaningful when
+      // weeklyOffDays is empty and weekOffLeaveEnabled is true.
+      weekOffLeaveEnabled: shift.weekOffLeaveEnabled,
+      weekOffLeaveBasisDays: shift.weekOffLeaveBasisDays,
     };
   }
 
@@ -335,7 +340,12 @@ async function createEmployee({
 // changeEmployeeRoster (PATCH /employees/:id/roster), which makes the
 // admin explicitly decide whether to carry the old Roster's balances
 // forward instead of silently reassigning the field.
-const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'managerId', 'userId', 'workState'];
+// weekOffLeaveBlockedDays: admin-only (this whole endpoint is employee:update-
+// gated — an Employee's own ESS session has no write access here at all), so
+// no separate permission code is needed. Optional and harmless to set on any
+// employee — it only ever affects behavior for one on a 0-weekly-off +
+// Week-Off-Leave-enabled roster (see leaveRequest.service.js::createLeaveRequest).
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'managerId', 'userId', 'workState', 'weekOffLeaveBlockedDays'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
@@ -347,6 +357,13 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
 
   if (patch.managerId) await assertBelongsToCompany(db.Employee, patch.managerId, companyId, 'Manager');
   if (patch.designationId) await assertBelongsToCompany(db.Designation, patch.designationId, companyId, 'Designation');
+  if (patch.weekOffLeaveBlockedDays !== undefined) {
+    const days = patch.weekOffLeaveBlockedDays;
+    if (!Array.isArray(days) || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+      throw new HttpError(400, 'weekOffLeaveBlockedDays must be an array of integers 0-6');
+    }
+    patch.weekOffLeaveBlockedDays = [...new Set(days)].sort((a, b) => a - b);
+  }
 
   try {
     await employee.update(patch);

@@ -113,6 +113,13 @@ module.exports = (sequelize, DataTypes) => {
       // the generic updateEmployee path — only the dedicated
       // PATCH /employees/:id/active endpoint writes it.
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // Admin-only, optional: day(s)-of-week (0=Sunday..6=Saturday) this
+      // employee may NOT apply Week Off Leave against, even when their
+      // Shift's weekOffLeaveBasisDays makes that day generally eligible.
+      // Only meaningful for an employee on a 0-weekly-off + Week-Off-Leave-
+      // enabled roster; harmless no-op otherwise. See
+      // leaveRequest.service.js::createLeaveRequest.
+      weekOffLeaveBlockedDays: { type: DataTypes.ARRAY(DataTypes.INTEGER), allowNull: false, defaultValue: [] },
     },
     {
       sequelize,

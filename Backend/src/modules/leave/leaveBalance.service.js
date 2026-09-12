@@ -62,7 +62,7 @@ async function resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId, trans
 // (no applicable LeavePolicy) always yields 0. `leaveType` is optional (only
 // needed to detect the auto-provisioned "Week Off Leaves" bucket below) —
 // every existing caller that omits it keeps the exact prior behavior.
-function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining, dateStr, leaveType }) {
+function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining, dateStr, leaveType, weekOffBasisDays }) {
   if (!policy) return 0;
 
   if (policy.accrual === 'yearly') {
@@ -70,14 +70,21 @@ function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining,
   }
   if (policy.accrual === 'monthly_reset') {
     // The "Week Off Leaves" bucket's quota isn't a flat configured amount —
-    // it's that calendar month's Sunday count (see weekOffLeave.service.js),
-    // prorated to only the Sundays from the employee's own joining date
-    // onward if dateStr falls in their joining month (a mid-month joiner
-    // isn't credited for Sundays before they existed). Every other
-    // monthly_reset type keeps the flat-amount behavior below unchanged.
+    // it's that calendar month's basis-day count (see
+    // weekOffLeave.service.js — the Shift's own weekOffLeaveBasisDays, e.g.
+    // Sunday-only or Sat+Sun), prorated to only the basis-day occurrences
+    // from the employee's own joining date onward if dateStr falls in their
+    // joining month (a mid-month joiner isn't credited for days before they
+    // existed). Every other monthly_reset type keeps the flat-amount
+    // behavior below unchanged.
     if (leaveType && leaveType.isWeekOffBucket && dateStr) {
       const d = new Date(`${dateStr}T00:00:00`);
-      return computeWeekOffQuota({ year: d.getFullYear(), month: d.getMonth() + 1, dateOfJoining });
+      return computeWeekOffQuota({
+        year: d.getFullYear(),
+        month: d.getMonth() + 1,
+        dateOfJoining,
+        basisDays: weekOffBasisDays || [0],
+      });
     }
     // Flat amount for THIS month's own row — no division/accumulation.
     return Number(policy.annualQuota);
@@ -172,7 +179,28 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
   let balance = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
   if (balance) return balance;
 
-  let allotted = computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining: employee ? employee.dateOfJoining : null, dateStr, leaveType });
+  // Only resolved for the Week Off Leaves bucket — every other leave type
+  // ignores weekOffBasisDays entirely, so this extra query is skipped for
+  // the overwhelmingly common case.
+  let weekOffBasisDays = null;
+  if (leaveType && leaveType.isWeekOffBucket && employee && employee.rosterGroupId) {
+    const rosterGroup = await db.RosterGroup.findOne({
+      where: { id: employee.rosterGroupId },
+      include: [{ model: db.Shift, as: 'shifts', through: { attributes: [] } }],
+      transaction,
+    });
+    weekOffBasisDays = rosterGroup?.shifts?.[0]?.weekOffLeaveBasisDays ?? null;
+  }
+
+  let allotted = computeAllottedForPolicy({
+    policy,
+    cycleStart,
+    cycleEnd,
+    dateOfJoining: employee ? employee.dateOfJoining : null,
+    dateStr,
+    leaveType,
+    weekOffBasisDays,
+  });
 
   // Carry-forward: if this leave type allows it, roll in whatever remained
   // unused at the end of the immediately-preceding PERIOD (capped at

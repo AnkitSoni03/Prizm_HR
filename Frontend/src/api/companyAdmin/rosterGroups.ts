@@ -25,6 +25,11 @@ export interface RosterPolicyGroup {
   // itself — see Employee.rosterAssignedAt and utils/rosterValidity.ts.
   validityValue: number | null;
   validityUnit: 'days' | 'months' | null;
+  // Trimmed Shift eligibility fields (id/weeklyOffDays/weekOffLeave*) — lets
+  // EmployeeFormModal.tsx decide whether to show the "Can't take leave"
+  // field for a picked Roster without a second round trip. At most one
+  // entry in practice (a Roster can have at most one Shift).
+  shifts?: Pick<Shift, 'id' | 'weeklyOffDays' | 'weekOffLeaveEnabled' | 'weekOffLeaveBasisDays'>[];
   createdAt: string;
   updatedAt: string;
 }

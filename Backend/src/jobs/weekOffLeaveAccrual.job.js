@@ -30,6 +30,8 @@ async function runWeekOffLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
       rosterGroupId: group.id,
       companyId: group.companyId,
       weeklyOffDays: group.shifts[0].weeklyOffDays,
+      weekOffLeaveEnabled: group.shifts[0].weekOffLeaveEnabled,
+      weekOffLeaveBasisDays: group.shifts[0].weekOffLeaveBasisDays,
       asOf,
     });
     processed += result.processed;

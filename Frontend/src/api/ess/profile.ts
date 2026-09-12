@@ -8,6 +8,8 @@ export interface EmployeeShiftSummary {
   endTime: string;
   isNightShift: boolean;
   weeklyOffDays: number[];
+  weekOffLeaveEnabled: boolean | null;
+  weekOffLeaveBasisDays: number[];
 }
 
 export interface EmployeeProfile {
@@ -69,6 +71,9 @@ export interface EmployeeProfile {
   // defaultShift/the Roster's own shift per CLAUDE.md rule 7 ("Roster >
   // default shift").
   todayRoster: { id: string; rosterDate: string; shift: EmployeeShiftSummary | null } | null;
+  // Admin-only, optional restriction — see api/tenancy.ts's Employee type.
+  // Read-only here: an Employee can view but never edit their own.
+  weekOffLeaveBlockedDays: number[];
 }
 
 export interface EmployeeDocument {

@@ -27,6 +27,11 @@ interface ShiftRow {
   startTime: string;
   endTime: string;
   weeklyOffDays: number[];
+  // Only meaningful when weeklyOffDays is empty — see
+  // shift.service.js::normalizeWeekOffLeaveConfig, which discards both
+  // otherwise.
+  weekOffLeaveEnabled: boolean;
+  weekOffLeaveBasisDays: number[];
   rosterGroupIds: string[];
 }
 
@@ -41,7 +46,32 @@ const WEEKDAYS = [
 ];
 
 function blankRow(id: number): ShiftRow {
-  return { id, name: '', startTime: '09:00', endTime: '18:00', weeklyOffDays: [], rosterGroupIds: [] };
+  return {
+    id,
+    name: '',
+    startTime: '09:00',
+    endTime: '18:00',
+    weeklyOffDays: [],
+    weekOffLeaveEnabled: false,
+    weekOffLeaveBasisDays: [],
+    rosterGroupIds: [],
+  };
+}
+
+// Rough "≈ N/month" hint shown next to the basis-day picker — counts
+// occurrences of the selected weekday(s) in the CURRENT calendar month, just
+// to give the admin a feel for the resulting quota size (the real quota is
+// computed server-side, per-month, by computeWeekOffQuota).
+function estimateMonthlyCount(basisDays: number[]): number {
+  if (basisDays.length === 0) return 0;
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daySet = new Set(basisDays);
+  let count = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    if (daySet.has(new Date(now.getFullYear(), now.getMonth(), day).getDay())) count += 1;
+  }
+  return count;
 }
 
 // Surfaces the backend's specific message (e.g. the 409 "Roster ... already
@@ -53,30 +83,26 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-// Flags two kinds of same-time collisions: a row matching an already-saved
-// shift (excluding the one being edited), and two rows in this submission
-// matching each other — both mean "don't create a second shift for a time
-// slot that already exists under a different name."
-function findTimeConflicts(rows: ShiftRow[], existingShifts: Shift[]): string[] {
+// Two shifts sharing the same start/end time is fine (e.g. two differently-
+// named shifts covering the same hours for different teams) — only the name
+// has to be unique per company, case-insensitively. Flags a row matching an
+// already-saved shift's name (excluding the one being edited) and two rows
+// in this submission matching each other's name.
+function findNameConflicts(rows: ShiftRow[], existingShifts: Shift[]): string[] {
   const messages: string[] = [];
+  const norm = (name: string) => name.trim().toLowerCase();
 
   for (const row of rows) {
-    const match = existingShifts.find(
-      (s) => s.startTime.slice(0, 5) === row.startTime && s.endTime.slice(0, 5) === row.endTime
-    );
+    const match = existingShifts.find((s) => norm(s.name) === norm(row.name));
     if (match) {
-      messages.push(
-        `"${row.name || 'Untitled'}" (${row.startTime}–${row.endTime}) is the same time as the existing shift "${match.name}".`
-      );
+      messages.push(`A shift named "${row.name}" already exists.`);
     }
   }
 
   for (let i = 0; i < rows.length; i++) {
     for (let j = i + 1; j < rows.length; j++) {
-      if (rows[i].startTime === rows[j].startTime && rows[i].endTime === rows[j].endTime) {
-        messages.push(
-          `"${rows[i].name || 'Untitled'}" and "${rows[j].name || 'Untitled'}" both use ${rows[i].startTime}–${rows[i].endTime}.`
-        );
+      if (norm(rows[i].name) === norm(rows[j].name)) {
+        messages.push(`"${rows[i].name}" is used for more than one shift here — names must be unique.`);
       }
     }
   }
@@ -94,6 +120,8 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           startTime: shift.startTime.slice(0, 5),
           endTime: shift.endTime.slice(0, 5),
           weeklyOffDays: shift.weeklyOffDays,
+          weekOffLeaveEnabled: shift.weekOffLeaveEnabled ?? false,
+          weekOffLeaveBasisDays: shift.weekOffLeaveBasisDays ?? [],
           rosterGroupIds: shift.rosterGroups?.map((rg) => rg.id) ?? [],
         }
       : { ...blankRow(0), rosterGroupIds: defaultRosterGroupIds ?? [] },
@@ -125,13 +153,30 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
 
   function toggleDay(rowId: number, day: number) {
     setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        const weeklyOffDays = row.weeklyOffDays.includes(day)
+          ? row.weeklyOffDays.filter((d) => d !== day)
+          : [...row.weeklyOffDays, day].sort((a, b) => a - b);
+        // Picking a real weekly-off day makes the whole Week Off Leave
+        // choice moot again — reset it so re-clearing weeklyOffDays later
+        // doesn't silently resurface a stale Yes/basis-days choice.
+        return weeklyOffDays.length > 0
+          ? { ...row, weeklyOffDays, weekOffLeaveEnabled: false, weekOffLeaveBasisDays: [] }
+          : { ...row, weeklyOffDays };
+      })
+    );
+  }
+
+  function toggleBasisDay(rowId: number, day: number) {
+    setRows((prev) =>
       prev.map((row) =>
         row.id === rowId
           ? {
               ...row,
-              weeklyOffDays: row.weeklyOffDays.includes(day)
-                ? row.weeklyOffDays.filter((d) => d !== day)
-                : [...row.weeklyOffDays, day].sort((a, b) => a - b),
+              weekOffLeaveBasisDays: row.weekOffLeaveBasisDays.includes(day)
+                ? row.weekOffLeaveBasisDays.filter((d) => d !== day)
+                : [...row.weekOffLeaveBasisDays, day].sort((a, b) => a - b),
             }
           : row
       )
@@ -148,9 +193,17 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
     }
 
     const existingForComparison = shifts.filter((s) => s.id !== shift?.id);
-    const conflicts = findTimeConflicts(rows, existingForComparison);
+    const conflicts = findNameConflicts(rows, existingForComparison);
     if (conflicts.length > 0) {
-      setError(`Can't save — a shift with the same time already exists: ${conflicts.join(' ')}`);
+      setError(`Can't save — ${conflicts.join(' ')}`);
+      return;
+    }
+
+    const unresolvedWeekOff = rows.find(
+      (row) => row.weeklyOffDays.length === 0 && row.weekOffLeaveEnabled && row.weekOffLeaveBasisDays.length === 0
+    );
+    if (unresolvedWeekOff) {
+      setError(`"${unresolvedWeekOff.name}": pick at least one day for Week Off Leave, or turn it off.`);
       return;
     }
 
@@ -164,6 +217,8 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           endTime: row.endTime,
           isNightShift: false,
           weeklyOffDays: row.weeklyOffDays,
+          weekOffLeaveEnabled: row.weekOffLeaveEnabled,
+          weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
         });
         onSaved();
@@ -185,6 +240,8 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           endTime: row.endTime,
           isNightShift: false,
           weeklyOffDays: row.weeklyOffDays,
+          weekOffLeaveEnabled: row.weekOffLeaveEnabled,
+          weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
         });
         onSaved();
@@ -204,6 +261,8 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           endTime: row.endTime,
           isNightShift: false,
           weeklyOffDays: row.weeklyOffDays,
+          weekOffLeaveEnabled: row.weekOffLeaveEnabled,
+          weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
         })
       )
@@ -305,6 +364,72 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
                   ))}
                 </div>
               </div>
+              {row.weeklyOffDays.length === 0 && (
+                <div className="space-y-3 rounded-lg border border-primary/30 bg-primary-light/40 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-ink">This shift has no fixed weekly off.</p>
+                    <p className="mt-0.5 text-xs text-ink-muted">
+                      Should employees on this shift still get a "Week Off Leave" balance instead?
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateRow(row.id, { weekOffLeaveEnabled: true })}
+                      className={[
+                        'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+                        row.weekOffLeaveEnabled
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border bg-card text-ink-muted hover:bg-page',
+                      ].join(' ')}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateRow(row.id, { weekOffLeaveEnabled: false, weekOffLeaveBasisDays: [] })}
+                      className={[
+                        'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+                        !row.weekOffLeaveEnabled
+                          ? 'border-primary bg-primary text-white'
+                          : 'border-border bg-card text-ink-muted hover:bg-page',
+                      ].join(' ')}
+                    >
+                      No
+                    </button>
+                  </div>
+
+                  {row.weekOffLeaveEnabled && (
+                    <div>
+                      <p className="mb-1.5 text-sm font-medium text-ink">
+                        Which day(s) count toward the monthly balance?
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {WEEKDAYS.map((day) => (
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() => toggleBasisDay(row.id, day.value)}
+                            className={[
+                              'rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                              row.weekOffLeaveBasisDays.includes(day.value)
+                                ? 'border-primary bg-primary-light text-primary'
+                                : 'border-border text-ink-muted hover:bg-page',
+                            ].join(' ')}
+                          >
+                            {day.label}
+                          </button>
+                        ))}
+                      </div>
+                      {row.weekOffLeaveBasisDays.length > 0 && (
+                        <p className="mt-1.5 text-xs text-ink-muted">
+                          ≈ {estimateMonthlyCount(row.weekOffLeaveBasisDays)} leave(s) this month.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <RosterMultiSelect
                 rosterGroups={rosterGroups}
                 selectedIds={row.rosterGroupIds}

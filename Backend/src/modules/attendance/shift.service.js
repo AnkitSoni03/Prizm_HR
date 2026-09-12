@@ -1,5 +1,6 @@
 'use strict';
 
+const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
@@ -57,37 +58,104 @@ async function assertRosterGroupsShiftFree(rosterGroupIds, currentShiftId) {
   }
 }
 
-// `shift` (not just its id) is needed so the eager Week Off Leaves
-// provisioning below has companyId/weeklyOffDays without a re-query — a
-// Roster Group newly linked to a Shift with no weekly-off day gets its
-// "Week Off Leaves" balance seeded immediately here, rather than waiting for
-// weekOffLeaveAccrual.job.js's next monthly run (see
-// weekOffLeave.service.js::syncWeekOffLeaveForRosterGroup — a no-op when
-// weeklyOffDays isn't empty, so this call is unconditional and harmless for
-// every normal Shift). Best-effort, logged-not-thrown — a bug in this side
-// effect must never block saving the Shift/Roster assignment itself.
-async function syncShiftRosterGroups(shift, rosterGroupIds) {
-  await db.RosterGroupShift.destroy({ where: { shiftId: shift.id } });
-  if (rosterGroupIds && rosterGroupIds.length > 0) {
-    await db.RosterGroupShift.bulkCreate(rosterGroupIds.map((rosterGroupId) => ({ shiftId: shift.id, rosterGroupId })));
-
-    for (const rosterGroupId of rosterGroupIds) {
-      try {
-        await syncWeekOffLeaveForRosterGroup({
-          rosterGroupId,
-          companyId: shift.companyId,
-          weeklyOffDays: shift.weeklyOffDays,
-        });
-      } catch (err) {
-        console.error('Week Off Leaves provisioning failed for roster group', rosterGroupId, err);
-      }
+// Best-effort, logged-not-thrown — a bug in this side effect must never
+// block saving the Shift/Roster assignment itself. Shared by
+// syncShiftRosterGroups (a Roster newly linked to this Shift) and
+// updateShift (an already-linked Roster whose Shift's Week Off Leave config
+// just changed, with rosterGroupIds itself untouched this call).
+async function provisionWeekOffLeaveForRosterGroups(shift, rosterGroupIds) {
+  for (const rosterGroupId of rosterGroupIds) {
+    try {
+      await syncWeekOffLeaveForRosterGroup({
+        rosterGroupId,
+        companyId: shift.companyId,
+        weeklyOffDays: shift.weeklyOffDays,
+        weekOffLeaveEnabled: shift.weekOffLeaveEnabled,
+        weekOffLeaveBasisDays: shift.weekOffLeaveBasisDays,
+      });
+    } catch (err) {
+      console.error('Week Off Leaves provisioning failed for roster group', rosterGroupId, err);
     }
   }
 }
 
-async function createShift({ companyId, name, startTime, endTime, isNightShift, weeklyOffDays, rosterGroupIds }) {
+// `shift` (not just its id) is needed so the eager Week Off Leaves
+// provisioning above has companyId/weeklyOffDays/weekOffLeaveEnabled/
+// weekOffLeaveBasisDays without a re-query — a Roster Group newly linked to
+// a no-weekly-off, Week-Off-Leave-enabled Shift gets its balance seeded
+// immediately here, rather than waiting for weekOffLeaveAccrual.job.js's
+// next monthly run.
+async function syncShiftRosterGroups(shift, rosterGroupIds) {
+  await db.RosterGroupShift.destroy({ where: { shiftId: shift.id } });
+  if (rosterGroupIds && rosterGroupIds.length > 0) {
+    await db.RosterGroupShift.bulkCreate(rosterGroupIds.map((rosterGroupId) => ({ shiftId: shift.id, rosterGroupId })));
+    await provisionWeekOffLeaveForRosterGroups(shift, rosterGroupIds);
+  }
+}
+
+// Only meaningful when weeklyOffDays is empty — otherwise the whole Week Off
+// Leave choice never applied (a Shift with real weekly-off days doesn't need
+// a substitute), so it's always forced back to "not configured". When
+// weeklyOffDays IS empty, the admin's choice is explicit: weekOffLeaveEnabled
+// must be true/false (missing/undefined defaults to false — "No" — same as
+// if the admin dismissed the prompt without opting in), and true requires at
+// least one basis day picked.
+function normalizeWeekOffLeaveConfig({ weeklyOffDays, weekOffLeaveEnabled, weekOffLeaveBasisDays }) {
+  if (weeklyOffDays.length > 0) {
+    return { weekOffLeaveEnabled: null, weekOffLeaveBasisDays: [] };
+  }
+
+  const enabled = !!weekOffLeaveEnabled;
+  if (!enabled) {
+    return { weekOffLeaveEnabled: false, weekOffLeaveBasisDays: [] };
+  }
+
+  const basisDays = Array.isArray(weekOffLeaveBasisDays) ? [...new Set(weekOffLeaveBasisDays)] : [];
+  if (basisDays.length === 0 || basisDays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+    throw new HttpError(400, 'Select at least one day (0-6) for Week Off Leave, or turn it off');
+  }
+  return { weekOffLeaveEnabled: true, weekOffLeaveBasisDays: basisDays.sort((a, b) => a - b) };
+}
+
+// Timing (startTime/endTime) is free to repeat across shifts — e.g. two
+// differently-named shifts covering the same hours for different teams is a
+// legitimate setup. Only the name has to be unique per company, case-
+// insensitively, so "Morning" and "morning" can't coexist. Scoped to
+// currently-visible rows only (paranoid soft-delete default scope already
+// excludes deleted_at rows) — a deleted shift's old name doesn't block reuse,
+// matching the DB partial unique index below.
+async function assertShiftNameFree({ companyId, name, currentShiftId }) {
+  const existing = await db.Shift.findOne({
+    where: {
+      companyId,
+      [Op.and]: db.sequelize.where(db.sequelize.fn('lower', db.sequelize.col('name')), name.trim().toLowerCase()),
+      ...(currentShiftId ? { id: { [Op.ne]: currentShiftId } } : {}),
+    },
+  });
+  if (existing) throw new HttpError(409, `A shift named "${name}" already exists`);
+}
+
+async function createShift({
+  companyId,
+  name,
+  startTime,
+  endTime,
+  isNightShift,
+  weeklyOffDays,
+  weekOffLeaveEnabled,
+  weekOffLeaveBasisDays,
+  rosterGroupIds,
+}) {
+  await assertShiftNameFree({ companyId, name });
   await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
   await assertRosterGroupsShiftFree(rosterGroupIds, null);
+
+  const normalizedWeeklyOffDays = Array.isArray(weeklyOffDays) ? weeklyOffDays : [];
+  const weekOffLeaveConfig = normalizeWeekOffLeaveConfig({
+    weeklyOffDays: normalizedWeeklyOffDays,
+    weekOffLeaveEnabled,
+    weekOffLeaveBasisDays,
+  });
 
   const shift = await db.Shift.create({
     companyId,
@@ -95,7 +163,8 @@ async function createShift({ companyId, name, startTime, endTime, isNightShift, 
     startTime,
     endTime,
     isNightShift: !!isNightShift,
-    weeklyOffDays: Array.isArray(weeklyOffDays) ? weeklyOffDays : [],
+    weeklyOffDays: normalizedWeeklyOffDays,
+    ...weekOffLeaveConfig,
   });
 
   if (rosterGroupIds !== undefined) await syncShiftRosterGroups(shift, rosterGroupIds);
@@ -104,12 +173,39 @@ async function createShift({ companyId, name, startTime, endTime, isNightShift, 
 
 async function updateShift({ companyId, id, updates }) {
   const shift = await getShiftForWrite({ companyId, id });
-  const { name, startTime, endTime, isNightShift, weeklyOffDays, rosterGroupIds } = updates;
+  const {
+    name,
+    startTime,
+    endTime,
+    isNightShift,
+    weeklyOffDays,
+    weekOffLeaveEnabled,
+    weekOffLeaveBasisDays,
+    rosterGroupIds,
+  } = updates;
+
+  if (name !== undefined) await assertShiftNameFree({ companyId, name, currentShiftId: id });
 
   if (rosterGroupIds !== undefined) {
     await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
     await assertRosterGroupsShiftFree(rosterGroupIds, id);
   }
+
+  // Re-normalized whenever any of the three related fields is touched — a
+  // partial update (e.g. only weeklyOffDays changing back to non-empty)
+  // still needs the other two forced back to "not configured", and toggling
+  // weekOffLeaveEnabled alone still needs the shift's OWN weeklyOffDays (not
+  // touched this call) to decide whether the choice even applies.
+  const weekOffTouched =
+    weeklyOffDays !== undefined || weekOffLeaveEnabled !== undefined || weekOffLeaveBasisDays !== undefined;
+  const weekOffLeaveConfig = weekOffTouched
+    ? normalizeWeekOffLeaveConfig({
+        weeklyOffDays: weeklyOffDays !== undefined ? weeklyOffDays : shift.weeklyOffDays,
+        weekOffLeaveEnabled: weekOffLeaveEnabled !== undefined ? weekOffLeaveEnabled : shift.weekOffLeaveEnabled,
+        weekOffLeaveBasisDays:
+          weekOffLeaveBasisDays !== undefined ? weekOffLeaveBasisDays : shift.weekOffLeaveBasisDays,
+      })
+    : null;
 
   await shift.update({
     ...(name !== undefined && { name }),
@@ -117,9 +213,23 @@ async function updateShift({ companyId, id, updates }) {
     ...(endTime !== undefined && { endTime }),
     ...(isNightShift !== undefined && { isNightShift }),
     ...(weeklyOffDays !== undefined && { weeklyOffDays }),
+    ...(weekOffLeaveConfig ?? {}),
   });
 
-  if (rosterGroupIds !== undefined) await syncShiftRosterGroups(shift, rosterGroupIds);
+  if (rosterGroupIds !== undefined) {
+    await syncShiftRosterGroups(shift, rosterGroupIds);
+  } else if (weekOffTouched) {
+    // Roster assignments weren't touched this call, but the Week Off Leave
+    // config was — re-provision for whichever Roster Groups are already
+    // linked to this Shift so a config change (e.g. flipping Yes -> No, or
+    // changing the basis days) takes effect immediately rather than waiting
+    // for the monthly sweep.
+    const links = await db.RosterGroupShift.findAll({ where: { shiftId: shift.id }, attributes: ['rosterGroupId'] });
+    if (links.length > 0) {
+      await provisionWeekOffLeaveForRosterGroups(shift, links.map((l) => l.rosterGroupId));
+    }
+  }
+
   return getShiftForRead(id);
 }
 

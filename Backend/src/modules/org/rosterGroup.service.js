@@ -45,6 +45,17 @@ async function listRosterGroups({ companyId, limit, offset }) {
     limit,
     offset,
     order: [['name', 'ASC']],
+    // Trimmed Shift eligibility fields only — lets EmployeeFormModal.tsx
+    // decide whether to show the "Can't take leave" field for a picked
+    // Roster without a second round trip to getRosterGroup's full detail.
+    include: [
+      {
+        model: db.Shift,
+        as: 'shifts',
+        through: { attributes: [] },
+        attributes: ['id', 'weeklyOffDays', 'weekOffLeaveEnabled', 'weekOffLeaveBasisDays'],
+      },
+    ],
   });
   return { rows, count };
 }

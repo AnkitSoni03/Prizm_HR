@@ -10,6 +10,11 @@ export interface LeaveType {
   // Cap on days carried forward when carryForward is true. null = unlimited
   // (carryForward: false is what means "zero", not this).
   maxCarryForwardDays: number | null;
+  // System-generated "Week Off Leaves" bucket (see
+  // weekOffLeave.service.js::ensureWeekOffLeaveType) — MyLeavePage.tsx uses
+  // this to keep an employee's own weekOffLeaveBlockedDays un-pickable in
+  // the date fields when this type is selected.
+  isWeekOffBucket?: boolean;
 }
 
 export interface LeaveBalance {

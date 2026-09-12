@@ -110,6 +110,25 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
     throw new HttpError(400, 'Comp-off requests must be a single day — submit one request per day');
   }
 
+  // Admin-assigned, per-employee restriction (employees.week_off_leave_blocked_days)
+  // — day(s)-of-week this employee may not apply Week Off Leave against, even
+  // though the Shift's own basis days make them generally eligible. The
+  // frontend already keeps these dates un-pickable in the calendar for this
+  // leave type; this is the server-side backstop against a spoofed request.
+  if (
+    leaveType.isWeekOffBucket &&
+    Array.isArray(employee.weekOffLeaveBlockedDays) &&
+    employee.weekOffLeaveBlockedDays.length > 0
+  ) {
+    const blockedSet = new Set(employee.weekOffLeaveBlockedDays);
+    const blockedDate = datesBetween(fromDate, toDate).find((dateStr) =>
+      blockedSet.has(new Date(`${dateStr}T00:00:00`).getDay())
+    );
+    if (blockedDate) {
+      throw new HttpError(400, `You cannot apply Week Off Leave on ${blockedDate} — that day is blocked for you`);
+    }
+  }
+
   const policy = await resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId: employee.rosterGroupId });
   if (policy && policy.applicableAfterDays > 0 && employee.dateOfJoining) {
     const eligibleFrom = addDays(employee.dateOfJoining, policy.applicableAfterDays);

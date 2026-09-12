@@ -68,6 +68,14 @@ export interface Shift {
   endTime: string;
   isNightShift: boolean;
   weeklyOffDays: number[];
+  // Only meaningful when weeklyOffDays is empty — null means either a normal
+  // Shift (has real weekly-off days) or a 0-weekly-off Shift whose admin
+  // hasn't decided yet; true/false is an explicit Yes/No choice. See
+  // shift.service.js::normalizeWeekOffLeaveConfig.
+  weekOffLeaveEnabled: boolean | null;
+  // Day(s)-of-week (0=Sunday..6=Saturday) counting toward the monthly Week
+  // Off Leave quota when weekOffLeaveEnabled is true.
+  weekOffLeaveBasisDays: number[];
   // Empty = no Roster uses this shift yet. A Roster can have at most one
   // Shift — enforced server-side (409 on a conflicting second assignment).
   rosterGroups?: RosterPolicyGroup[];
@@ -99,6 +107,8 @@ export interface EmployeeShiftSummary {
   endTime: string;
   isNightShift: boolean;
   weeklyOffDays: number[];
+  weekOffLeaveEnabled: boolean | null;
+  weekOffLeaveBasisDays: number[];
 }
 
 export interface Department {
@@ -186,6 +196,11 @@ export interface Employee {
   // by GET /employees/:id — see EmployeeDetailModal.tsx's "Additional
   // Managers" picker and employee.service.js::setEmployeeManagers.
   additionalManagerLinks?: { id: string; manager: { id: string; name: string | null; employeeCode: string | null } }[];
+  // Admin-only, optional: day(s)-of-week (0=Sunday..6=Saturday) this
+  // employee may NOT apply Week Off Leave against, even when their Shift's
+  // weekOffLeaveBasisDays makes that day generally eligible. Only meaningful
+  // for an employee on a 0-weekly-off + Week-Off-Leave-enabled roster.
+  weekOffLeaveBlockedDays: number[];
 }
 
 export interface Plan {

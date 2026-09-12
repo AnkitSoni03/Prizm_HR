@@ -57,6 +57,7 @@ export async function updateEmployee(
     dateOfBirth: string | null;
     managerId: string | null;
     workState: string | null;
+    weekOffLeaveBlockedDays: number[];
   }>
 ): Promise<Employee> {
   const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}`, input);
