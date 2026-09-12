@@ -112,13 +112,20 @@ export function MyLeavePage() {
   }
 
   const selectedLeaveType = leaveTypes.find((t) => t.id === leaveTypeId);
+  // Week Off Leave is single-day only (leaveRequest.service.js::createLeaveRequest
+  // rejects a multi-day request for this type — needed so an auto-reversal,
+  // when the employee turns out to be present that day, has exactly one
+  // day's balance/status to cleanly undo). "To" is locked to "From" here as
+  // soon as this type is selected, rather than letting the employee pick a
+  // range and only finding out via a 400 on submit.
+  const isWeekOffLeaveType = !!selectedLeaveType?.isWeekOffBucket;
   // Admin-assigned restriction only applies to the Week Off Leave bucket —
   // every other leave type is unaffected. The date inputs below are native
   // <input type="date">, which can't grey out individual weekdays, so a
   // blocked day is instead rejected right when picked (reverted + a message)
   // and the range is re-checked before submit as a backstop (the backend
   // enforces this regardless — see leaveRequest.service.js::createLeaveRequest).
-  const isWeekOffLeaveSelected = !!selectedLeaveType?.isWeekOffBucket && weekOffLeaveBlockedDays.length > 0;
+  const isWeekOffLeaveSelected = isWeekOffLeaveType && weekOffLeaveBlockedDays.length > 0;
 
   function isDateBlocked(dateStr: string): boolean {
     if (!isWeekOffLeaveSelected) return false;
@@ -265,8 +272,13 @@ export function MyLeavePage() {
               label="Leave Type"
               value={leaveTypeId}
               onChange={(event) => {
-                setLeaveTypeId(event.target.value);
+                const value = event.target.value;
+                setLeaveTypeId(value);
                 setDateWarning(null);
+                // Force single-day the moment Week Off Leave is picked —
+                // matches the server-side constraint, and avoids the
+                // employee filling in a range only to hit a 400 on submit.
+                if (leaveTypes.find((t) => t.id === value)?.isWeekOffBucket) setToDate(fromDate);
               }}
               options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
             />
@@ -292,11 +304,11 @@ export function MyLeavePage() {
                     }
                     setDateWarning(null);
                     setFromDate(value);
-                    // Keep "To" from silently holding a now-invalid date
-                    // before the newly picked "From" — the date picker's
-                    // own min blocks picking one, but a value set before
-                    // this change wouldn't otherwise be corrected.
-                    if (toDate < value) setToDate(value);
+                    // Week Off Leave is single-day — "To" always tracks
+                    // "From" for this type. Otherwise, just keep "To" from
+                    // silently holding a now-invalid date before the newly
+                    // picked "From".
+                    if (isWeekOffLeaveType || toDate < value) setToDate(value);
                   }}
                 />
               </div>
@@ -307,6 +319,7 @@ export function MyLeavePage() {
                   label="To"
                   value={toDate}
                   min={fromDate}
+                  disabled={isWeekOffLeaveType}
                   onChange={(event) => {
                     const value = event.target.value;
                     if (isDateBlocked(value)) {

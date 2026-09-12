@@ -8,6 +8,54 @@ const { addDays } = require('../../utils/dateRange');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
+const { getOrCreateBalance } = require('./leaveBalance.service');
+
+// An approved Week Off Leave (isWeekOffBucket) request for this exact date —
+// the 0-weekly-off-shift equivalent of a real weekly-off day (see
+// checkAndCreateCompOffCredit below). Single-day only by construction
+// (leaveRequest.service.js::createLeaveRequest rejects a multi-day Week Off
+// Leave request), so this is always a plain single-row lookup, never a
+// range match.
+async function findApprovedWeekOffLeaveRequest({ employeeId, dateStr, transaction }) {
+  return db.LeaveRequest.findOne({
+    where: { employeeId, status: 'approved', fromDate: dateStr, toDate: dateStr },
+    include: [{ model: db.LeaveType, as: 'leaveType', where: { isWeekOffBucket: true } }],
+    transaction,
+  });
+}
+
+// Un-does an approved Week Off Leave request the moment the employee turns
+// out to actually be present that day — the leave was never taken, so
+// charging it against their balance would be a pure loss; a comp-off credit
+// (created by the caller, checkAndCreateCompOffCredit) is the correct
+// substitute, letting them bank the day off for later instead. Deliberately
+// its own transaction, separate from the credit-creation call site's own
+// (best-effort, non-transactional) context — same trade-off already accepted
+// for comp-off credit creation itself (a side effect of attendance, not part
+// of its atomic contract).
+async function reverseWeekOffLeaveForAttendance({ request, employee }) {
+  await db.sequelize.transaction(async (t) => {
+    await request.update({ status: 'cancelled' }, { transaction: t });
+    const balance = await getOrCreateBalance({
+      employeeId: request.employeeId,
+      leaveTypeId: request.leaveTypeId,
+      dateStr: request.fromDate,
+      transaction: t,
+    });
+    const used = Number(balance.used) - Number(request.days);
+    await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
+  });
+
+  await notifyUser({
+    companyId: employee.companyId,
+    userId: employee.userId,
+    type: 'approval_decision',
+    requestType: 'leave_request',
+    requestId: request.id,
+    title: 'Your Week Off Leave was auto-reversed',
+    body: `You were marked present on ${request.fromDate}, so this leave was cancelled and refunded — you've been credited a comp-off day instead.`,
+  });
+}
 
 // Triggered from the attendance write path (Phase-3), not a user action.
 // Called from every place an attendance row can be written with status
@@ -17,7 +65,7 @@ const { withEmployeePhoto } = require('../../utils/employeePhoto');
 // attendance.service.js::bulkSetAttendanceStatus. An employee with no
 // compOffPolicyId (the default — comp-off is opt-in, per the Comp Off
 // Setting page) earns nothing here, full stop, regardless of whether the
-// day is actually a holiday/week-off.
+// day is actually a holiday/week-off/approved-Week-Off-Leave day.
 async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, transaction }) {
   const employee = await db.Employee.findOne({ where: { id: employeeId }, transaction });
   if (!employee || !employee.compOffPolicyId) return null;
@@ -35,7 +83,12 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
     dateStr,
   });
   const weeklyOff = holiday ? false : await isWeeklyOff({ employeeId, dateStr });
-  if (!holiday && !weeklyOff) return null;
+  // Only looked up when neither of the above already qualifies — a 0-weekly-
+  // off shift's employee has no `weeklyOff` day at all, so this is their
+  // only path in; an employee with a real weekly-off day never needs it.
+  const weekOffLeaveRequest =
+    !holiday && !weeklyOff ? await findApprovedWeekOffLeaveRequest({ employeeId, dateStr, transaction }) : null;
+  if (!holiday && !weeklyOff && !weekOffLeaveRequest) return null;
 
   const existing = await db.CompOffCredit.findOne({ where: { sourceAttendanceId: attendanceId }, transaction });
   if (existing) return existing;
@@ -52,6 +105,10 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
     },
     { transaction }
   );
+
+  if (weekOffLeaveRequest) {
+    await reverseWeekOffLeaveForAttendance({ request: weekOffLeaveRequest, employee });
+  }
 
   // Every call site (attendance.service.js::detectCompOffSafely,
   // odRequest.service.js/attendanceRegularization.service.js's approve

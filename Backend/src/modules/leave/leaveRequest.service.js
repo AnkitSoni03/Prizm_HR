@@ -110,13 +110,24 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
     throw new HttpError(400, 'Comp-off requests must be a single day — submit one request per day');
   }
 
+  // Same single-day constraint as comp-off, for the same reason: an approved
+  // Week Off Leave day needs to cleanly reverse into a comp-off credit if the
+  // employee ends up actually working that specific date (see
+  // compOff.service.js::checkAndCreateCompOffCredit) — a multi-day range
+  // would have no clean way to partially reverse just one day's worth of
+  // balance/status. Taking multiple basis days means multiple 1-day requests.
+  const isWeekOffLeaveType = !!leaveType.isWeekOffBucket;
+  if (isWeekOffLeaveType && fromDate !== toDate) {
+    throw new HttpError(400, 'Week Off Leave requests must be a single day — submit one request per day');
+  }
+
   // Admin-assigned, per-employee restriction (employees.week_off_leave_blocked_days)
   // — day(s)-of-week this employee may not apply Week Off Leave against, even
   // though the Shift's own basis days make them generally eligible. The
   // frontend already keeps these dates un-pickable in the calendar for this
   // leave type; this is the server-side backstop against a spoofed request.
   if (
-    leaveType.isWeekOffBucket &&
+    isWeekOffLeaveType &&
     Array.isArray(employee.weekOffLeaveBlockedDays) &&
     employee.weekOffLeaveBlockedDays.length > 0
   ) {
