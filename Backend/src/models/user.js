@@ -23,6 +23,12 @@ module.exports = (sequelize, DataTypes) => {
       groupId: { type: DataTypes.BIGINT, allowNull: true },
       employeeId: { type: DataTypes.BIGINT, allowNull: true },
       email: { type: DataTypes.STRING, allowNull: false },
+      // Display name for an admin-only account (no linked Employee) — set
+      // either at invite time or self-service via PATCH /auth/me/name. An
+      // Employee-linked account's name always comes from employees.name
+      // instead (see auth.service.js::getCurrentUser); this column is simply
+      // unused for that case.
+      name: { type: DataTypes.STRING, allowNull: true },
       passwordHash: { type: DataTypes.STRING, allowNull: true },
       // AES-256-GCM ciphertext of the current plaintext password — only
       // ever set for Scanner/kiosk accounts (see

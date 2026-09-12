@@ -32,3 +32,11 @@ export async function removeMyUserPhoto(): Promise<MyUserPhotoResult> {
   const { data } = await apiClient.delete<{ data: MyUserPhotoResult }>('/auth/me/photo');
   return data.data;
 }
+
+// Self-service display name, same admin-only-account scope as the photo
+// pair above — backend rejects this with a 400 for an employee-linked
+// account (that name is managed by an admin instead).
+export async function updateMyName(name: string): Promise<{ id: string; name: string }> {
+  const { data } = await apiClient.patch<{ data: { id: string; name: string } }>('/auth/me/name', { name });
+  return data.data;
+}

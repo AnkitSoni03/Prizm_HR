@@ -28,7 +28,7 @@ async function trySendPasswordResetEmail({ to, resetToken }) {
 
 async function signupInvite(req, res, next) {
   try {
-    const { companyId, email } = req.body;
+    const { companyId, email, name } = req.body;
     if (!companyId || !email) {
       return res.status(400).json({ error: 'companyId and email are required' });
     }
@@ -36,6 +36,7 @@ async function signupInvite(req, res, next) {
     const { user, invitation, activationToken } = await authService.inviteCompanyAdmin({
       companyId,
       email,
+      name,
     });
     // The activation email is now sent synchronously inside the service
     // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
@@ -60,7 +61,7 @@ async function signupInvite(req, res, next) {
 
 async function signupInviteGroup(req, res, next) {
   try {
-    const { groupId, email } = req.body;
+    const { groupId, email, name } = req.body;
     if (!groupId || !email) {
       return res.status(400).json({ error: 'groupId and email are required' });
     }
@@ -68,6 +69,7 @@ async function signupInviteGroup(req, res, next) {
     const { user, invitation, activationToken } = await authService.inviteGroupAdmin({
       groupId,
       email,
+      name,
     });
     // The activation email is now sent synchronously inside the service
     // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
@@ -90,7 +92,7 @@ async function signupInviteGroup(req, res, next) {
 
 async function signupInviteBrand(req, res, next) {
   try {
-    const { brandId, email } = req.body;
+    const { brandId, email, name } = req.body;
     if (!brandId || !email) {
       return res.status(400).json({ error: 'brandId and email are required' });
     }
@@ -98,6 +100,7 @@ async function signupInviteBrand(req, res, next) {
     const { user, invitation, activationToken } = await authService.inviteBrandAdmin({
       brandId,
       email,
+      name,
     });
     // The activation email is now sent synchronously inside the service
     // call itself (see sendActivationEmailOrThrow in auth.service.js) — if
@@ -347,6 +350,27 @@ async function changePassword(req, res, next) {
   }
 }
 
+// Self-service display name — same admin-only-account scope as the photo
+// pair below (a caller with a linked Employee manages their name from
+// employee.service.js instead, per CLAUDE.md's "profile changes aren't
+// self-service" rule for Employees — this endpoint is deliberately rejected
+// for that case rather than silently no-op'ing, same reasoning as the photo
+// pair's own rejection).
+async function updateName(req, res, next) {
+  try {
+    if (req.auth.employeeId) {
+      return res
+        .status(400)
+        .json({ error: 'This account has a linked employee profile — its name is managed by your admin instead.' });
+    }
+
+    const result = await authService.updateMyName({ userId: req.auth.userId, name: req.body.name });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // Self-service profile photo — admin-only accounts (Super Admin, Group
 // Admin, Company Admin, Brand Admin, etc. with no linked Employee record).
 // An account that *is* linked to an Employee manages its photo from there
@@ -406,6 +430,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   changePassword,
+  updateName,
   uploadMyPhoto,
   removeMyPhoto,
 };

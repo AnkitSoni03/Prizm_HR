@@ -61,7 +61,7 @@ function issueTokenPair(user) {
 // only granted (user_roles row created) at activation time — invitations
 // just carry the role_id to grant, per PHASE1_MODELS.md's
 // "role_id ... Role granted on activation".
-async function inviteCompanyAdmin({ companyId, email }) {
+async function inviteCompanyAdmin({ companyId, email, name }) {
   const company = await db.Company.findByPk(companyId);
   if (!company) throw new HttpError(404, 'Company not found');
 
@@ -75,7 +75,7 @@ async function inviteCompanyAdmin({ companyId, email }) {
 
   const { user, invitation } = await db.sequelize.transaction(async (t) => {
     const createdUser = await db.User.create(
-      { companyId, email, status: 'invited', invitedAt: new Date() },
+      { companyId, email, name: name || null, status: 'invited', invitedAt: new Date() },
       { transaction: t }
     );
 
@@ -103,7 +103,7 @@ async function inviteCompanyAdmin({ companyId, email }) {
 // A Group's first admin is a platform-level user (company_id NULL), same as
 // Super Admin, distinguished by group_id being set — see requireSuperAdmin
 // in auth.middleware.js.
-async function inviteGroupAdmin({ groupId, email }) {
+async function inviteGroupAdmin({ groupId, email, name }) {
   const group = await db.Group.findByPk(groupId);
   if (!group) throw new HttpError(404, 'Group not found');
 
@@ -117,7 +117,7 @@ async function inviteGroupAdmin({ groupId, email }) {
 
   const { user, invitation } = await db.sequelize.transaction(async (t) => {
     const createdUser = await db.User.create(
-      { groupId, companyId: null, email, status: 'invited', invitedAt: new Date() },
+      { groupId, companyId: null, email, name: name || null, status: 'invited', invitedAt: new Date() },
       { transaction: t }
     );
 
@@ -150,7 +150,7 @@ async function inviteGroupAdmin({ groupId, email }) {
 // Admin logs in. brandId is carried on the Invitation (and, at activation,
 // on the created UserRole) so the grant is scoped to this one Brand, not
 // every Brand in the company.
-async function inviteBrandAdmin({ brandId, email }) {
+async function inviteBrandAdmin({ brandId, email, name }) {
   const brand = await db.Brand.findByPk(brandId);
   if (!brand) throw new HttpError(404, 'Brand not found');
   const companyId = brand.companyId;
@@ -165,7 +165,7 @@ async function inviteBrandAdmin({ brandId, email }) {
 
   const { user, invitation } = await db.sequelize.transaction(async (t) => {
     const createdUser = await db.User.create(
-      { companyId, email, status: 'invited', invitedAt: new Date() },
+      { companyId, email, name: name || null, status: 'invited', invitedAt: new Date() },
       { transaction: t }
     );
 
@@ -510,7 +510,7 @@ async function logout() {
 // CLAUDE.md's "tenant-scope hook + system-level rows" gotcha.
 async function getCurrentUser({ userId, companyId }) {
   const user = await db.User.findByPk(userId, {
-    attributes: ['id', 'email', 'employeeId', 'photoUrl'],
+    attributes: ['id', 'email', 'employeeId', 'photoUrl', 'name'],
   });
   if (!user) throw new HttpError(404, 'User not found');
 
@@ -544,12 +544,17 @@ async function getCurrentUser({ userId, companyId }) {
   // their own (companyId null), so this is null for that portal.
   const company = companyId ? await db.Company.findByPk(companyId, { attributes: ['usesBrands'] }) : null;
 
-  // Name, photo, and designation all live on the Employee record, not User
-  // (see the employee module) — only resolvable for a caller whose account
-  // is actually linked to one (ESS employees; most admin-only accounts have
-  // no employeeId and simply get null for all three, falling back to the
-  // raw email / generic avatar icon on the frontend).
-  let name = null;
+  // Photo and designation live on the Employee record, not User (see the
+  // employee module) — only resolvable for a caller whose account is
+  // actually linked to one; most admin-only accounts have no employeeId and
+  // simply get null for both, falling back to the generic avatar icon.
+  // Name has a second source: users.name (set at invite time or self-service
+  // via PATCH /auth/me/name) — an Employee's own name still wins whenever
+  // both exist (see below), so this is really only ever read for admin-only
+  // accounts, but defaulting to it up front means an Employee record with no
+  // name of its own (e.g. Super Admin's minimal "name only" creation, which
+  // ironically can leave it blank) still falls back sensibly.
+  let name = user.name;
   let photoUrl = null;
   let designation = null;
   let rosterGroupId = null;
@@ -564,7 +569,7 @@ async function getCurrentUser({ userId, companyId }) {
       include: [{ model: db.Designation, as: 'designation', attributes: ['title'] }],
     });
     if (employee) {
-      name = employee.name;
+      name = employee.name || user.name;
       designation = employee.designation ? employee.designation.title : null;
       rosterGroupId = employee.rosterGroupId;
       compOffEnrolled = !!employee.compOffPolicyId;
@@ -704,6 +709,22 @@ async function withUserPhotoUrl(user) {
   }
 }
 
+// Self-service display name for an admin-only account — mirrors
+// uploadMyUserPhoto/removeMyUserPhoto's shape exactly. The controller
+// rejects this outright for a caller with a linked Employee (that name
+// always comes from employees.name instead — see getCurrentUser), so this
+// function itself doesn't need to re-check that.
+async function updateMyName({ userId, name }) {
+  const user = await db.User.findByPk(userId);
+  if (!user) throw new HttpError(404, 'User not found');
+
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) throw new HttpError(400, 'name is required');
+
+  await user.update({ name: trimmed });
+  return { id: user.id, name: user.name };
+}
+
 async function uploadMyUserPhoto({ userId, buffer, originalName, mimeType }) {
   const user = await db.User.findByPk(userId);
   if (!user) throw new HttpError(404, 'User not found');
@@ -759,6 +780,7 @@ module.exports = {
   refresh,
   logout,
   getCurrentUser,
+  updateMyName,
   requestPasswordReset,
   resetPassword,
   changePassword,

@@ -57,5 +57,8 @@ router.post('/change-password', requireAuth, controller.changePassword);
 // change-password above.
 router.post('/me/photo', requireAuth, upload.single('photo'), controller.uploadMyPhoto);
 router.delete('/me/photo', requireAuth, controller.removeMyPhoto);
+// Self-service display name, same admin-only-account scope as the photo
+// pair above.
+router.patch('/me/name', requireAuth, controller.updateName);
 
 module.exports = router;
