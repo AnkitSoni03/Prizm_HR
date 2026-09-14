@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { ArrowRightLeft, Hash, Pencil, Plus, RotateCw, Trash2, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowRightLeft, Building2, Hash, Pencil, Plus, RotateCw, Trash2, TrendingUp, Wallet } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { DetailRow } from '../../components/ui/DetailRow';
 import { SearchInput } from '../../components/ui/SearchInput';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { deleteLeaveType, listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand } from '../../api/tenancy';
 import { LeaveTypeFormModal } from './components/LeaveTypeFormModal';
 
 const CYCLE_LABELS: Record<LeaveType['cycleType'], string> = {
@@ -73,11 +76,13 @@ function LeaveTypeCardSkeleton() {
 
 interface LeaveTypeCardProps {
   leaveType: LeaveType;
+  // Omitted for a direct-mode company (no Brands at all).
+  brandName?: string | null;
   onEdit?: () => void;
   onDelete?: () => void;
 }
 
-function LeaveTypeCard({ leaveType, onEdit, onDelete }: LeaveTypeCardProps) {
+function LeaveTypeCard({ leaveType, brandName, onEdit, onDelete }: LeaveTypeCardProps) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
       <div className="flex items-start justify-between gap-3">
@@ -106,6 +111,7 @@ function LeaveTypeCard({ leaveType, onEdit, onDelete }: LeaveTypeCardProps) {
           label="Default Accrual"
           value={leaveType.defaultAccrual ? ACCRUAL_LABELS[leaveType.defaultAccrual] : '—'}
         />
+        {brandName !== undefined && <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />}
       </div>
 
       {(onEdit || onDelete) && (
@@ -153,16 +159,23 @@ export function LeaveTypesPage() {
   const canDelete = hasPermission('leave_type:delete');
 
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
+  // correctly returns only their own Brand (brand.service.js::listBrands),
+  // so the filter/form field (both gated on brands.length > 1) stays
+  // hidden for them; the Brand column/row (gated on brands.length > 0)
+  // still shows for a single Brand, to distinguish it from Shared.
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingType, setEditingType] = useState<LeaveType | 'new' | null>(null);
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function loadLeaveTypes() {
     setIsLoading(true);
     setError(null);
     try {
-      setLeaveTypes(await listLeaveTypes());
+      setLeaveTypes(await listLeaveTypes({ brandId: brandFilter || undefined }));
     } catch {
       setError('Could not load leave types.');
     } finally {
@@ -171,9 +184,18 @@ export function LeaveTypesPage() {
   }
 
   useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/column just stays hidden */
+      });
+  }, []);
+
+  useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadLeaveTypes();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandFilter]);
 
   const filteredLeaveTypes = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -233,8 +255,17 @@ export function LeaveTypesPage() {
         )}
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search leave types…" value={search} onChange={setSearch} />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -261,6 +292,15 @@ export function LeaveTypesPage() {
               columns={[
                 { key: 'name', header: 'Name', render: (lt) => <span className="font-medium text-ink">{lt.name}</span> },
                 { key: 'code', header: 'Code', render: (lt) => lt.code },
+                ...(brands.length > 0
+                  ? [
+                      {
+                        key: 'brand',
+                        header: 'Brand',
+                        render: (lt: LeaveType) => brands.find((b) => b.id === lt.brandId)?.name ?? 'Shared',
+                      },
+                    ]
+                  : []),
                 { key: 'paid', header: 'Paid', render: (lt) => <Badge tone={lt.isPaid ? 'success' : 'neutral'}>{lt.isPaid ? 'Paid' : 'Unpaid'}</Badge> },
                 { key: 'cycle', header: 'Cycle', render: (lt) => cycleLabel(lt) },
                 {
@@ -319,6 +359,7 @@ export function LeaveTypesPage() {
                 <LeaveTypeCard
                   key={lt.id}
                   leaveType={lt}
+                  brandName={brands.length > 0 ? (brands.find((b) => b.id === lt.brandId)?.name ?? null) : undefined}
                   onEdit={canUpdate ? () => setEditingType(lt) : undefined}
                   onDelete={canDelete ? () => handleDelete(lt) : undefined}
                 />
@@ -330,6 +371,7 @@ export function LeaveTypesPage() {
       {editingType && (
         <LeaveTypeFormModal
           leaveType={editingType === 'new' ? undefined : editingType}
+          brands={brands}
           onClose={() => setEditingType(null)}
           onSaved={loadLeaveTypes}
         />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlignLeft, ChevronRight, LayoutGrid, Pencil, Plus, Trash2, UsersRound } from 'lucide-react';
+import { AlignLeft, Building2, ChevronRight, LayoutGrid, Pencil, Plus, Trash2, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -12,7 +12,8 @@ import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { deleteRosterGroup, listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
 import { listEmployees } from '../../api/companyAdmin/employees';
-import type { Employee } from '../../api/tenancy';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand, Employee } from '../../api/tenancy';
 import { RosterGroupFormModal } from './components/RosterGroupFormModal';
 import { RosterGroupDetailModal } from './components/RosterGroupDetailModal';
 
@@ -51,12 +52,14 @@ function RosterCardSkeleton() {
 
 interface RosterCardProps {
   group: RosterPolicyGroup;
+  // Omitted for a direct-mode company (no Brands at all).
+  brandName?: string | null;
   onView: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }
 
-function RosterCard({ group, onView, onEdit, onDelete }: RosterCardProps) {
+function RosterCard({ group, brandName, onView, onEdit, onDelete }: RosterCardProps) {
   const validity = validityLabel(group);
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
@@ -80,6 +83,13 @@ function RosterCard({ group, onView, onEdit, onDelete }: RosterCardProps) {
         <AlignLeft className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
         <span className="line-clamp-2">{group.description || 'No description added.'}</span>
       </div>
+
+      {brandName !== undefined && (
+        <div className="mt-2.5 flex items-center gap-1.5 text-xs text-ink-muted sm:text-sm">
+          <Building2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+          <span>{brandName ?? 'Shared'}</span>
+        </div>
+      )}
 
       {(onEdit || onDelete) && (
         <div className="mt-3.5 flex items-center gap-2 border-t border-border pt-3">
@@ -130,12 +140,14 @@ export function RosterGroupsPage() {
 
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingGroup, setEditingGroup] = useState<RosterPolicyGroup | 'new' | null>(null);
   const [viewingGroup, setViewingGroup] = useState<RosterPolicyGroup | null>(null);
   const [search, setSearch] = useState('');
   const [validityFilter, setValidityFilter] = useState<'' | 'timed' | 'permanent'>('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function loadRosterGroups() {
     try {
@@ -156,6 +168,11 @@ export function RosterGroupsPage() {
       })
       .catch(() => setError('Could not load Rosters.'))
       .finally(() => setIsLoading(false));
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/column just stays empty */
+      });
   }, []);
 
   const filteredGroups = useMemo(
@@ -166,9 +183,10 @@ export function RosterGroupsPage() {
           !needle || g.name.toLowerCase().includes(needle) || (g.description ?? '').toLowerCase().includes(needle);
         const hasValidity = !!(g.validityValue && g.validityUnit);
         const matchesFilter = validityFilter === '' || (validityFilter === 'timed') === hasValidity;
-        return matchesSearch && matchesFilter;
+        const matchesBrand = brandFilter === '' || g.brandId === brandFilter;
+        return matchesSearch && matchesFilter && matchesBrand;
       }),
-    [rosterGroups, search, validityFilter],
+    [rosterGroups, search, validityFilter, brandFilter],
   );
 
   async function handleDelete(rosterGroup: RosterPolicyGroup) {
@@ -222,6 +240,15 @@ export function RosterGroupsPage() {
             { value: 'permanent', label: 'No expiry' },
           ]}
         />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       {isLoading && (
@@ -256,6 +283,7 @@ export function RosterGroupsPage() {
             <RosterCard
               key={g.id}
               group={g}
+              brandName={brands.length > 0 ? (brands.find((b) => b.id === g.brandId)?.name ?? null) : undefined}
               onView={() => setViewingGroup(g)}
               onEdit={canUpdate ? () => setEditingGroup(g) : undefined}
               onDelete={canDelete ? () => handleDelete(g) : undefined}
@@ -267,6 +295,7 @@ export function RosterGroupsPage() {
       {editingGroup && (
         <RosterGroupFormModal
           rosterGroup={editingGroup === 'new' ? undefined : editingGroup}
+          brands={brands}
           onClose={() => setEditingGroup(null)}
           onSaved={loadRosterGroups}
         />

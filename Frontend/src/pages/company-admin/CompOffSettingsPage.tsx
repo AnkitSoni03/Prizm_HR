@@ -4,6 +4,7 @@ import { Tabs } from '../../components/ui/Tabs';
 import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -21,6 +22,8 @@ import {
   type CompOffPolicy,
   type CompOffPolicyEmployee,
 } from '../../api/companyAdmin/compOffPolicies';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand } from '../../api/tenancy';
 import { CompOffPolicyFormModal } from './components/CompOffPolicyFormModal';
 
 type Tab = 'policies' | 'assign';
@@ -32,6 +35,19 @@ function extractError(err: unknown, fallback: string): string {
 
 export function CompOffSettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('policies');
+  // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
+  // correctly returns only their own Brand (brand.service.js::listBrands),
+  // so every filter/form field below (gated on brands.length > 1) stays
+  // hidden for them; fetched once here and shared by both tabs.
+  const [brands, setBrands] = useState<Brand[]>([]);
+
+  useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/column just stays hidden */
+      });
+  }, []);
 
   return (
     <div>
@@ -44,8 +60,8 @@ export function CompOffSettingsPage() {
         onChange={(key) => setActiveTab(key as Tab)}
       />
 
-      {activeTab === 'policies' && <PoliciesTab />}
-      {activeTab === 'assign' && <AssignTab />}
+      {activeTab === 'policies' && <PoliciesTab brands={brands} />}
+      {activeTab === 'assign' && <AssignTab brands={brands} />}
     </div>
   );
 }
@@ -70,11 +86,13 @@ function PolicyCardSkeleton() {
 
 interface PolicyCardProps {
   policy: CompOffPolicy;
+  // Omitted for a direct-mode company (no Brands at all).
+  brandName?: string | null;
   onEdit?: () => void;
   onDelete?: () => void;
 }
 
-function PolicyCard({ policy, onEdit, onDelete }: PolicyCardProps) {
+function PolicyCard({ policy, brandName, onEdit, onDelete }: PolicyCardProps) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
       <div className="flex items-center gap-3">
@@ -90,6 +108,7 @@ function PolicyCard({ policy, onEdit, onDelete }: PolicyCardProps) {
           label="Expiry"
           value={policy.carryForward ? <Badge tone="success">Never expires</Badge> : `${policy.expiryDays} days`}
         />
+        {brandName !== undefined && <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />}
       </div>
 
       {(onEdit || onDelete) && (
@@ -122,7 +141,7 @@ function PolicyCard({ policy, onEdit, onDelete }: PolicyCardProps) {
   );
 }
 
-function PoliciesTab() {
+function PoliciesTab({ brands }: { brands: Brand[] }) {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const showToast = useToast();
@@ -135,12 +154,13 @@ function PoliciesTab() {
   const [error, setError] = useState<string | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<CompOffPolicy | 'new' | null>(null);
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function load() {
     setIsLoading(true);
     setError(null);
     try {
-      setPolicies(await listCompOffPolicies());
+      setPolicies(await listCompOffPolicies({ brandId: brandFilter || undefined }));
     } catch {
       setError('Could not load comp-off policies.');
     } finally {
@@ -151,7 +171,8 @@ function PoliciesTab() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandFilter]);
 
   const filteredPolicies = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -195,8 +216,17 @@ function PoliciesTab() {
         )}
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search policies…" value={search} onChange={setSearch} />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -222,6 +252,15 @@ function PoliciesTab() {
               rowKey={(p) => p.id}
               columns={[
                 { key: 'name', header: 'Name', render: (p) => <span className="font-medium text-ink">{p.name}</span> },
+                ...(brands.length > 0
+                  ? [
+                      {
+                        key: 'brand',
+                        header: 'Brand',
+                        render: (p: CompOffPolicy) => brands.find((b) => b.id === p.brandId)?.name ?? 'Shared',
+                      },
+                    ]
+                  : []),
                 {
                   key: 'expiry',
                   header: 'Expiry',
@@ -268,6 +307,7 @@ function PoliciesTab() {
                 <PolicyCard
                   key={p.id}
                   policy={p}
+                  brandName={brands.length > 0 ? (brands.find((b) => b.id === p.brandId)?.name ?? null) : undefined}
                   onEdit={canUpdate ? () => setEditingPolicy(p) : undefined}
                   onDelete={canDelete ? () => handleDelete(p) : undefined}
                 />
@@ -279,6 +319,7 @@ function PoliciesTab() {
       {editingPolicy && (
         <CompOffPolicyFormModal
           policy={editingPolicy === 'new' ? undefined : editingPolicy}
+          brands={brands}
           onClose={() => setEditingPolicy(null)}
           onSaved={load}
         />
@@ -353,7 +394,7 @@ function EmployeeCard({ employee, selected, onToggleSelect }: EmployeeCardProps)
   );
 }
 
-function AssignTab() {
+function AssignTab({ brands }: { brands: Brand[] }) {
   const { hasPermission } = useAuth();
   const showToast = useToast();
   const canAssign = hasPermission('comp_off_policy:assign');
@@ -361,6 +402,7 @@ function AssignTab() {
   const [policies, setPolicies] = useState<CompOffPolicy[]>([]);
   const [employees, setEmployees] = useState<CompOffPolicyEmployee[]>([]);
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -374,7 +416,7 @@ function AssignTab() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await listEmployeesForCompOffAssignment(search.trim() || undefined);
+      const result = await listEmployeesForCompOffAssignment(search.trim() || undefined, brandFilter || undefined);
       setEmployees(result);
     } catch {
       setError('Could not load employees.');
@@ -393,7 +435,7 @@ function AssignTab() {
     const timer = setTimeout(load, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [search, brandFilter]);
 
   function toggleSelected(employeeId: string) {
     setSelectedIds((prev) => {
@@ -448,8 +490,17 @@ function AssignTab() {
         </p>
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search employee…" value={search} onChange={setSearch} />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-xs">

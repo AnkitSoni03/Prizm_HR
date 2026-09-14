@@ -41,6 +41,9 @@ interface ListParams {
   // filter to company-wide + that Roster's policies only. Admin management
   // views omit this and see every policy regardless of Roster.
   rosterGroupId?: string;
+  // Set by the admin management page's own Brand filter — see
+  // utils/brandScope.js.
+  brandId?: string;
 }
 
 export async function listCompanyPolicies(params: ListParams = {}): Promise<CompanyPolicyListResult> {
@@ -54,6 +57,8 @@ export async function createCompanyPolicy(input: {
   title: string;
   body?: string;
   rosterGroupIds?: string[];
+  // Omit (or '') for a Company Policy shared across every Brand.
+  brandId?: string;
 }): Promise<CompanyPolicy> {
   const { data } = await apiClient.post<{ data: CompanyPolicy }>('/company-policies', input);
   return data.data;
@@ -61,7 +66,7 @@ export async function createCompanyPolicy(input: {
 
 export async function updateCompanyPolicy(
   id: string,
-  input: { title?: string; body?: string; rosterGroupIds?: string[] }
+  input: { title?: string; body?: string; rosterGroupIds?: string[]; brandId?: string }
 ): Promise<CompanyPolicy> {
   const { data } = await apiClient.patch<{ data: CompanyPolicy }>(`/company-policies/${id}`, input);
   return data.data;

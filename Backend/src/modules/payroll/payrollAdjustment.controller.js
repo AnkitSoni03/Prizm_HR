@@ -9,6 +9,7 @@ async function list(req, res, next) {
     const { rows, count } = await service.listAdjustments({
       companyId: req.auth.companyId,
       employeeId: req.query.employeeId,
+      brandId: req.query.brandId,
       periodMonth: req.query.periodMonth,
       periodYear: req.query.periodYear,
       status: req.query.status,

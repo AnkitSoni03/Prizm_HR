@@ -78,9 +78,13 @@ export interface AttendanceBoardResult {
 // single unpaginated response — the whole point is "all of it on one page".
 // Gap-filled server-side the same way listMyAttendanceHistory already is
 // (holiday/leave/weekoff/absent), so every past day always has a code.
-export async function getAttendanceBoard(year: number, month: number): Promise<AttendanceBoardResult> {
+export async function getAttendanceBoard(
+  year: number,
+  month: number,
+  brandId?: string
+): Promise<AttendanceBoardResult> {
   const { data } = await apiClient.get<{ data: AttendanceBoardResult }>('/attendance/board', {
-    params: { year, month },
+    params: { year, month, brandId },
   });
   return data.data;
 }
@@ -89,9 +93,9 @@ export async function getAttendanceBoard(year: number, month: number): Promise<A
 // the on-screen board (CSV can't carry cell colors). Always the full
 // employee list for the month, independent of whatever the page's own
 // search box currently narrows the on-screen table to.
-export async function getAttendanceBoardXlsx(year: number, month: number): Promise<Blob> {
+export async function getAttendanceBoardXlsx(year: number, month: number, brandId?: string): Promise<Blob> {
   const response = await apiClient.get('/attendance/board/export', {
-    params: { year, month },
+    params: { year, month, brandId },
     responseType: 'blob',
   });
   return response.data as Blob;

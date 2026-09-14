@@ -1,4 +1,4 @@
-import { CalendarClock, CalendarRange, History, Layers, Pencil, Trash2 } from 'lucide-react';
+import { Building2, CalendarClock, CalendarRange, History, Layers, Pencil, Trash2 } from 'lucide-react';
 import { ColorTag, AccentTag } from './ColorTag';
 import { DetailRow } from './ui/DetailRow';
 import { Skeleton } from './ui/Skeleton';
@@ -16,6 +16,10 @@ interface HolidayCardProps {
   // sees neither this nor the Edit/Delete actions. Company Admin's page
   // never gates it, so it just omits this prop (stays true).
   showRecord?: boolean;
+  // Tied to showAppliesTo (Company/Brand Admin only) — ESS's own "Yearly
+  // Holidays" page never passes this. Omitted (undefined) hides the row
+  // entirely; null renders as "Shared".
+  brandName?: string | null;
   onEdit?: () => void;
   onDelete?: () => void;
 }
@@ -24,7 +28,7 @@ interface HolidayCardProps {
 // columns show as label/value rows, in the icon-avatar + detail-rows +
 // Edit/Delete-footer shape shared by every other card-style list page in
 // this app (Organization's Brands, Shifts, Roster, Attendance Records).
-export function HolidayCard({ holiday, showAppliesTo = false, showRecord = true, onEdit, onDelete }: HolidayCardProps) {
+export function HolidayCard({ holiday, showAppliesTo = false, showRecord = true, brandName, onEdit, onDelete }: HolidayCardProps) {
   const count = countDaysInclusive(holiday.date, holiday.endDate);
   const createdByName = holidayAuditName(holiday.creator);
   const updatedByName = holidayAuditName(holiday.updater);
@@ -62,6 +66,9 @@ export function HolidayCard({ holiday, showAppliesTo = false, showRecord = true,
                 : 'Not visible to anyone yet'
             }
           />
+        )}
+        {showAppliesTo && brandName !== undefined && (
+          <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />
         )}
         {showRecord && recordLine && (
           <DetailRow icon={History} label="Record" value={<span className="text-xs">{recordLine}</span>} />

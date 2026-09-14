@@ -8,12 +8,17 @@ import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { useAuth } from '../../../context/auth-context';
 import { createLeavePolicy, updateLeavePolicy, type LeavePolicy } from '../../../api/companyAdmin/leavePolicies';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import type { Brand } from '../../../api/tenancy';
 import type { LeaveType } from '../../../api/companyAdmin/leaveBalance';
 import { LeaveTypeFormModal } from './LeaveTypeFormModal';
 
 interface LeavePolicyFormModalProps {
   policy?: LeavePolicy;
   leaveTypes: LeaveType[];
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has more than one Brand for the caller to choose
+  // between — see LeaveTypeFormModal.tsx's own brands prop comment for why.
+  brands?: Brand[];
   // Pre-selects these Rosters — used when this modal is opened from inside a
   // Roster's own detail view ("Add Leave Policy" right there). Ignored when
   // editing an existing policy (its own rosterGroups win).
@@ -35,6 +40,7 @@ const ACCRUAL_OPTIONS = [
 export function LeavePolicyFormModal({
   policy,
   leaveTypes,
+  brands = [],
   defaultRosterGroupIds,
   onLeaveTypeCreated,
   onClose,
@@ -50,6 +56,7 @@ export function LeavePolicyFormModal({
   const [applicableAfterDays, setApplicableAfterDays] = useState(
     policy ? String(policy.applicableAfterDays) : '0'
   );
+  const [brandId, setBrandId] = useState(policy?.brandId ?? '');
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
     policy?.rosterGroups?.map((rg) => rg.id) ?? defaultRosterGroupIds ?? []
@@ -83,12 +90,17 @@ export function LeavePolicyFormModal({
     setError(null);
     setIsSubmitting(true);
     try {
+      // Only ever sent when the field below is actually rendered/editable
+      // (brands.length > 1) — see LeaveTypeFormModal.tsx's own brands prop
+      // comment for why a brand-scoped caller must never have it submitted.
+      const brandPatch = brands.length > 1 ? { brandId } : {};
       if (isEdit) {
         await updateLeavePolicy(policy.id, {
           annualQuota: Number(annualQuota),
           accrual,
           applicableAfterDays: Number(applicableAfterDays) || 0,
           rosterGroupIds,
+          ...brandPatch,
         });
       } else {
         await createLeavePolicy({
@@ -97,6 +109,7 @@ export function LeavePolicyFormModal({
           annualQuota: Number(annualQuota),
           accrual,
           applicableAfterDays: Number(applicableAfterDays) || 0,
+          ...brandPatch,
         });
       }
       onSaved();
@@ -147,6 +160,16 @@ export function LeavePolicyFormModal({
             options={localLeaveTypes.map((lt) => ({ value: lt.id, label: lt.name }))}
           />
         </div>
+        {brands.length > 1 && (
+          <Select
+            id="leave-policy-brand"
+            label="Brand"
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            placeholder="Shared (all brands)"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <Input
           id="leave-policy-quota"
           label="Annual Quota (days)"
@@ -189,7 +212,7 @@ export function LeavePolicyFormModal({
     </Modal>
 
     {isAddingLeaveType && (
-      <LeaveTypeFormModal onClose={() => setIsAddingLeaveType(false)} onSaved={handleLeaveTypeCreated} />
+      <LeaveTypeFormModal brands={brands} onClose={() => setIsAddingLeaveType(false)} onSaved={handleLeaveTypeCreated} />
     )}
     </>
   );

@@ -1,24 +1,34 @@
 import { useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import {
   createCompOffPolicy,
   updateCompOffPolicy,
   type CompOffPolicy,
 } from '../../../api/companyAdmin/compOffPolicies';
+import type { Brand } from '../../../api/tenancy';
 
 interface CompOffPolicyFormModalProps {
   policy?: CompOffPolicy;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has more than one Brand for the caller to choose
+  // between — a brand-scoped caller (Brand Admin) always resolves to
+  // exactly 1 from their own listBrands() call, and must never have the
+  // field rendered/submitted at all (the backend rejects any brandId from
+  // them, even an unchanged one — see brandScope.js::assertBrandReassignAllowed).
+  brands?: Brand[];
   onClose: () => void;
   onSaved: (policy: CompOffPolicy) => void;
 }
 
-export function CompOffPolicyFormModal({ policy, onClose, onSaved }: CompOffPolicyFormModalProps) {
+export function CompOffPolicyFormModal({ policy, brands = [], onClose, onSaved }: CompOffPolicyFormModalProps) {
   const isEdit = !!policy;
   const [name, setName] = useState(policy?.name ?? '');
   const [expiryDays, setExpiryDays] = useState(policy ? String(policy.expiryDays) : '90');
   const [carryForward, setCarryForward] = useState(policy?.carryForward ?? false);
+  const [brandId, setBrandId] = useState(policy?.brandId ?? '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +41,9 @@ export function CompOffPolicyFormModal({ policy, onClose, onSaved }: CompOffPoli
         name: name.trim(),
         expiryDays: Number(expiryDays) || 90,
         carryForward,
+        // Only ever sent when the field below is actually rendered/editable
+        // (brands.length > 1) — see the brands prop's own comment above.
+        ...(brands.length > 1 ? { brandId } : {}),
       };
       const saved = isEdit ? await updateCompOffPolicy(policy.id, input) : await createCompOffPolicy(input);
       onSaved(saved);
@@ -54,6 +67,16 @@ export function CompOffPolicyFormModal({ policy, onClose, onSaved }: CompOffPoli
           placeholder="Standard Comp-Off"
         />
 
+        {brands.length > 1 && (
+          <Select
+            id="comp-off-policy-brand"
+            label="Brand"
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            placeholder="Shared (all brands)"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <label className="flex items-center gap-2.5 text-sm text-ink">
           <input
             type="checkbox"

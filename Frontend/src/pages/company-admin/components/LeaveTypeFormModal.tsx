@@ -4,9 +4,17 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createLeaveType, updateLeaveType, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
+import type { Brand } from '../../../api/tenancy';
 
 interface LeaveTypeFormModalProps {
   leaveType?: LeaveType;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has more than one Brand for the caller to choose
+  // between — a brand-scoped caller (Brand Admin) always resolves to
+  // exactly 1 from their own listBrands() call, and must never have the
+  // field rendered/submitted at all (the backend rejects any brandId from
+  // them, even an unchanged one — see brandScope.js::assertBrandReassignAllowed).
+  brands?: Brand[];
   onClose: () => void;
   onSaved: (leaveType: LeaveType) => void;
 }
@@ -35,10 +43,11 @@ const MONTH_OPTIONS = [
 // Used both as its own "Leave Types" management page (LeaveTypesPage.tsx)
 // and as the "+ Add Leave Type" shortcut inside the Add Leave Policy form
 // (LeavePolicyFormModal.tsx) — same fields, same endpoint, either way.
-export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFormModalProps) {
+export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }: LeaveTypeFormModalProps) {
   const isEdit = !!leaveType;
   const [name, setName] = useState(leaveType?.name ?? '');
   const [code, setCode] = useState(leaveType?.code ?? '');
+  const [brandId, setBrandId] = useState(leaveType?.brandId ?? '');
   const [isPaid, setIsPaid] = useState(leaveType?.isPaid ?? true);
   const [carryForward, setCarryForward] = useState(leaveType?.carryForward ?? false);
   const [maxCarryForwardDays, setMaxCarryForwardDays] = useState(
@@ -69,6 +78,9 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
         cycleType === 'custom'
           ? { customCycleStartMonth: Number(customCycleStartMonth), customCycleStartDay: Number(customCycleStartDay) }
           : { customCycleStartMonth: null, customCycleStartDay: null };
+      // Only ever sent when the field below is actually rendered/editable
+      // (brands.length > 1) — see the brands prop's own comment above.
+      const brandPatch = brands.length > 1 ? { brandId } : {};
       let saved: LeaveType;
       if (isEdit) {
         saved = await updateLeaveType(leaveType.id, {
@@ -78,6 +90,7 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
           maxCarryForwardDays: maxCarryForwardValue,
           cycleType,
           ...cyclePayload,
+          ...brandPatch,
         });
       } else {
         saved = await createLeaveType({
@@ -88,6 +101,7 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
           maxCarryForwardDays: maxCarryForwardValue,
           cycleType,
           ...cyclePayload,
+          ...brandPatch,
         });
       }
       onSaved(saved);
@@ -123,6 +137,16 @@ export function LeaveTypeFormModal({ leaveType, onClose, onSaved }: LeaveTypeFor
           onChange={(event) => setCode(event.target.value)}
           placeholder="SICK"
         />
+        {brands.length > 1 && (
+          <Select
+            id="leave-type-brand"
+            label="Brand"
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            placeholder="Shared (all brands)"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <label className="flex items-center gap-2.5 text-sm text-ink">
           <input
             type="checkbox"

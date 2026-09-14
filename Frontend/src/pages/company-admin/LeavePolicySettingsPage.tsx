@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ClipboardList, Clock, Layers, Pencil, Plus, RotateCw } from 'lucide-react';
+import { Building2, CalendarDays, ClipboardList, Clock, Layers, Pencil, Plus, RotateCw } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { DetailRow } from '../../components/ui/DetailRow';
 import { SearchInput } from '../../components/ui/SearchInput';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
 import { listLeavePolicies, type LeavePolicy } from '../../api/companyAdmin/leavePolicies';
 import { listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
 import { listEmployees } from '../../api/companyAdmin/employees';
+import { listBrands } from '../../api/companyAdmin/org';
 import type { RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
-import type { Employee } from '../../api/tenancy';
+import type { Brand, Employee } from '../../api/tenancy';
 import { LeavePolicyFormModal } from './components/LeavePolicyFormModal';
 import { RosterGroupDetailModal } from './components/RosterGroupDetailModal';
 
@@ -62,11 +64,13 @@ function LeavePolicyCardSkeleton() {
 
 interface LeavePolicyCardProps {
   policy: LeavePolicy;
+  // Omitted for a direct-mode company (no Brands at all).
+  brandName?: string | null;
   onViewRoster: (rg: RosterPolicyGroup) => void;
   onEdit?: () => void;
 }
 
-function LeavePolicyCard({ policy, onViewRoster, onEdit }: LeavePolicyCardProps) {
+function LeavePolicyCard({ policy, brandName, onViewRoster, onEdit }: LeavePolicyCardProps) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
       <div className="flex items-center gap-3">
@@ -83,6 +87,7 @@ function LeavePolicyCard({ policy, onViewRoster, onEdit }: LeavePolicyCardProps)
         <DetailRow icon={CalendarDays} label="Annual Quota" value={`${policy.annualQuota} days`} />
         <DetailRow icon={RotateCw} label="Accrual" value={ACCRUAL_LABELS[policy.accrual]} />
         <DetailRow icon={Clock} label="Eligible After" value={eligibilityLabel(policy)} />
+        {brandName !== undefined && <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />}
       </div>
 
       {onEdit && (
@@ -117,15 +122,22 @@ export function LeavePolicySettingsPage() {
   const [policies, setPolicies] = useState<LeavePolicy[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
+  // correctly returns only their own Brand (brand.service.js::listBrands),
+  // so the filter/form field (both gated on brands.length > 1) stays
+  // hidden for them; the Brand column/row (gated on brands.length > 0)
+  // still shows for a single Brand, to distinguish it from Shared.
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<LeavePolicy | 'new' | null>(null);
   const [viewingRosterGroup, setViewingRosterGroup] = useState<RosterPolicyGroup | null>(null);
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function loadPolicies() {
     try {
-      setPolicies(await listLeavePolicies());
+      setPolicies(await listLeavePolicies({ brandId: brandFilter || undefined }));
     } catch {
       setError('Could not load leave policies.');
     }
@@ -135,7 +147,11 @@ export function LeavePolicySettingsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
-    Promise.all([listLeavePolicies(), listLeaveTypes(), listEmployees({ limit: 100 })])
+    Promise.all([
+      listLeavePolicies({ brandId: brandFilter || undefined }),
+      listLeaveTypes(),
+      listEmployees({ limit: 100 }),
+    ])
       .then(([p, lt, emp]) => {
         setPolicies(p);
         setLeaveTypes(lt);
@@ -143,6 +159,14 @@ export function LeavePolicySettingsPage() {
       })
       .catch(() => setError('Could not load leave policies.'))
       .finally(() => setIsLoading(false));
+  }, [brandFilter]);
+
+  useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/column just stays hidden */
+      });
   }, []);
 
   const filteredPolicies = useMemo(() => {
@@ -171,8 +195,17 @@ export function LeavePolicySettingsPage() {
         )}
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search by leave type…" value={search} onChange={setSearch} />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -198,6 +231,15 @@ export function LeavePolicySettingsPage() {
               rowKey={(p) => p.id}
               columns={[
                 { key: 'leaveType', header: 'Leave Type', render: (p) => p.leaveType?.name ?? p.leaveTypeId },
+                ...(brands.length > 0
+                  ? [
+                      {
+                        key: 'brand',
+                        header: 'Brand',
+                        render: (p: LeavePolicy) => brands.find((b) => b.id === p.brandId)?.name ?? 'Shared',
+                      },
+                    ]
+                  : []),
                 {
                   key: 'roster',
                   header: 'Applies To',
@@ -233,6 +275,9 @@ export function LeavePolicySettingsPage() {
                 <LeavePolicyCard
                   key={policy.id}
                   policy={policy}
+                  brandName={
+                    brands.length > 0 ? (brands.find((b) => b.id === policy.brandId)?.name ?? null) : undefined
+                  }
                   onViewRoster={setViewingRosterGroup}
                   onEdit={canUpdate ? () => setEditingPolicy(policy) : undefined}
                 />
@@ -245,6 +290,7 @@ export function LeavePolicySettingsPage() {
         <LeavePolicyFormModal
           policy={editingPolicy === 'new' ? undefined : editingPolicy}
           leaveTypes={leaveTypes}
+          brands={brands}
           onLeaveTypeCreated={(leaveType) => setLeaveTypes((prev) => [...prev, leaveType])}
           onClose={() => setEditingPolicy(null)}
           onSaved={loadPolicies}

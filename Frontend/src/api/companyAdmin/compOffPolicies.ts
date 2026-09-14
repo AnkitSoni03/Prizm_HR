@@ -21,8 +21,8 @@ export interface CompOffPolicyEmployee {
   compOffPolicy: { id: string; name: string } | null;
 }
 
-export async function listCompOffPolicies(): Promise<CompOffPolicy[]> {
-  const { data } = await apiClient.get<{ data: CompOffPolicy[] }>('/leave/comp-off-policies');
+export async function listCompOffPolicies(params: { brandId?: string } = {}): Promise<CompOffPolicy[]> {
+  const { data } = await apiClient.get<{ data: CompOffPolicy[] }>('/leave/comp-off-policies', { params });
   return data.data;
 }
 
@@ -30,6 +30,8 @@ export async function createCompOffPolicy(input: {
   name: string;
   expiryDays: number;
   carryForward: boolean;
+  // Omit (or '') for a Comp-Off Policy shared across every Brand.
+  brandId?: string;
 }): Promise<CompOffPolicy> {
   const { data } = await apiClient.post<{ data: CompOffPolicy }>('/leave/comp-off-policies', input);
   return data.data;
@@ -37,7 +39,7 @@ export async function createCompOffPolicy(input: {
 
 export async function updateCompOffPolicy(
   id: string,
-  input: Partial<{ name: string; expiryDays: number; carryForward: boolean }>
+  input: Partial<{ name: string; expiryDays: number; carryForward: boolean; brandId: string }>
 ): Promise<CompOffPolicy> {
   const { data } = await apiClient.patch<{ data: CompOffPolicy }>(`/leave/comp-off-policies/${id}`, input);
   return data.data;
@@ -49,10 +51,14 @@ export async function deleteCompOffPolicy(id: string): Promise<void> {
 
 // All active employees in scope (company-wide for Company Admin/HR Manager,
 // own-brand-only for Brand Admin — enforced server-side), each showing
-// whichever Comp-Off Policy they're currently assigned to, if any.
-export async function listEmployeesForCompOffAssignment(search?: string): Promise<CompOffPolicyEmployee[]> {
+// whichever Comp-Off Policy they're currently assigned to, if any. brandId
+// further narrows a company-wide caller's own view to one Brand.
+export async function listEmployeesForCompOffAssignment(
+  search?: string,
+  brandId?: string
+): Promise<CompOffPolicyEmployee[]> {
   const { data } = await apiClient.get<{ data: CompOffPolicyEmployee[] }>('/leave/comp-off-policies/employees', {
-    params: search ? { search } : undefined,
+    params: { search: search || undefined, brandId },
   });
   return data.data;
 }

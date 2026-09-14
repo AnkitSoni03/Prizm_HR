@@ -37,7 +37,8 @@ import {
   type RequestEmployee,
 } from '../../api/companyAdmin/approvals';
 import { listEmployees } from '../../api/companyAdmin/employees';
-import type { Employee } from '../../api/tenancy';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand, Employee } from '../../api/tenancy';
 import { AssignCompOffModal } from './components/AssignCompOffModal';
 import { formatDisplayDate, formatDisplayTime } from '../../utils/dateDisplay';
 
@@ -76,7 +77,29 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     : 'leave';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [statusFilter, setStatusFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [offset, setOffset] = useState(0);
+
+  // Only Company Admin's own view gets to pick a Brand. Brand Admin's own
+  // view already has one fixed by extraParams.brandId, and a second filter
+  // on top of that would be redundant (and would leak sibling Brand names
+  // into a portal that's deliberately hidden them everywhere else — see
+  // OrganizationPage.tsx's Brands-tab removal). Group Admin's read-only
+  // company drill-in (extraParams.companyId) is skipped too — listBrands()
+  // below has no companyId override, so it can't resolve the drilled-into
+  // company's own Brands from here.
+  const showBrandFilter = !extraParams.brandId && !extraParams.companyId;
+
+  useEffect(() => {
+    if (!showBrandFilter) return;
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter just stays hidden */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [odRequests, setOdRequests] = useState<OdRequest[]>([]);
@@ -112,7 +135,13 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      const params = { status: statusFilter || undefined, limit: LIMIT, offset, ...extraParams };
+      const params = {
+        status: statusFilter || undefined,
+        brandId: showBrandFilter ? brandFilter || undefined : undefined,
+        limit: LIMIT,
+        offset,
+        ...extraParams,
+      };
       if (activeTab === 'leave') {
         const result = await listLeaveRequests(params);
         setLeaveRequests(result.data);
@@ -141,7 +170,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, statusFilter, offset]);
+  }, [activeTab, statusFilter, brandFilter, offset]);
 
   // Only needed to populate the "Assign Comp-Off" employee picker — lazy so
   // a caller without comp_off:credit never pays for this extra request.
@@ -234,16 +263,30 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
       />
 
       <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <FilterSelect
-          value={statusFilter}
-          onChange={(value) => {
-            setOffset(0);
-            setStatusFilter(value);
-          }}
-          placeholder="All statuses"
-          ariaLabel="Filter by status"
-          options={statusOptions}
-        />
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+          <FilterSelect
+            value={statusFilter}
+            onChange={(value) => {
+              setOffset(0);
+              setStatusFilter(value);
+            }}
+            placeholder="All statuses"
+            ariaLabel="Filter by status"
+            options={statusOptions}
+          />
+          {showBrandFilter && brands.length > 0 && (
+            <FilterSelect
+              value={brandFilter}
+              onChange={(value) => {
+                setOffset(0);
+                setBrandFilter(value);
+              }}
+              placeholder="All brands"
+              ariaLabel="Filter by brand"
+              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+            />
+          )}
+        </div>
         {activeTab === 'compOff' && hasPermission('comp_off:credit') && (
           <Button type="button" onClick={() => setShowAssignCompOff(true)}>
             Assign Comp-Off

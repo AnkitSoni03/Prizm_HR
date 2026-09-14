@@ -28,13 +28,14 @@ export interface LeavePolicyListResult {
 // rosterGroupId omitted = every policy (defaults + overrides); 'null' =
 // company-wide defaults only; a real id = just that Roster Group's overrides.
 export async function listLeavePolicies(
-  params: { leaveTypeId?: string; rosterGroupId?: string | null } = {}
+  params: { leaveTypeId?: string; rosterGroupId?: string | null; brandId?: string } = {}
 ): Promise<LeavePolicy[]> {
   const { data } = await apiClient.get<LeavePolicyListResult>('/leave/policies', {
     params: {
       limit: 100,
       leaveTypeId: params.leaveTypeId,
       rosterGroupId: params.rosterGroupId === null ? 'null' : params.rosterGroupId,
+      brandId: params.brandId,
     },
   });
   return data.data;
@@ -46,6 +47,9 @@ export async function createLeavePolicy(input: {
   annualQuota: number;
   accrual?: 'yearly' | 'monthly' | 'monthly_reset';
   applicableAfterDays?: number;
+  // Omit (or '') for a Leave Policy shared across every Brand — see
+  // utils/brandScope.js.
+  brandId?: string;
 }): Promise<LeavePolicy> {
   const { data } = await apiClient.post<{ data: LeavePolicy }>('/leave/policies', input);
   return data.data;
@@ -58,6 +62,7 @@ export async function updateLeavePolicy(
     accrual: 'yearly' | 'monthly' | 'monthly_reset';
     applicableAfterDays: number;
     rosterGroupIds: string[];
+    brandId: string;
   }>
 ): Promise<LeavePolicy> {
   const { data } = await apiClient.patch<{ data: LeavePolicy }>(`/leave/policies/${id}`, input);

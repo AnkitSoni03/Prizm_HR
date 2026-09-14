@@ -21,7 +21,15 @@ export interface PayrollAdjustmentListResult {
 }
 
 export async function listPayrollAdjustments(
-  params: { employeeId?: string; periodMonth?: number; periodYear?: number; status?: string; limit?: number; offset?: number } = {}
+  params: {
+    employeeId?: string;
+    brandId?: string;
+    periodMonth?: number;
+    periodYear?: number;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  } = {}
 ): Promise<PayrollAdjustmentListResult> {
   const { data } = await apiClient.get<PayrollAdjustmentListResult>('/payroll/adjustments', { params });
   return data;

@@ -4,9 +4,14 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createRosterGroup, updateRosterGroup, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import type { Brand } from '../../../api/tenancy';
 
 interface RosterGroupFormModalProps {
   rosterGroup?: RosterPolicyGroup;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has Brands — a direct-mode company has nothing to pick
+  // from, same convention as ShiftFormModal.tsx's own Brand field.
+  brands?: Brand[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -14,10 +19,11 @@ interface RosterGroupFormModalProps {
 // Just name + description — Shift/Holiday/Company Policy/Leave Policy are
 // all assigned to a Roster from those entities' OWN create/edit forms
 // ("Assign to Roster(s)"), not from here.
-export function RosterGroupFormModal({ rosterGroup, onClose, onSaved }: RosterGroupFormModalProps) {
+export function RosterGroupFormModal({ rosterGroup, brands = [], onClose, onSaved }: RosterGroupFormModalProps) {
   const isEdit = !!rosterGroup;
   const [name, setName] = useState(rosterGroup?.name ?? '');
   const [description, setDescription] = useState(rosterGroup?.description ?? '');
+  const [brandId, setBrandId] = useState(rosterGroup?.brandId ?? '');
   // Validity period is optional — blank validityValue means "no expiry",
   // same as both columns being null on the backend. Kept as a string in
   // state (not number) so the field can be genuinely empty rather than
@@ -37,11 +43,17 @@ export function RosterGroupFormModal({ rosterGroup, onClose, onSaved }: RosterGr
     }
     setIsSubmitting(true);
     try {
+      // Only ever sent when the field below is actually rendered/editable
+      // (brands.length > 1) — a brand-scoped caller (Brand Admin, always
+      // exactly 1 Brand from their own listBrands() call) is blocked
+      // server-side from submitting a brandId at all, even an unchanged
+      // one (see brandScope.js::assertBrandReassignAllowed).
       const payload = {
         name,
         description: description || null,
         validityValue: parsedValidity,
         validityUnit: parsedValidity === null ? null : validityUnit,
+        ...(brands.length > 1 ? { brandId } : {}),
       };
       if (isEdit) {
         await updateRosterGroup(rosterGroup.id, payload);
@@ -75,6 +87,16 @@ export function RosterGroupFormModal({ rosterGroup, onClose, onSaved }: RosterGr
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Kolkata-based employees — regional holidays and leave quota"
         />
+        {brands.length > 1 && (
+          <Select
+            id="roster-group-brand"
+            label="Brand"
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            placeholder="Shared (all brands)"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <div>
           <p className="mb-1.5 text-sm font-medium text-ink">Roster Period (optional)</p>
           <div className="flex gap-2">

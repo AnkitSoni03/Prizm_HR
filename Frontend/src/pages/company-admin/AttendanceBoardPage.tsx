@@ -11,6 +11,8 @@ import {
   type AttendanceBoardRow,
   type AttendanceRosterStatus,
 } from '../../api/companyAdmin/attendanceRecords';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand } from '../../api/tenancy';
 
 const MONTH_LABELS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -82,19 +84,34 @@ export function AttendanceBoardPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   const [rows, setRows] = useState<AttendanceBoardRow[]>([]);
   const [daysInMonth, setDaysInMonth] = useState(31);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  // Reused as-is by Brand Admin (see the module comment above) — a Brand
+  // Admin's own listBrands() call now correctly returns only their own
+  // Brand (brand.service.js::listBrands), so this always resolves to
+  // exactly 1 for them and the filter stays hidden; a multi-brand company
+  // viewed by Company Admin gets the real list.
+  const [brands, setBrands] = useState<Brand[]>([]);
+
+  useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter just stays hidden */
+      });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
-    getAttendanceBoard(year, month)
+    getAttendanceBoard(year, month, brands.length > 1 ? brandFilter || undefined : undefined)
       .then((result) => {
         if (cancelled) return;
         setRows(result.rows);
@@ -109,7 +126,7 @@ export function AttendanceBoardPage() {
     return () => {
       cancelled = true;
     };
-  }, [year, month]);
+  }, [year, month, brandFilter, brands.length]);
 
   function shiftMonth(delta: number) {
     let m = month + delta;
@@ -137,7 +154,7 @@ export function AttendanceBoardPage() {
     setIsExporting(true);
     setError(null);
     try {
-      const blob = await getAttendanceBoardXlsx(year, month);
+      const blob = await getAttendanceBoardXlsx(year, month, brands.length > 1 ? brandFilter || undefined : undefined);
       downloadBlob(`attendance-board-${year}-${String(month).padStart(2, '0')}.xlsx`, blob);
     } catch {
       setError('Could not export the attendance board.');
@@ -186,6 +203,17 @@ export function AttendanceBoardPage() {
           >
             <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
           </button>
+          {brands.length > 1 && (
+            <div className="w-40">
+              <Select
+                id="attendance-board-brand"
+                label="Brand"
+                value={brandFilter}
+                onChange={(event) => setBrandFilter(event.target.value)}
+                options={[{ value: '', label: 'All Brands' }, ...brands.map((b) => ({ value: b.id, label: b.name }))]}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

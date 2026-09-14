@@ -38,8 +38,8 @@ export interface LeaveBalance {
   leaveType?: LeaveType;
 }
 
-export async function listLeaveTypes(): Promise<LeaveType[]> {
-  const { data } = await apiClient.get<{ data: LeaveType[] }>('/leave/types', { params: { limit: 100 } });
+export async function listLeaveTypes(params: { brandId?: string } = {}): Promise<LeaveType[]> {
+  const { data } = await apiClient.get<{ data: LeaveType[] }>('/leave/types', { params: { limit: 100, ...params } });
   return data.data;
 }
 
@@ -49,6 +49,9 @@ interface LeaveTypeWriteInput {
   isPaid?: boolean;
   carryForward?: boolean;
   maxCarryForwardDays?: number | null;
+  // Omit (or '') for a Leave Type shared across every Brand — see
+  // utils/brandScope.js.
+  brandId?: string;
   cycleType?: 'calendar' | 'anniversary' | 'custom';
   customCycleStartMonth?: number | null;
   customCycleStartDay?: number | null;

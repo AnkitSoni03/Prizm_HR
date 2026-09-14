@@ -65,6 +65,7 @@ async function listEmployees(req, res, next) {
   try {
     const employees = await service.listEmployeesForAssignment({
       companyId: req.auth.companyId,
+      brandId: req.query.brandId,
       scopedBrandIds: req.auth.scopedBrandIds,
       search: req.query.search,
     });

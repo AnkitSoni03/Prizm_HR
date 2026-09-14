@@ -34,6 +34,8 @@ import {
   type AttendanceRosterRow,
 } from '../../api/companyAdmin/attendanceRecords';
 import { listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand } from '../../api/tenancy';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 const LIMIT = 20;
@@ -227,9 +229,16 @@ export function AttendanceRecordsPage() {
   const [date, setDate] = useState(today);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
   const [offset, setOffset] = useState(0);
 
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  // Reused as-is by Brand Admin (see the module comment above) — a Brand
+  // Admin's own listBrands() call now correctly returns only their own
+  // Brand (brand.service.js::listBrands), so this always resolves to
+  // exactly 1 for them and the filter stays hidden; a multi-brand company
+  // viewed by Company Admin gets the real list.
+  const [brands, setBrands] = useState<Brand[]>([]);
 
   const [records, setRecords] = useState<AttendanceRosterRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -252,6 +261,11 @@ export function AttendanceRecordsPage() {
     listLeaveTypes()
       .then(setLeaveTypes)
       .catch(() => setLeaveTypes([]));
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter just stays hidden */
+      });
   }, []);
 
   async function load() {
@@ -264,6 +278,7 @@ export function AttendanceRecordsPage() {
         search: search.trim() || undefined,
         status,
         leaveTypeId,
+        brandId: brands.length > 1 ? brandFilter || undefined : undefined,
         limit: LIMIT,
         offset,
       });
@@ -280,7 +295,7 @@ export function AttendanceRecordsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, search, statusFilter, offset]);
+  }, [date, search, statusFilter, brandFilter, offset]);
 
   // Marking is per-date — a selection made for one date has no meaning on
   // another, so switching dates starts fresh.
@@ -405,6 +420,20 @@ export function AttendanceRecordsPage() {
             options={[{ value: '', label: 'All Status' }, ...statusOptions]}
           />
         </div>
+        {brands.length > 1 && (
+          <div className="w-full sm:w-48">
+            <Select
+              id="attendance-records-brand"
+              label="Brand"
+              value={brandFilter}
+              onChange={(event) => {
+                setOffset(0);
+                setBrandFilter(event.target.value);
+              }}
+              options={[{ value: '', label: 'All Brands' }, ...brands.map((b) => ({ value: b.id, label: b.name }))]}
+            />
+          </div>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-xs">

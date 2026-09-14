@@ -40,9 +40,15 @@ async function list(req, res, next) {
 async function roster(req, res, next) {
   try {
     const { limit, offset } = parsePagination(req.query);
+    // req.auth.scopedBrandIds (a brand-scoped caller, e.g. Brand Admin)
+    // always wins — an explicit ?brandId= only ever lets a COMPANY-WIDE
+    // caller (Company Admin/HR Manager, scopedBrandIds null) narrow their
+    // otherwise-unfiltered view down to one Brand.
+    const requestedBrandId = req.query.brandId || null;
+    const brandIds = req.auth.scopedBrandIds ?? (requestedBrandId ? [requestedBrandId] : null);
     const { rows, count } = await service.listAttendanceRoster({
       companyId: req.auth.companyId,
-      brandIds: req.auth.scopedBrandIds,
+      brandIds,
       date: req.query.date,
       search: req.query.search,
       status: req.query.status,
@@ -56,11 +62,20 @@ async function roster(req, res, next) {
   }
 }
 
+// req.auth.scopedBrandIds (a brand-scoped caller, e.g. Brand Admin) always
+// wins — an explicit ?brandId= only ever lets a COMPANY-WIDE caller
+// (Company Admin/HR Manager, scopedBrandIds null) narrow their otherwise-
+// unfiltered view down to one Brand. Same pattern as roster() above.
+function resolveBoardBrandIds(req) {
+  const requestedBrandId = req.query.brandId || null;
+  return req.auth.scopedBrandIds ?? (requestedBrandId ? [requestedBrandId] : null);
+}
+
 async function board(req, res, next) {
   try {
     const result = await service.listAttendanceBoard({
       companyId: req.auth.companyId,
-      brandIds: req.auth.scopedBrandIds,
+      brandIds: resolveBoardBrandIds(req),
       year: req.query.year,
       month: req.query.month,
     });
@@ -74,7 +89,7 @@ async function exportBoard(req, res, next) {
   try {
     const result = await service.listAttendanceBoard({
       companyId: req.auth.companyId,
-      brandIds: req.auth.scopedBrandIds,
+      brandIds: resolveBoardBrandIds(req),
       year: req.query.year,
       month: req.query.month,
     });

@@ -72,6 +72,9 @@ export async function createRosterGroup(input: {
   description?: string | null;
   validityValue?: number | null;
   validityUnit?: 'days' | 'months' | null;
+  // Omit (or '') for a Roster shared across every Brand — see
+  // utils/brandScope.js.
+  brandId?: string;
 }): Promise<RosterPolicyGroup> {
   const { data } = await apiClient.post<{ data: RosterPolicyGroup }>('/roster-groups', input);
   return data.data;
@@ -84,6 +87,8 @@ export async function updateRosterGroup(
     description: string | null;
     validityValue: number | null;
     validityUnit: 'days' | 'months' | null;
+    // Reassigns which Brand this Roster belongs to ('' = shared).
+    brandId: string;
   }>
 ): Promise<RosterPolicyGroup> {
   const { data } = await apiClient.patch<{ data: RosterPolicyGroup }>(`/roster-groups/${id}`, input);

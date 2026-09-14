@@ -3,7 +3,14 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 
-async function listBrands({ companyId, limit, offset }) {
+// scopedBrandIds (rbac.middleware.js's requirePermission output): null for
+// a company-wide grant (Company Admin, HR Manager), an array for a
+// brand-scoped caller (Brand Admin) — who must only ever see their OWN
+// Brand(s), never a sibling's, per the same full-isolation rule as every
+// other brand-scoped list in this codebase (see utils/brandScope.js). This
+// was a real gap: a Brand Admin calling GET /brands previously saw every
+// Brand in the company, including ones they don't manage.
+async function listBrands({ companyId, scopedBrandIds, limit, offset }) {
   // For a scoped caller (Company Admin etc.), Brand's tenant-scope hook
   // (src/models/hooks/tenant-scope.js) already injects their own company_id
   // from the request's AsyncLocalStorage context — the explicit companyId
@@ -11,6 +18,7 @@ async function listBrands({ companyId, limit, offset }) {
   // hook is a no-op), letting the Super Admin portal scope the list to one
   // Company at a time (e.g. expanding a Company card to show its Brands).
   const where = companyId ? { companyId } : {};
+  if (scopedBrandIds) where.id = { [db.Sequelize.Op.in]: scopedBrandIds };
 
   const { rows, count } = await db.Brand.findAndCountAll({
     where,

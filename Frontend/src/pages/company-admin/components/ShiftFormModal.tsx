@@ -4,14 +4,19 @@ import { CheckCircle2, Plus, Trash2 } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { Select } from '../../../components/ui/Select';
 import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { createShift, updateShift } from '../../../api/companyAdmin/attendance';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
-import type { Shift } from '../../../api/tenancy';
+import type { Brand, Shift } from '../../../api/tenancy';
 
 interface ShiftFormModalProps {
   shift?: Shift;
   shifts: Shift[];
+  // Only passed (and only then does the Brand field render at all) when the
+  // company actually has Brands — a direct-mode company has nothing to pick
+  // from, same convention as EmployeeFormModal.tsx's own Brand field.
+  brands?: Brand[];
   // Pre-selects these Rosters on the first row — used when this modal is
   // opened from inside a Roster's own detail view ("Add Shift" right there),
   // so the admin doesn't have to re-pick the Roster they were just looking
@@ -33,6 +38,8 @@ interface ShiftRow {
   weekOffLeaveEnabled: boolean;
   weekOffLeaveBasisDays: number[];
   rosterGroupIds: string[];
+  // '' = shared across every Brand — see utils/brandScope.js.
+  brandId: string;
 }
 
 const WEEKDAYS = [
@@ -55,6 +62,7 @@ function blankRow(id: number): ShiftRow {
     weekOffLeaveEnabled: false,
     weekOffLeaveBasisDays: [],
     rosterGroupIds: [],
+    brandId: '',
   };
 }
 
@@ -110,7 +118,7 @@ function findNameConflicts(rows: ShiftRow[], existingShifts: Shift[]): string[] 
   return messages;
 }
 
-export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, onSaved }: ShiftFormModalProps) {
+export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupIds, onClose, onSaved }: ShiftFormModalProps) {
   const isEdit = !!shift;
   const [rows, setRows] = useState<ShiftRow[]>([
     shift
@@ -123,6 +131,7 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           weekOffLeaveEnabled: shift.weekOffLeaveEnabled ?? false,
           weekOffLeaveBasisDays: shift.weekOffLeaveBasisDays ?? [],
           rosterGroupIds: shift.rosterGroups?.map((rg) => rg.id) ?? [],
+          brandId: shift.brandId ?? '',
         }
       : { ...blankRow(0), rosterGroupIds: defaultRosterGroupIds ?? [] },
   ]);
@@ -220,6 +229,7 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
+          brandId: brands.length > 1 ? row.brandId : undefined,
         });
         onSaved();
         onClose();
@@ -243,6 +253,7 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
+          brandId: brands.length > 1 ? row.brandId : undefined,
         });
         onSaved();
         onClose();
@@ -264,6 +275,7 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
+          brandId: brands.length > 1 ? row.brandId : undefined,
         })
       )
     );
@@ -326,6 +338,16 @@ export function ShiftFormModal({ shift, shifts, defaultRosterGroupIds, onClose, 
                 onChange={(event) => updateRow(row.id, { name: event.target.value })}
                 placeholder="Morning Shift"
               />
+              {brands.length > 1 && (
+                <Select
+                  id={`shift-brand-${row.id}`}
+                  label="Brand"
+                  value={row.brandId}
+                  onChange={(event) => updateRow(row.id, { brandId: event.target.value })}
+                  placeholder="Shared (all brands)"
+                  options={brands.map((b) => ({ value: b.id, label: b.name }))}
+                />
+              )}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Input
                   id={`shift-start-${row.id}`}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Clock, Moon, Pencil, Plus, Sun, Trash2 } from 'lucide-react';
+import { Building2, CalendarDays, Clock, Moon, Pencil, Plus, Sun, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -11,7 +11,8 @@ import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { deleteShift, listShifts } from '../../api/companyAdmin/attendance';
-import type { Shift } from '../../api/tenancy';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand, Shift } from '../../api/tenancy';
 import { ShiftFormModal } from './components/ShiftFormModal';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -54,11 +55,14 @@ function ShiftCardSkeleton() {
 
 interface ShiftCardProps {
   shift: Shift;
+  // Omitted for a direct-mode company (no Brands at all) — the row has
+  // nothing to say here regardless of the Shift's own (always-null) brandId.
+  brandName?: string | null;
   onEdit?: () => void;
   onDelete?: () => void;
 }
 
-function ShiftCard({ shift, onEdit, onDelete }: ShiftCardProps) {
+function ShiftCard({ shift, brandName, onEdit, onDelete }: ShiftCardProps) {
   const Icon = shift.isNightShift ? Moon : Sun;
   const weeklyOff =
     shift.weeklyOffDays.length > 0 ? shift.weeklyOffDays.map((d) => WEEKDAY_LABELS[d]).join(', ') : '—';
@@ -89,6 +93,7 @@ function ShiftCard({ shift, onEdit, onDelete }: ShiftCardProps) {
           }
         />
         <DetailRow icon={CalendarDays} label="Weekly Off" value={weeklyOff} />
+        {brandName !== undefined && <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />}
       </div>
 
       {(onEdit || onDelete) && (
@@ -133,11 +138,13 @@ export function ShiftsRostersPage() {
   const showToast = useToast();
 
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingShift, setEditingShift] = useState<Shift | 'new' | null>(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'' | 'day' | 'night'>('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   const canCreate = hasPermission('shift:create');
   const canUpdate = hasPermission('shift:update');
@@ -159,6 +166,11 @@ export function ShiftsRostersPage() {
       .then(setShifts)
       .catch(() => setError('Could not load shifts.'))
       .finally(() => setIsLoading(false));
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/column just stays empty */
+      });
   }, []);
 
   const filteredShifts = useMemo(
@@ -166,9 +178,10 @@ export function ShiftsRostersPage() {
       shifts.filter(
         (shift) =>
           (!search.trim() || shift.name.toLowerCase().includes(search.trim().toLowerCase())) &&
-          (typeFilter === '' || (typeFilter === 'night') === shift.isNightShift),
+          (typeFilter === '' || (typeFilter === 'night') === shift.isNightShift) &&
+          (brandFilter === '' || shift.brandId === brandFilter),
       ),
-    [shifts, search, typeFilter],
+    [shifts, search, typeFilter, brandFilter],
   );
 
   async function handleDeleteShift(shift: Shift) {
@@ -204,6 +217,15 @@ export function ShiftsRostersPage() {
               { value: 'night', label: 'Night' },
             ]}
           />
+          {brands.length > 0 && (
+            <FilterSelect
+              value={brandFilter}
+              onChange={setBrandFilter}
+              placeholder="All brands"
+              ariaLabel="Filter by brand"
+              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+            />
+          )}
         </div>
         {canCreate && (
           <Button onClick={() => setEditingShift('new')}>
@@ -226,7 +248,7 @@ export function ShiftsRostersPage() {
           description={
             shifts.length === 0
               ? 'Create shifts to organize work hours and manage schedules efficiently.'
-              : 'Try a different search term or clear the type filter.'
+              : 'Try a different search term or clear the type/brand filter.'
           }
           action={
             shifts.length === 0 && canCreate ? (
@@ -245,6 +267,9 @@ export function ShiftsRostersPage() {
             <ShiftCard
               key={shift.id}
               shift={shift}
+              brandName={
+                brands.length > 0 ? (brands.find((b) => b.id === shift.brandId)?.name ?? null) : undefined
+              }
               onEdit={canUpdate ? () => setEditingShift(shift) : undefined}
               onDelete={canDelete ? () => handleDeleteShift(shift) : undefined}
             />
@@ -256,6 +281,7 @@ export function ShiftsRostersPage() {
         <ShiftFormModal
           shift={editingShift === 'new' ? undefined : editingShift}
           shifts={shifts}
+          brands={brands}
           onClose={() => setEditingShift(null)}
           onSaved={loadShifts}
         />

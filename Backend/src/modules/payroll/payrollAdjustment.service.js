@@ -4,18 +4,34 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertEmployeeInBrandScope, resolveScopedEmployeeIds } = require('../../utils/brandScope');
 
-async function listAdjustments({ companyId, employeeId, periodMonth, periodYear, status, limit, offset, scopedBrandIds }) {
+async function listAdjustments({
+  companyId,
+  employeeId,
+  brandId,
+  periodMonth,
+  periodYear,
+  status,
+  limit,
+  offset,
+  scopedBrandIds,
+}) {
   const where = { companyId };
   if (employeeId) where.employeeId = employeeId;
   if (periodMonth) where.periodMonth = periodMonth;
   if (periodYear) where.periodYear = periodYear;
   if (status) where.status = status;
+  // scopedBrandIds (a brand-scoped caller, e.g. Brand Admin) always wins —
+  // an explicit brandId only ever lets a COMPANY-WIDE caller narrow their
+  // otherwise-unfiltered view down to one Brand's employees.
   if (scopedBrandIds) {
     const allowedEmployeeIds = await resolveScopedEmployeeIds({ companyId, scopedBrandIds });
     const allowedSet = new Set(allowedEmployeeIds.map(String));
     // caller asked for a specific employeeId outside their brand scope — return
     // nothing, not everyone (id: -1 never matches a real bigint PK).
     where.employeeId = employeeId ? (allowedSet.has(String(employeeId)) ? employeeId : -1) : allowedEmployeeIds;
+  } else if (brandId && !employeeId) {
+    const brandEmployeeIds = await resolveScopedEmployeeIds({ companyId, scopedBrandIds: [brandId] });
+    where.employeeId = brandEmployeeIds;
   }
 
   return db.PayrollAdjustment.findAndCountAll({

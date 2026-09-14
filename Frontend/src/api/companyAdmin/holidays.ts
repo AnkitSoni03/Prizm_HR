@@ -38,7 +38,14 @@ export interface HolidayListResult {
 }
 
 export async function listHolidays(
-  params: { limit?: number; offset?: number; from?: string; to?: string; rosterGroupId?: string } = {}
+  params: {
+    limit?: number;
+    offset?: number;
+    from?: string;
+    to?: string;
+    rosterGroupId?: string;
+    brandId?: string;
+  } = {}
 ): Promise<HolidayListResult> {
   const { data } = await apiClient.get<HolidayListResult>('/leave/holidays', {
     params: { limit: 100, ...params },
@@ -57,6 +64,9 @@ export async function createHoliday(input: {
   toDate?: string;
   name: string;
   rosterGroupIds?: string[];
+  // Omit (or '') for a Holiday shared across every Brand — see
+  // utils/brandScope.js.
+  brandId?: string;
 }): Promise<Holiday> {
   const { data } = await apiClient.post<{ data: Holiday }>('/leave/holidays', input);
   return data.data;
@@ -64,7 +74,7 @@ export async function createHoliday(input: {
 
 export async function updateHoliday(
   id: string,
-  input: { date?: string; toDate?: string; name?: string; rosterGroupIds?: string[] }
+  input: { date?: string; toDate?: string; name?: string; rosterGroupIds?: string[]; brandId?: string }
 ): Promise<Holiday> {
   const { data } = await apiClient.patch<{ data: Holiday }>(`/leave/holidays/${id}`, input);
   return data.data;

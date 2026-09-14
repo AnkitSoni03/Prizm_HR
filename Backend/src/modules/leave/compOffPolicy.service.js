@@ -93,9 +93,14 @@ async function deleteCompOffPolicy({ companyId, id, scopedBrandIds }) {
 // (rbac.middleware.js's requirePermission output): null = company-wide
 // caller (Company Admin/HR Manager), an array = Brand Admin restricted to
 // their own brand(s).
-async function listEmployeesForAssignment({ companyId, scopedBrandIds, search }) {
+async function listEmployeesForAssignment({ companyId, brandId, scopedBrandIds, search }) {
   const where = { companyId, status: 'active' };
+  // scopedBrandIds (a brand-scoped caller, e.g. Brand Admin) always wins —
+  // an explicit brandId only ever lets a COMPANY-WIDE caller narrow their
+  // otherwise-unfiltered view down to one Brand, same pattern as every
+  // other admin list filtered by Brand in this codebase.
   if (scopedBrandIds) where.brandId = { [Op.in]: scopedBrandIds };
+  else if (brandId) where.brandId = brandId;
   if (search && search.trim()) {
     const term = `%${search.trim()}%`;
     where[Op.or] = [{ name: { [Op.iLike]: term } }, { employeeCode: { [Op.iLike]: term } }];

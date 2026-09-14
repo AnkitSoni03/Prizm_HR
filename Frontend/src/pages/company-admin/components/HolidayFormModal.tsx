@@ -1,13 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { createHoliday, updateHoliday, type Holiday } from '../../../api/companyAdmin/holidays';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import type { Brand } from '../../../api/tenancy';
 
 interface HolidayFormModalProps {
   holiday?: Holiday;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has Brands — a direct-mode company has nothing to pick
+  // from, same convention as ShiftFormModal.tsx's own Brand field.
+  brands?: Brand[];
   // Pre-selects these Rosters — used when this modal is opened from inside a
   // Roster's own detail view ("Add Holiday" right there). Ignored when
   // editing an existing holiday (its own rosterGroups win).
@@ -16,11 +22,12 @@ interface HolidayFormModalProps {
   onSaved: () => void;
 }
 
-export function HolidayFormModal({ holiday, defaultRosterGroupIds, onClose, onSaved }: HolidayFormModalProps) {
+export function HolidayFormModal({ holiday, brands = [], defaultRosterGroupIds, onClose, onSaved }: HolidayFormModalProps) {
   const isEdit = !!holiday;
   const [date, setDate] = useState(holiday?.date ?? '');
   const [toDate, setToDate] = useState(holiday?.endDate ?? holiday?.date ?? '');
   const [name, setName] = useState(holiday?.name ?? '');
+  const [brandId, setBrandId] = useState(holiday?.brandId ?? '');
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
     holiday?.rosterGroups?.map((rg) => rg.id) ?? defaultRosterGroupIds ?? []
@@ -39,10 +46,17 @@ export function HolidayFormModal({ holiday, defaultRosterGroupIds, onClose, onSa
     setError(null);
     setIsSubmitting(true);
     try {
+      // Only ever sent when the field above is actually rendered/editable
+      // (brands.length > 1) — a brand-scoped caller (Brand Admin, always
+      // exactly 1 Brand from their own listBrands() call) is blocked
+      // server-side from submitting a brandId at all, even an unchanged
+      // one (see brandScope.js::assertBrandReassignAllowed), so it must
+      // never be included in their payload.
+      const brandPatch = brands.length > 1 ? { brandId } : {};
       if (isEdit) {
-        await updateHoliday(holiday.id, { date, toDate: toDate || date, name, rosterGroupIds });
+        await updateHoliday(holiday.id, { date, toDate: toDate || date, name, rosterGroupIds, ...brandPatch });
       } else {
-        await createHoliday({ date, toDate: toDate || undefined, name, rosterGroupIds });
+        await createHoliday({ date, toDate: toDate || undefined, name, rosterGroupIds, ...brandPatch });
       }
       onSaved();
       onClose();
@@ -91,6 +105,16 @@ export function HolidayFormModal({ holiday, defaultRosterGroupIds, onClose, onSa
           onChange={(event) => setName(event.target.value)}
           placeholder="Independence Day"
         />
+        {brands.length > 1 && (
+          <Select
+            id="holiday-brand"
+            label="Brand"
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            placeholder="Shared (all brands)"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>

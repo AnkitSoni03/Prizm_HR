@@ -11,7 +11,12 @@ async function list(req, res, next) {
       authCompanyId: req.auth.companyId,
       override: req.query.companyId,
     });
-    const { rows, count } = await service.listBrands({ companyId, limit, offset });
+    const { rows, count } = await service.listBrands({
+      companyId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      limit,
+      offset,
+    });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);

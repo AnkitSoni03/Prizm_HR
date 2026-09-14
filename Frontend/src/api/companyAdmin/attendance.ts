@@ -52,6 +52,9 @@ export async function createShift(input: {
   weekOffLeaveEnabled?: boolean;
   weekOffLeaveBasisDays?: number[];
   rosterGroupIds?: string[];
+  // Omit (or '') for a Shift shared across every Brand — see
+  // utils/brandScope.js.
+  brandId?: string;
 }): Promise<Shift> {
   const { data } = await apiClient.post<{ data: Shift }>('/attendance/shifts', input);
   return data.data;
@@ -68,6 +71,9 @@ export async function updateShift(
     weekOffLeaveEnabled?: boolean;
     weekOffLeaveBasisDays?: number[];
     rosterGroupIds?: string[];
+    // Reassigns which Brand this Shift belongs to ('' = shared across every
+    // Brand). Omit entirely to leave it untouched.
+    brandId?: string;
   }
 ): Promise<Shift> {
   const { data } = await apiClient.patch<{ data: Shift }>(`/attendance/shifts/${id}`, input);

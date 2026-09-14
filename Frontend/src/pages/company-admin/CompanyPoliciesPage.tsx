@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Download, Eye, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Building2, CheckCircle2, Download, Eye, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { SearchInput } from '../../components/ui/SearchInput';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
@@ -15,6 +16,8 @@ import {
   listCompanyPolicies,
   type CompanyPolicy,
 } from '../../api/companyAdmin/companyPolicies';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand } from '../../api/tenancy';
 import { PolicyFormModal } from './components/PolicyFormModal';
 import { FilePreviewModal } from '../../components/ui/FilePreviewModal';
 import { getFileKind } from '../../utils/fileKind';
@@ -52,17 +55,25 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
   const canDelete = hasPermission('company_policy:delete');
 
   const [policies, setPolicies] = useState<CompanyPolicy[]>([]);
+  // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
+  // correctly returns only their own Brand (brand.service.js::listBrands),
+  // so the filter/form field (both gated on brands.length > 1) stays
+  // hidden for them; the Brand badge on each card (gated on
+  // brands.length > 0) still shows for a single Brand, to distinguish it
+  // from Shared.
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<CompanyPolicy | 'new' | null>(null);
   const [previewPolicy, setPreviewPolicy] = useState<CompanyPolicy | null>(null);
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function loadPolicies() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await listCompanyPolicies(extraParams);
+      const result = await listCompanyPolicies({ ...extraParams, brandId: brandFilter || undefined });
       setPolicies(result.data);
     } catch {
       setError('Could not load company policies.');
@@ -75,7 +86,15 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadPolicies();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraParams.companyId, extraParams.rosterGroupId]);
+  }, [extraParams.companyId, extraParams.rosterGroupId, brandFilter]);
+
+  useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/badge just stays hidden */
+      });
+  }, []);
 
   const filteredPolicies = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -125,8 +144,17 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
         )}
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search policies…" value={search} onChange={setSearch} />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -206,6 +234,12 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
                 <p className="mt-2 line-clamp-3 text-sm text-ink-muted">
                   {policy.body ?? 'No description added yet.'}
                 </p>
+                {brands.length > 0 && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-muted">
+                    <Building2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                    {brands.find((b) => b.id === policy.brandId)?.name ?? 'Shared'}
+                  </p>
+                )}
 
                 <div className="my-4 border-t border-border" />
 
@@ -273,6 +307,7 @@ export function CompanyPoliciesPage({ extraParams = {} }: CompanyPoliciesPagePro
       {editingPolicy && (
         <PolicyFormModal
           policy={editingPolicy === 'new' ? undefined : editingPolicy}
+          brands={brands}
           onClose={() => setEditingPolicy(null)}
           onSaved={loadPolicies}
         />

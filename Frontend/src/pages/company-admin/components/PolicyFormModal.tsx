@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Paperclip } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { useToast } from '../../../context/toast-context';
@@ -13,9 +14,17 @@ import {
 } from '../../../api/companyAdmin/companyPolicies';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
+import type { Brand } from '../../../api/tenancy';
 
 interface PolicyFormModalProps {
   policy?: CompanyPolicy;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has more than one Brand for the caller to choose
+  // between — a brand-scoped caller (Brand Admin) always resolves to
+  // exactly 1 from their own listBrands() call, and must never have the
+  // field rendered/submitted at all (the backend rejects any brandId from
+  // them, even an unchanged one — see brandScope.js::assertBrandReassignAllowed).
+  brands?: Brand[];
   // Pre-selects these Rosters — used when this modal is opened from inside a
   // Roster's own detail view ("Add Company Policy" right there). Ignored
   // when editing an existing policy (its own rosterGroups win).
@@ -26,11 +35,12 @@ interface PolicyFormModalProps {
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
-export function PolicyFormModal({ policy, defaultRosterGroupIds, onClose, onSaved }: PolicyFormModalProps) {
+export function PolicyFormModal({ policy, brands = [], defaultRosterGroupIds, onClose, onSaved }: PolicyFormModalProps) {
   const isEdit = !!policy;
   const showToast = useToast();
   const [title, setTitle] = useState(policy?.title ?? '');
   const [body, setBody] = useState(policy?.body ?? '');
+  const [brandId, setBrandId] = useState(policy?.brandId ?? '');
   const [file, setFile] = useState<File | null>(null);
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
@@ -63,9 +73,12 @@ export function PolicyFormModal({ policy, defaultRosterGroupIds, onClose, onSave
     setError(null);
     setIsSubmitting(true);
     try {
+      // Only ever sent when the field below is actually rendered/editable
+      // (brands.length > 1) — see the brands prop's own comment above.
+      const brandPatch = brands.length > 1 ? { brandId } : {};
       const saved = isEdit
-        ? await updateCompanyPolicy(policy.id, { title, body, rosterGroupIds })
-        : await createCompanyPolicy({ title, body, rosterGroupIds });
+        ? await updateCompanyPolicy(policy.id, { title, body, rosterGroupIds, ...brandPatch })
+        : await createCompanyPolicy({ title, body, rosterGroupIds, ...brandPatch });
 
       // Uploading the attachment is a separate, non-blocking step — the
       // policy itself already exists at this point either way.
@@ -113,6 +126,16 @@ export function PolicyFormModal({ policy, defaultRosterGroupIds, onClose, onSave
             className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base text-ink placeholder:text-ink-muted transition-all duration-150 hover:border-primary/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-sm"
           />
         </div>
+        {brands.length > 1 && (
+          <Select
+            id="policy-brand"
+            label="Brand"
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            placeholder="Shared (all brands)"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <div>
           <label htmlFor="policy-file" className="mb-1.5 block text-sm font-medium text-ink">

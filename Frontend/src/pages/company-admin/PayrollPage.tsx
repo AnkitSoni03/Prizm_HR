@@ -17,6 +17,7 @@ import { Tabs } from '../../components/ui/Tabs';
 import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -28,7 +29,8 @@ import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { listEmployees } from '../../api/companyAdmin/employees';
-import type { Employee } from '../../api/tenancy';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand, Employee } from '../../api/tenancy';
 import { formatEmployeeLabel } from '../../utils/employeeDisplay';
 import { PayrollSettingsForm } from './components/PayrollSettingsForm';
 import { SalaryComponentFormModal } from './components/SalaryComponentFormModal';
@@ -112,6 +114,22 @@ export function PayrollPage() {
     ? (requestedTab as Tab)
     : 'runs';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
+  // correctly returns only their own Brand (brand.service.js::listBrands),
+  // so the Brand filter on Structures/Adjustments (gated on
+  // brands.length > 1) stays hidden for them. Payroll Runs and Components
+  // have no brand dimension at all — one payroll run and one salary-
+  // component catalog cover every Brand together, by explicit design — so
+  // neither tab gets a Brand filter.
+  const [brands, setBrands] = useState<Brand[]>([]);
+
+  useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter just stays hidden */
+      });
+  }, []);
 
   return (
     <div>
@@ -129,11 +147,12 @@ export function PayrollPage() {
 
       {activeTab === 'settings' && <PayrollSettingsForm />}
       {activeTab === 'components' && <ComponentsTab canWrite={hasPermission('salary_component:create')} />}
-      {activeTab === 'structures' && <StructuresTab canWrite={hasPermission('salary_structure:create')} />}
+      {activeTab === 'structures' && <StructuresTab canWrite={hasPermission('salary_structure:create')} brands={brands} />}
       {activeTab === 'adjustments' && (
         <AdjustmentsTab
           canCreate={hasPermission('payroll_adjustment:create')}
           canDelete={hasPermission('payroll_adjustment:delete')}
+          brands={brands}
         />
       )}
       {activeTab === 'runs' && <RunsTab canCreate={hasPermission('payroll_run:create')} />}
@@ -362,7 +381,7 @@ function StructureCard({ structure }: { structure: EmployeeSalaryStructure }) {
   );
 }
 
-function StructuresTab({ canWrite }: { canWrite: boolean }) {
+function StructuresTab({ canWrite, brands }: { canWrite: boolean; brands: Brand[] }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [components, setComponents] = useState<SalaryComponentDefinition[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
@@ -370,6 +389,7 @@ function StructuresTab({ canWrite }: { canWrite: boolean }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [brandFilter, setBrandFilter] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -406,20 +426,41 @@ function StructuresTab({ canWrite }: { canWrite: boolean }) {
 
   const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
   const hasActiveStructure = structures.some((s) => s.status === 'active');
+  const visibleEmployees = brandFilter ? employees.filter((e) => e.brandId === brandFilter) : employees;
 
   return (
     <div>
       <TabBanner icon={Layers} description="Look up one employee to see their salary structure history, or assign a new one." />
 
-      <div className="mb-4 max-w-sm">
-        <Select
-          id="structures-employee-picker"
-          label="Employee"
-          value={selectedEmployeeId}
-          onChange={(event) => handleSelectEmployee(event.target.value)}
-          placeholder="Select an employee"
-          options={employees.map((e) => ({ value: e.id, label: formatEmployeeLabel(e) }))}
-        />
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-end">
+        {brands.length > 1 && (
+          <div className="w-full sm:w-48">
+            <FilterSelect
+              value={brandFilter}
+              onChange={(value) => {
+                setBrandFilter(value);
+                // The currently picked employee may no longer be in scope
+                // once the Brand filter narrows the list.
+                if (selectedEmployeeId && !employees.some((e) => e.id === selectedEmployeeId && (!value || e.brandId === value))) {
+                  handleSelectEmployee('');
+                }
+              }}
+              placeholder="All brands"
+              ariaLabel="Filter by brand"
+              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+            />
+          </div>
+        )}
+        <div className="w-full max-w-sm">
+          <Select
+            id="structures-employee-picker"
+            label="Employee"
+            value={selectedEmployeeId}
+            onChange={(event) => handleSelectEmployee(event.target.value)}
+            placeholder="Select an employee"
+            options={visibleEmployees.map((e) => ({ value: e.id, label: formatEmployeeLabel(e) }))}
+          />
+        </div>
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -540,7 +581,7 @@ function AdjustmentCard({ adjustment, canDelete, onCancel }: { adjustment: Payro
   );
 }
 
-function AdjustmentsTab({ canCreate, canDelete }: { canCreate: boolean; canDelete: boolean }) {
+function AdjustmentsTab({ canCreate, canDelete, brands }: { canCreate: boolean; canDelete: boolean; brands: Brand[] }) {
   const confirm = useConfirm();
   const showToast = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -550,12 +591,13 @@ function AdjustmentsTab({ canCreate, canDelete }: { canCreate: boolean; canDelet
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function load() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await listPayrollAdjustments({ limit: LIMIT, offset });
+      const result = await listPayrollAdjustments({ limit: LIMIT, offset, brandId: brandFilter || undefined });
       setAdjustments(result.data);
       setTotal(result.pagination.total);
     } catch {
@@ -569,7 +611,7 @@ function AdjustmentsTab({ canCreate, canDelete }: { canCreate: boolean; canDelet
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offset]);
+  }, [offset, brandFilter]);
 
   useEffect(() => {
     listEmployees({ status: 'active', limit: 100 })
@@ -607,6 +649,21 @@ function AdjustmentsTab({ canCreate, canDelete }: { canCreate: boolean; canDelet
           )
         }
       />
+
+      {brands.length > 1 && (
+        <div className="mb-4 w-full sm:w-48">
+          <FilterSelect
+            value={brandFilter}
+            onChange={(value) => {
+              setOffset(0);
+              setBrandFilter(value);
+            }}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        </div>
+      )}
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 

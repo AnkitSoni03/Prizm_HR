@@ -3,6 +3,7 @@ import { CalendarClock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { SearchInput } from '../../components/ui/SearchInput';
+import { FilterSelect } from '../../components/ui/FilterSelect';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { ColorTag, AccentTag } from '../../components/ColorTag';
 import { HolidayCard, HolidayCardSkeleton } from '../../components/HolidayCard';
@@ -10,6 +11,8 @@ import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import { useToast } from '../../context/toast-context';
 import { deleteHoliday, holidayAuditName, listHolidays, type Holiday } from '../../api/companyAdmin/holidays';
+import { listBrands } from '../../api/companyAdmin/org';
+import type { Brand } from '../../api/tenancy';
 import { HolidayFormModal } from './components/HolidayFormModal';
 import { countDaysInclusive, formatDisplayDateRange } from '../../utils/dateDisplay';
 
@@ -22,16 +25,23 @@ export function HolidaysPage() {
   const canDelete = hasPermission('holiday:delete');
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
+  // correctly returns only their own Brand (brand.service.js::listBrands),
+  // so the filter dropdown (gated on brands.length > 1) stays hidden for
+  // them; the Brand column/row still shows for a single Brand, to
+  // distinguish their own Brand's holidays from company-wide Shared ones.
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingHoliday, setEditingHoliday] = useState<Holiday | 'new' | null>(null);
   const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
 
   async function loadHolidays() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await listHolidays();
+      const result = await listHolidays({ brandId: brandFilter || undefined });
       setHolidays(result.data);
     } catch {
       setError('Could not load holidays.');
@@ -41,9 +51,18 @@ export function HolidaysPage() {
   }
 
   useEffect(() => {
+    listBrands()
+      .then(setBrands)
+      .catch(() => {
+        /* non-critical — the Brand filter/column just stays hidden */
+      });
+  }, []);
+
+  useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadHolidays();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandFilter]);
 
   const filteredHolidays = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -91,8 +110,17 @@ export function HolidaysPage() {
         )}
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search holidays…" value={search} onChange={setSearch} />
+        {brands.length > 1 && (
+          <FilterSelect
+            value={brandFilter}
+            onChange={setBrandFilter}
+            placeholder="All brands"
+            ariaLabel="Filter by brand"
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
       </div>
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
@@ -123,6 +151,15 @@ export function HolidaysPage() {
                   render: (h) => <ColorTag>{h.name}</ColorTag>,
                 },
                 { key: 'date', header: 'Date', render: (h) => formatDisplayDateRange(h.date, h.endDate) },
+                ...(brands.length > 0
+                  ? [
+                      {
+                        key: 'brand',
+                        header: 'Brand',
+                        render: (h: Holiday) => brands.find((b) => b.id === h.brandId)?.name ?? 'Shared',
+                      },
+                    ]
+                  : []),
                 {
                   key: 'roster',
                   header: 'Applies To',
@@ -198,6 +235,9 @@ export function HolidaysPage() {
                   key={holiday.id}
                   holiday={holiday}
                   showAppliesTo
+                  brandName={
+                    brands.length > 0 ? (brands.find((b) => b.id === holiday.brandId)?.name ?? null) : undefined
+                  }
                   onEdit={canUpdate ? () => setEditingHoliday(holiday) : undefined}
                   onDelete={canDelete ? () => handleDelete(holiday) : undefined}
                 />
@@ -209,6 +249,7 @@ export function HolidaysPage() {
       {editingHoliday && (
         <HolidayFormModal
           holiday={editingHoliday === 'new' ? undefined : editingHoliday}
+          brands={brands}
           onClose={() => setEditingHoliday(null)}
           onSaved={loadHolidays}
         />
