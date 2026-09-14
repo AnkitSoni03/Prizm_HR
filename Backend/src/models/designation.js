@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class Designation extends Model {
     static associate(models) {
       Designation.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      Designation.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       Designation.hasMany(models.Employee, { foreignKey: 'designationId', as: 'employees' });
     }
   }
@@ -14,6 +15,8 @@ module.exports = (sequelize, DataTypes) => {
   Designation.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       title: { type: DataTypes.STRING, allowNull: false },
       level: { type: DataTypes.INTEGER, allowNull: true },
     },

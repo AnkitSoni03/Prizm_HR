@@ -10,6 +10,8 @@ async function list(req, res, next) {
       limit,
       offset,
       leaveTypeId: req.query.leaveTypeId,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       // 'null' (string) in the query means "company-wide defaults only" —
       // an actual query param can't carry a real `null`.
       rosterGroupId: req.query.rosterGroupId === 'null' ? null : req.query.rosterGroupId,
@@ -22,13 +24,15 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { leaveTypeId, rosterGroupIds, annualQuota, accrual, applicableAfterDays } = req.body;
+    const { leaveTypeId, rosterGroupIds, annualQuota, accrual, applicableAfterDays, brandId } = req.body;
     if (!leaveTypeId || annualQuota === undefined) {
       return res.status(400).json({ error: 'leaveTypeId and annualQuota are required' });
     }
 
     const policy = await service.createLeavePolicy({
       companyId: req.auth.companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       leaveTypeId,
       rosterGroupIds,
       annualQuota,
@@ -47,6 +51,7 @@ async function update(req, res, next) {
       companyId: req.auth.companyId,
       id: req.params.id,
       updates: req.body,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: policy });
   } catch (err) {

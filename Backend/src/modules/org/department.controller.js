@@ -11,7 +11,13 @@ async function list(req, res, next) {
       authCompanyId: req.auth.companyId,
       override: req.query.companyId,
     });
-    const { rows, count } = await service.listDepartments({ companyId, limit, offset });
+    const { rows, count } = await service.listDepartments({
+      companyId,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      limit,
+      offset,
+    });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);
@@ -29,7 +35,7 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, code } = req.body;
+    const { name, code, brandId } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
 
     const companyId = requireCompanyScope({
@@ -37,7 +43,13 @@ async function create(req, res, next) {
       override: req.body.companyId,
     });
 
-    const department = await service.createDepartment({ companyId, name, code });
+    const department = await service.createDepartment({
+      companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      name,
+      code,
+    });
     res.status(201).json({ data: department });
   } catch (err) {
     next(err);
@@ -55,6 +67,7 @@ async function update(req, res, next) {
       companyId,
       id: req.params.id,
       updates: req.body,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: department });
   } catch (err) {
@@ -69,7 +82,7 @@ async function remove(req, res, next) {
       override: req.query.companyId,
     });
 
-    await service.deleteDepartment({ companyId, id: req.params.id });
+    await service.deleteDepartment({ companyId, id: req.params.id, scopedBrandIds: req.auth.scopedBrandIds });
     res.status(204).send();
   } catch (err) {
     next(err);

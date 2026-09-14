@@ -10,6 +10,7 @@ async function list(req, res, next) {
       limit,
       offset,
       brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       rosterGroupId: req.query.rosterGroupId,
       from: req.query.from,
       to: req.query.to,

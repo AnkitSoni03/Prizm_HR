@@ -64,7 +64,7 @@ export const GROUP_ADMIN_NAV: NavItem[] = [
 export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Dashboard', path: '/brand-admin', icon: LayoutDashboard },
   { label: 'Employees', path: '/brand-admin/employees', icon: Users },
-  { label: 'Organization', path: '/brand-admin/organization', icon: Building2 },
+  { label: 'Departments / Designations', path: '/brand-admin/organization', icon: Building2 },
   { label: 'Shifts', path: '/brand-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Roster', path: '/brand-admin/roster-groups', icon: Layers, permission: 'roster_group:read' },
   { label: 'Approvals', path: '/brand-admin/approvals', icon: ClipboardCheck },

@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class CompanyPolicy extends Model {
     static associate(models) {
       CompanyPolicy.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      CompanyPolicy.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       CompanyPolicy.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' });
       CompanyPolicy.belongsTo(models.User, { foreignKey: 'updatedBy', as: 'updater' });
       // Many-to-many: assigned from the policy's own form ("Assign to
@@ -26,6 +27,8 @@ module.exports = (sequelize, DataTypes) => {
   CompanyPolicy.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       title: { type: DataTypes.STRING, allowNull: false },
       body: { type: DataTypes.TEXT, allowNull: true },
       // Plain URL string, same convention as employee_documents.fileUrl —

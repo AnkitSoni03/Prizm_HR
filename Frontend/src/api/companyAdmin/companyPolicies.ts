@@ -5,6 +5,8 @@ import type { RosterPolicyGroup } from './rosterGroups';
 export interface CompanyPolicy {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   title: string;
   body: string | null;
   // Empty = visible company-wide (as before this dimension existed). One or

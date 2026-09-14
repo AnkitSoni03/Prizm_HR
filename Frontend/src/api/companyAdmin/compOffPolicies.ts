@@ -3,6 +3,8 @@ import { apiClient } from '../client';
 export interface CompOffPolicy {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   name: string;
   expiryDays: number;
   carryForward: boolean;

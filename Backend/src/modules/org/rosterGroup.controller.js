@@ -11,7 +11,13 @@ async function list(req, res, next) {
       authCompanyId: req.auth.companyId,
       override: req.query.companyId,
     });
-    const { rows, count } = await service.listRosterGroups({ companyId, limit, offset });
+    const { rows, count } = await service.listRosterGroups({
+      companyId,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      limit,
+      offset,
+    });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);
@@ -29,7 +35,7 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, description, validityValue, validityUnit } = req.body;
+    const { name, description, validityValue, validityUnit, brandId } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
 
     const companyId = requireCompanyScope({
@@ -39,6 +45,8 @@ async function create(req, res, next) {
 
     const rosterGroup = await service.createRosterGroup({
       companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       name,
       description,
       validityValue: validityValue === undefined ? null : validityValue,
@@ -63,6 +71,7 @@ async function update(req, res, next) {
       id: req.params.id,
       updates: req.body,
       updatedBy: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: rosterGroup });
   } catch (err) {
@@ -77,7 +86,7 @@ async function remove(req, res, next) {
       override: req.query.companyId,
     });
 
-    await service.deleteRosterGroup({ companyId, id: req.params.id });
+    await service.deleteRosterGroup({ companyId, id: req.params.id, scopedBrandIds: req.auth.scopedBrandIds });
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -96,7 +105,12 @@ async function assign(req, res, next) {
       override: req.body.companyId,
     });
 
-    const results = await service.bulkAssignRosterGroup({ companyId, id: req.params.id, employeeIds });
+    const results = await service.bulkAssignRosterGroup({
+      companyId,
+      id: req.params.id,
+      employeeIds,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     res.status(200).json({ data: results });
   } catch (err) {
     next(err);

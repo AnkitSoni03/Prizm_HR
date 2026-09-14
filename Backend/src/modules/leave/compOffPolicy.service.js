@@ -3,29 +3,42 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
-async function listCompOffPolicies({ companyId }) {
+async function listCompOffPolicies({ companyId, brandId, scopedBrandIds }) {
   // Relies on CompOffPolicy's tenant-scope hook for company_id filtering.
+  const where = {};
+  applyBrandListScope(where, { brandId, scopedBrandIds });
   return db.CompOffPolicy.findAll({
-    where: {},
+    where,
     order: [['name', 'ASC']],
   });
 }
 
-async function getCompOffPolicyForWrite({ companyId, id }) {
+async function getCompOffPolicyForWrite({ companyId, id, scopedBrandIds }) {
   const policy = await db.CompOffPolicy.findOne({ where: { id, companyId } });
   if (!policy) throw new HttpError(404, 'Comp-off policy not found');
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: policy.brandId });
   return policy;
 }
 
-async function createCompOffPolicy({ companyId, name, expiryDays, carryForward, createdBy }) {
+async function createCompOffPolicy({ companyId, brandId, scopedBrandIds, name, expiryDays, carryForward, createdBy }) {
   if (!name || !name.trim()) throw new HttpError(400, 'name is required');
   if (!carryForward && (expiryDays === undefined || expiryDays === null || Number(expiryDays) <= 0)) {
     throw new HttpError(400, 'expiryDays must be a positive number unless carryForward is enabled');
   }
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
 
   return db.CompOffPolicy.create({
     companyId,
+    brandId: resolvedBrandId,
     name: name.trim(),
     expiryDays: expiryDays !== undefined && expiryDays !== null ? Number(expiryDays) : 90,
     carryForward: !!carryForward,
@@ -34,9 +47,12 @@ async function createCompOffPolicy({ companyId, name, expiryDays, carryForward, 
   });
 }
 
-async function updateCompOffPolicy({ companyId, id, updates, updatedBy }) {
-  const policy = await getCompOffPolicyForWrite({ companyId, id });
-  const { name, expiryDays, carryForward } = updates;
+async function updateCompOffPolicy({ companyId, id, updates, updatedBy, scopedBrandIds }) {
+  const policy = await getCompOffPolicyForWrite({ companyId, id, scopedBrandIds });
+  const { name, expiryDays, carryForward, brandId } = updates;
+
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
 
   const nextCarryForward = carryForward !== undefined ? !!carryForward : policy.carryForward;
   if (!nextCarryForward) {
@@ -50,6 +66,7 @@ async function updateCompOffPolicy({ companyId, id, updates, updatedBy }) {
     ...(name !== undefined && { name: name.trim() }),
     ...(expiryDays !== undefined && { expiryDays: Number(expiryDays) }),
     ...(carryForward !== undefined && { carryForward: !!carryForward }),
+    ...(brandId !== undefined && { brandId: brandId || null }),
     updatedBy: updatedBy || null,
   });
   return policy;
@@ -61,8 +78,8 @@ async function updateCompOffPolicy({ companyId, id, updates, updatedBy }) {
 // way (the FK is ON DELETE SET NULL on employees.comp_off_policy_id, and
 // comp_off_credits carries no FK back to the policy at all — it's a
 // point-in-time snapshot, not a live reference).
-async function deleteCompOffPolicy({ companyId, id }) {
-  const policy = await getCompOffPolicyForWrite({ companyId, id });
+async function deleteCompOffPolicy({ companyId, id, scopedBrandIds }) {
+  const policy = await getCompOffPolicyForWrite({ companyId, id, scopedBrandIds });
 
   const assignedCount = await db.Employee.count({ where: { compOffPolicyId: id, companyId } });
   if (assignedCount > 0) {
@@ -105,7 +122,16 @@ async function assignCompOffPolicy({ companyId, scopedBrandIds, employeeIds, com
   }
 
   if (compOffPolicyId !== null && compOffPolicyId !== undefined) {
-    await getCompOffPolicyForWrite({ companyId, id: compOffPolicyId });
+    // Assigning is a lighter check than editing the policy itself — a
+    // brand-scoped caller may assign any policy VISIBLE to them (their own
+    // Brand's, or company-wide) to their own employees, even one they don't
+    // "own" for editing purposes (assertBrandWriteScope would wrongly
+    // reject a shared company-wide policy here).
+    const policy = await db.CompOffPolicy.findOne({ where: { id: compOffPolicyId, companyId } });
+    if (!policy) throw new HttpError(404, 'Comp-off policy not found');
+    if (scopedBrandIds && policy.brandId && !scopedBrandIds.some((id) => String(id) === String(policy.brandId))) {
+      throw new HttpError(403, "Policy is outside caller's brand");
+    }
   }
 
   const uniqueIds = [...new Set(employeeIds.map(String))];

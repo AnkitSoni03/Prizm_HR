@@ -11,7 +11,13 @@ async function list(req, res, next) {
       authCompanyId: req.auth.companyId,
       override: req.query.companyId,
     });
-    const { rows, count } = await service.listShifts({ companyId, limit, offset });
+    const { rows, count } = await service.listShifts({
+      companyId,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      limit,
+      offset,
+    });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);
@@ -38,6 +44,7 @@ async function create(req, res, next) {
       weekOffLeaveEnabled,
       weekOffLeaveBasisDays,
       rosterGroupIds,
+      brandId,
     } = req.body;
     if (!name || !startTime || !endTime) {
       return res.status(400).json({ error: 'name, startTime and endTime are required' });
@@ -50,6 +57,8 @@ async function create(req, res, next) {
 
     const shift = await service.createShift({
       companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       name,
       startTime,
       endTime,
@@ -76,6 +85,7 @@ async function update(req, res, next) {
       companyId,
       id: req.params.id,
       updates: req.body,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: shift });
   } catch (err) {
@@ -90,7 +100,7 @@ async function remove(req, res, next) {
       override: req.query.companyId,
     });
 
-    await service.deleteShift({ companyId, id: req.params.id });
+    await service.deleteShift({ companyId, id: req.params.id, scopedBrandIds: req.auth.scopedBrandIds });
     res.status(204).send();
   } catch (err) {
     next(err);

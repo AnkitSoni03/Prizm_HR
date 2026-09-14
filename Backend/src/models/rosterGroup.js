@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class RosterGroup extends Model {
     static associate(models) {
       RosterGroup.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      RosterGroup.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       RosterGroup.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' });
       RosterGroup.belongsTo(models.User, { foreignKey: 'updatedBy', as: 'updater' });
       RosterGroup.hasMany(models.Employee, { foreignKey: 'rosterGroupId', as: 'employees' });
@@ -43,6 +44,8 @@ module.exports = (sequelize, DataTypes) => {
   RosterGroup.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       name: { type: DataTypes.STRING, allowNull: false },
       description: { type: DataTypes.STRING, allowNull: true },
       createdBy: { type: DataTypes.BIGINT, allowNull: true },

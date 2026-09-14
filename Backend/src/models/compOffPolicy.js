@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class CompOffPolicy extends Model {
     static associate(models) {
       CompOffPolicy.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      CompOffPolicy.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       CompOffPolicy.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' });
       CompOffPolicy.belongsTo(models.User, { foreignKey: 'updatedBy', as: 'updater' });
       CompOffPolicy.hasMany(models.Employee, { foreignKey: 'compOffPolicyId', as: 'employees' });
@@ -16,6 +17,8 @@ module.exports = (sequelize, DataTypes) => {
   CompOffPolicy.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       name: { type: DataTypes.STRING, allowNull: false },
       expiryDays: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 90 },
       // If true, credits earned under this policy never expire — see

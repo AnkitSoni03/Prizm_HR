@@ -18,6 +18,8 @@ import type { CompanyPolicy } from './companyPolicies';
 export interface RosterPolicyGroup {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   name: string;
   description: string | null;
   // Optional validity period ("6 months", "45 days") — both null means no

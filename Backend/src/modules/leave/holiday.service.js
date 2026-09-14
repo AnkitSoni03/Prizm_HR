@@ -4,6 +4,13 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { datesBetween } = require('../../utils/dateRange');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
 // Sanity cap on a single "from/to" holiday creation — a real multi-day
 // holiday (Diwali, a year-end shutdown, ...) never runs longer than this;
@@ -31,10 +38,15 @@ const AUDIT_INCLUDES = [
   { model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id', 'name'] },
 ];
 
-async function listHolidays({ limit, offset, brandId, rosterGroupId, from, to }) {
+async function listHolidays({ limit, offset, brandId, scopedBrandIds, rosterGroupId, from, to }) {
   const { Op } = db.Sequelize;
   const where = {};
-  if (brandId) where.brandId = brandId;
+  // A brand-scoped caller (Brand Admin) with no explicit brandId must still
+  // only ever see company-wide holidays plus their own Brand's — this used
+  // to silently fall through to every Brand's holidays (the exact
+  // cross-brand leak reported for Departments/Shifts/etc. — see
+  // utils/brandScope.js).
+  applyBrandListScope(where, { brandId, scopedBrandIds });
   // Range-overlap, not a plain date match — a holiday now spans
   // date..endDate, so a holiday that starts before `from` but ends inside
   // the window (or vice versa) still needs to show up.
@@ -73,12 +85,7 @@ async function listHolidays({ limit, offset, brandId, rosterGroupId, from, to })
 async function getHolidayForWrite({ companyId, id, scopedBrandIds }) {
   const holiday = await db.Holiday.findOne({ where: { id, companyId } });
   if (!holiday) throw new HttpError(404, 'Holiday not found');
-  if (
-    scopedBrandIds &&
-    !scopedBrandIds.some((brandId) => String(brandId) === String(holiday.brandId))
-  ) {
-    throw new HttpError(403, "Holiday is outside caller's brand");
-  }
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: holiday.brandId });
   return holiday;
 }
 
@@ -99,19 +106,9 @@ async function syncHolidayRosterGroups(holidayId, rosterGroupIds) {
 // same as before this dimension existed; assigning one or more Roster Groups
 // scopes it to just those Groups' employees, on top of the brand dimension.
 async function createHoliday({ companyId, brandId, rosterGroupIds, date, toDate, name, type, createdBy, scopedBrandIds }) {
-  // A brand-scoped caller (Brand Admin) with no brandId in the request
-  // still only ever means "my own brand" — rbac.middleware.js's
-  // requirePermission already rejects a *different* brandId, but an
-  // omitted one would otherwise silently fall through to a company-wide
-  // holiday (brandId null), which is exactly the shape of bug already
-  // fixed once for inviteEmployeeUser.
-  const resolvedBrandId = brandId || (scopedBrandIds ? scopedBrandIds[0] : null);
-
-  if (resolvedBrandId) {
-    const brand = await db.Brand.findOne({ where: { id: resolvedBrandId, companyId } });
-    if (!brand) throw new HttpError(400, 'Brand not found for this company');
-  }
-  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
+  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, resolvedBrandId);
 
   const endDate = validateRange(date, toDate || date);
 
@@ -143,9 +140,13 @@ function validateRange(date, endDate) {
 
 async function updateHoliday({ companyId, id, updates, updatedBy, scopedBrandIds }) {
   const holiday = await getHolidayForWrite({ companyId, id, scopedBrandIds });
-  const { date, toDate, name, type, rosterGroupIds } = updates;
+  const { date, toDate, name, type, rosterGroupIds, brandId } = updates;
 
-  if (rosterGroupIds !== undefined) await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
+  const nextBrandId = brandId !== undefined ? brandId || null : holiday.brandId;
+
+  if (rosterGroupIds !== undefined) await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, nextBrandId);
 
   const nextDate = date !== undefined ? date : holiday.date;
   const nextEndDate = toDate !== undefined ? toDate : holiday.endDate;
@@ -155,6 +156,7 @@ async function updateHoliday({ companyId, id, updates, updatedBy, scopedBrandIds
     endDate: validateRange(nextDate, nextEndDate),
     ...(name !== undefined && { name }),
     ...(type !== undefined && { type }),
+    ...(brandId !== undefined && { brandId: brandId || null }),
     updatedBy: updatedBy || null,
   });
 

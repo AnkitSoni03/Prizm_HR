@@ -2,12 +2,20 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
-async function listDepartments({ companyId, limit, offset }) {
+async function listDepartments({ companyId, brandId, scopedBrandIds, limit, offset }) {
   // Department's tenant-scope hook already filters by company_id for a
   // scoped caller; the explicit where only matters for Super Admin (hook is
   // a no-op when the caller's own companyId is null).
   const where = companyId ? { companyId } : {};
+  applyBrandListScope(where, { brandId, scopedBrandIds });
 
   const { rows, count } = await db.Department.findAndCountAll({
     where,
@@ -24,19 +32,25 @@ async function getDepartmentForRead(id) {
   return department;
 }
 
-async function getDepartmentForWrite({ companyId, id }) {
+async function getDepartmentForWrite({ companyId, id, scopedBrandIds }) {
   const department = await db.Department.findOne({ where: { id, companyId } });
   if (!department) throw new HttpError(404, 'Department not found');
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: department.brandId });
   return department;
 }
 
-async function createDepartment({ companyId, name, code }) {
-  return db.Department.create({ companyId, name, code });
+async function createDepartment({ companyId, brandId, scopedBrandIds, name, code }) {
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
+  return db.Department.create({ companyId, brandId: resolvedBrandId, name, code });
 }
 
-async function updateDepartment({ companyId, id, updates }) {
-  const department = await getDepartmentForWrite({ companyId, id });
-  const { name, code, headEmployeeId } = updates;
+async function updateDepartment({ companyId, id, updates, scopedBrandIds }) {
+  const department = await getDepartmentForWrite({ companyId, id, scopedBrandIds });
+  const { name, code, headEmployeeId, brandId } = updates;
+
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
 
   if (headEmployeeId) {
     const head = await db.Employee.findOne({ where: { id: headEmployeeId, companyId } });
@@ -47,13 +61,14 @@ async function updateDepartment({ companyId, id, updates }) {
     ...(name !== undefined && { name }),
     ...(code !== undefined && { code }),
     ...(headEmployeeId !== undefined && { headEmployeeId }),
+    ...(brandId !== undefined && { brandId: brandId || null }),
   });
 
   return department;
 }
 
-async function deleteDepartment({ companyId, id }) {
-  const department = await getDepartmentForWrite({ companyId, id });
+async function deleteDepartment({ companyId, id, scopedBrandIds }) {
+  const department = await getDepartmentForWrite({ companyId, id, scopedBrandIds });
 
   const activeEmployeeCount = await db.Employee.count({ where: { departmentId: id, companyId } });
   if (activeEmployeeCount > 0) {

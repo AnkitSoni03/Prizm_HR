@@ -19,6 +19,9 @@ export async function listDepartments(): Promise<Department[]> {
 export async function createDepartment(input: {
   name: string;
   code?: string;
+  // Omit (or '') for a company-wide department shared by every Brand —
+  // same convention as Holiday's own brandId.
+  brandId?: string;
 }): Promise<Department> {
   const { data } = await apiClient.post<{ data: Department }>('/departments', input);
   return data.data;
@@ -26,7 +29,7 @@ export async function createDepartment(input: {
 
 export async function updateDepartment(
   id: string,
-  input: { name: string; code?: string }
+  input: { name: string; code?: string; brandId?: string | null }
 ): Promise<Department> {
   const { data } = await apiClient.patch<{ data: Department }>(`/departments/${id}`, input);
   return data.data;
@@ -41,14 +44,18 @@ export async function listDesignations(): Promise<Designation[]> {
   return data.data;
 }
 
-export async function createDesignation(input: { title: string; level: number | null }): Promise<Designation> {
+export async function createDesignation(input: {
+  title: string;
+  level: number | null;
+  brandId?: string;
+}): Promise<Designation> {
   const { data } = await apiClient.post<{ data: Designation }>('/designations', input);
   return data.data;
 }
 
 export async function updateDesignation(
   id: string,
-  input: { title: string; level: number | null }
+  input: { title: string; level: number | null; brandId?: string | null }
 ): Promise<Designation> {
   const { data } = await apiClient.patch<{ data: Designation }>(`/designations/${id}`, input);
   return data.data;

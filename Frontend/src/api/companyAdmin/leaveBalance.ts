@@ -2,6 +2,8 @@ import { apiClient } from '../client';
 
 export interface LeaveType {
   id: string;
+  // NULL = shared across every Brand in the company.
+  brandId?: string | null;
   code: string;
   name: string;
   isPaid: boolean;

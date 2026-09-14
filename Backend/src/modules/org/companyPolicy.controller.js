@@ -18,6 +18,8 @@ async function list(req, res, next) {
 
     const { rows, count } = await service.listCompanyPolicies({
       companyId,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       rosterGroupId: req.query.rosterGroupId,
       limit,
       offset,
@@ -30,13 +32,15 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { title, body, rosterGroupIds } = req.body;
+    const { title, body, rosterGroupIds, brandId } = req.body;
     if (!title) {
       return res.status(400).json({ error: 'title is required' });
     }
 
     const policy = await service.createCompanyPolicy({
       companyId: req.auth.companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       title,
       body,
       rosterGroupIds,
@@ -55,6 +59,7 @@ async function update(req, res, next) {
       id: req.params.id,
       updates: req.body,
       updatedBy: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: policy });
   } catch (err) {
@@ -67,6 +72,7 @@ async function remove(req, res, next) {
     await service.deleteCompanyPolicy({
       companyId: req.auth.companyId,
       id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.status(204).send();
   } catch (err) {
@@ -87,6 +93,7 @@ async function uploadAttachment(req, res, next) {
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
       updatedBy: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: policy });
   } catch (err) {

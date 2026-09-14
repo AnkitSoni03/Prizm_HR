@@ -6,7 +6,13 @@ const { parsePagination } = require('../../utils/pagination');
 async function list(req, res, next) {
   try {
     const { limit, offset } = parsePagination(req.query);
-    const { rows, count } = await service.listLeaveTypes({ limit, offset, rosterGroupId: req.query.rosterGroupId });
+    const { rows, count } = await service.listLeaveTypes({
+      limit,
+      offset,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+      rosterGroupId: req.query.rosterGroupId,
+    });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
     next(err);
@@ -34,6 +40,7 @@ async function create(req, res, next) {
       defaultAccrual,
       customCycleStartMonth,
       customCycleStartDay,
+      brandId,
     } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'code and name are required' });
@@ -41,6 +48,8 @@ async function create(req, res, next) {
 
     const leaveType = await service.createLeaveType({
       companyId: req.auth.companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       code,
       name,
       isPaid,
@@ -63,6 +72,7 @@ async function update(req, res, next) {
       companyId: req.auth.companyId,
       id: req.params.id,
       updates: req.body,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: leaveType });
   } catch (err) {
@@ -76,6 +86,7 @@ async function remove(req, res, next) {
       companyId: req.auth.companyId,
       id: req.params.id,
       force: req.query.force === 'true',
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.status(204).send();
   } catch (err) {

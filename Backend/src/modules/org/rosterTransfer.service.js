@@ -7,10 +7,21 @@ const { computeAllottedForPolicy } = require('../leave/leaveBalance.service');
 const { resolveLeaveCycle } = require('../../utils/leaveCycle');
 const { dateOnly, toBusinessLocal } = require('../../utils/dateRange');
 
-async function assertRosterGroupBelongsToCompany(id, companyId) {
+// employeeBrandId enforces Brand isolation on top of the company check — a
+// Roster Group now carries its own optional brand_id (see
+// utils/brandScope.js), and an employee may only ever be assigned to one
+// that's either company-wide (brandId null, a direct-mode company or a
+// legacy pre-Brand-isolation Roster) or belongs to that SAME employee's own
+// Brand. Without this, a caller could wire a Brand-A employee onto a
+// Brand-B-owned Roster (and everything it in turn governs — Shifts,
+// Holidays, Leave Policies) purely because both happen to share a company.
+async function assertRosterGroupBelongsToCompany(id, companyId, employeeBrandId) {
   if (id === null || id === undefined) return;
   const row = await db.RosterGroup.findOne({ where: { id, companyId } });
   if (!row) throw new HttpError(400, 'Roster Group not found for this company');
+  if (row.brandId && String(row.brandId) !== String(employeeBrandId ?? '')) {
+    throw new HttpError(400, "Roster Group belongs to a different Brand than this employee's");
+  }
 }
 
 // Leave types a Roster Group actually governs, keyed by leaveTypeId (string)
@@ -126,7 +137,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
   if (String(oldRosterGroupId ?? '') === String(resolvedNewRosterGroupId ?? '')) {
     throw new HttpError(400, 'Employee is already assigned to this Roster');
   }
-  await assertRosterGroupBelongsToCompany(resolvedNewRosterGroupId, employee.companyId);
+  await assertRosterGroupBelongsToCompany(resolvedNewRosterGroupId, employee.companyId, employee.brandId);
 
   // rosterAssignedAt anchors the new Roster's own validity period (if any)
   // for this employee (see rosterValidity.js) — reset on every real

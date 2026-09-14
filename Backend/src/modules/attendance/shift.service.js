@@ -5,12 +5,20 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
 const { syncWeekOffLeaveForRosterGroup } = require('../leave/weekOffLeave.service');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
-async function listShifts({ companyId, limit, offset }) {
+async function listShifts({ companyId, brandId, scopedBrandIds, limit, offset }) {
   // Shift's tenant-scope hook already filters by company_id for a scoped
   // caller; the explicit where only matters for Super Admin (hook is a
   // no-op when the caller's own companyId is null).
   const where = companyId ? { companyId } : {};
+  applyBrandListScope(where, { brandId, scopedBrandIds });
 
   const { rows, count } = await db.Shift.findAndCountAll({
     where,
@@ -31,9 +39,10 @@ async function getShiftForRead(id) {
   return shift;
 }
 
-async function getShiftForWrite({ companyId, id }) {
+async function getShiftForWrite({ companyId, id, scopedBrandIds }) {
   const shift = await db.Shift.findOne({ where: { id, companyId } });
   if (!shift) throw new HttpError(404, 'Shift not found');
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: shift.brandId });
   return shift;
 }
 
@@ -137,6 +146,8 @@ async function assertShiftNameFree({ companyId, name, currentShiftId }) {
 
 async function createShift({
   companyId,
+  brandId,
+  scopedBrandIds,
   name,
   startTime,
   endTime,
@@ -146,8 +157,10 @@ async function createShift({
   weekOffLeaveBasisDays,
   rosterGroupIds,
 }) {
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
   await assertShiftNameFree({ companyId, name });
-  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, resolvedBrandId);
   await assertRosterGroupsShiftFree(rosterGroupIds, null);
 
   const normalizedWeeklyOffDays = Array.isArray(weeklyOffDays) ? weeklyOffDays : [];
@@ -159,6 +172,7 @@ async function createShift({
 
   const shift = await db.Shift.create({
     companyId,
+    brandId: resolvedBrandId,
     name,
     startTime,
     endTime,
@@ -171,8 +185,8 @@ async function createShift({
   return getShiftForRead(shift.id);
 }
 
-async function updateShift({ companyId, id, updates }) {
-  const shift = await getShiftForWrite({ companyId, id });
+async function updateShift({ companyId, id, updates, scopedBrandIds }) {
+  const shift = await getShiftForWrite({ companyId, id, scopedBrandIds });
   const {
     name,
     startTime,
@@ -182,12 +196,17 @@ async function updateShift({ companyId, id, updates }) {
     weekOffLeaveEnabled,
     weekOffLeaveBasisDays,
     rosterGroupIds,
+    brandId,
   } = updates;
+
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
+  const nextBrandId = brandId !== undefined ? brandId || null : shift.brandId;
 
   if (name !== undefined) await assertShiftNameFree({ companyId, name, currentShiftId: id });
 
   if (rosterGroupIds !== undefined) {
-    await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+    await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, nextBrandId);
     await assertRosterGroupsShiftFree(rosterGroupIds, id);
   }
 
@@ -214,6 +233,7 @@ async function updateShift({ companyId, id, updates }) {
     ...(isNightShift !== undefined && { isNightShift }),
     ...(weeklyOffDays !== undefined && { weeklyOffDays }),
     ...(weekOffLeaveConfig ?? {}),
+    ...(brandId !== undefined && { brandId: brandId || null }),
   });
 
   if (rosterGroupIds !== undefined) {
@@ -233,8 +253,8 @@ async function updateShift({ companyId, id, updates }) {
   return getShiftForRead(id);
 }
 
-async function deleteShift({ companyId, id }) {
-  const shift = await getShiftForWrite({ companyId, id });
+async function deleteShift({ companyId, id, scopedBrandIds }) {
+  const shift = await getShiftForWrite({ companyId, id, scopedBrandIds });
 
   const [assignmentCount, rosterCount, rosterGroupCount] = await Promise.all([
     db.EmployeeShift.count({ where: { shiftId: id } }),

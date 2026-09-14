@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class LeaveType extends Model {
     static associate(models) {
       LeaveType.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      LeaveType.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       LeaveType.hasMany(models.LeavePolicy, { foreignKey: 'leaveTypeId', as: 'policies' });
       LeaveType.hasMany(models.LeaveBalance, { foreignKey: 'leaveTypeId', as: 'balances' });
       LeaveType.hasMany(models.LeaveRequest, { foreignKey: 'leaveTypeId', as: 'requests' });
@@ -22,6 +23,8 @@ module.exports = (sequelize, DataTypes) => {
   LeaveType.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       code: { type: DataTypes.STRING, allowNull: false },
       name: { type: DataTypes.STRING, allowNull: false },
       isPaid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },

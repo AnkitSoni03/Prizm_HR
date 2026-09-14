@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class LeavePolicy extends Model {
     static associate(models) {
       LeavePolicy.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      LeavePolicy.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       LeavePolicy.belongsTo(models.LeaveType, { foreignKey: 'leaveTypeId', as: 'leaveType' });
       // Many-to-many: assigned from the policy's own form ("Assign to
       // Roster(s)") — a policy with zero links is the company-wide default
@@ -26,6 +27,8 @@ module.exports = (sequelize, DataTypes) => {
   LeavePolicy.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       leaveTypeId: { type: DataTypes.BIGINT, allowNull: false },
       annualQuota: { type: DataTypes.DECIMAL(5, 2), allowNull: false },
       // 'monthly_reset': flat annualQuota amount granted every month, reset

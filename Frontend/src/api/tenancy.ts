@@ -63,6 +63,8 @@ export interface Brand {
 export interface Shift {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   name: string;
   startTime: string;
   endTime: string;
@@ -114,6 +116,8 @@ export interface EmployeeShiftSummary {
 export interface Department {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   name: string;
   code: string | null;
   headEmployeeId: string | null;
@@ -122,6 +126,8 @@ export interface Department {
 export interface Designation {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   title: string;
   level: number | null;
 }

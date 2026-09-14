@@ -134,11 +134,12 @@ function OrgFooter() {
 }
 
 interface OrganizationPageProps {
-  // Brand Admin only ever has their own single brand to look at — a
-  // search box and status filter over a one-item list has nothing to do,
-  // so Brand Admin's route usage passes this false. Company Admin (and
-  // Group Admin's company drill-in) keep it, since they can have many
-  // brands.
+  // A Brand Admin already knows their own Brand's name — a "Brands" tab
+  // showing every Brand in the company (including siblings they have no
+  // business seeing — see brandScope.js's full-isolation rule) has nothing
+  // useful for them, so Brand Admin's route usage passes this false and the
+  // whole tab is omitted. Company Admin (and Group Admin's company
+  // drill-in) keep it, since they legitimately manage multiple Brands.
   showBrandTools?: boolean;
 }
 
@@ -146,7 +147,7 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const showToast = useToast();
-  const [activeTab, setActiveTab] = useState<Tab>('brands');
+  const [activeTab, setActiveTab] = useState<Tab>(showBrandTools ? 'brands' : 'departments');
 
   const [brands, setBrands] = useState<Brand[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -165,7 +166,11 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
     setIsLoading(true);
     setError(null);
     try {
-      const [b, d, des] = await Promise.all([listBrands(), listDepartments(), listDesignations()]);
+      const [b, d, des] = await Promise.all([
+        showBrandTools ? listBrands() : Promise.resolve([]),
+        listDepartments(),
+        listDesignations(),
+      ]);
       setBrands(b);
       setDepartments(d);
       setDesignations(des);
@@ -247,7 +252,7 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
 
       <Tabs
         items={[
-          { key: 'brands', label: 'Brands', icon: Building2 },
+          ...(showBrandTools ? [{ key: 'brands', label: 'Brands', icon: Building2 }] : []),
           { key: 'departments', label: 'Departments', icon: Users2 },
           { key: 'designations', label: 'Designations', icon: Briefcase },
         ]}
@@ -257,7 +262,7 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
 
-      {activeTab === 'brands' && (
+      {showBrandTools && activeTab === 'brands' && (
         <div>
           {showBrandTools && (
             <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">

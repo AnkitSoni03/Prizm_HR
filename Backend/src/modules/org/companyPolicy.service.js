@@ -5,6 +5,13 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject, extractOriginalFileName } = require('../../utils/gcs');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
 // Mirrors holiday.service.js's audit-include shape exactly (creator/updater
 // eager-loaded so both the admin-facing management page and the read-only
@@ -49,12 +56,13 @@ async function withDownloadUrl(policy) {
   }
 }
 
-// No brandId — Company Policies are company-wide only (unlike Holidays,
-// nothing about this request calls for per-Brand overrides). companyId is
-// explicit (not left to the tenant-scope hook alone) so a Group Admin's
-// company drill-in (whose own companyId is null — see CLAUDE.md's
-// "tenant-scope hook + system-level rows" gotcha) can still scope this,
-// same pattern as shift.service.js::listShifts.
+// companyId is explicit (not left to the tenant-scope hook alone) so a
+// Group Admin's company drill-in (whose own companyId is null — see
+// CLAUDE.md's "tenant-scope hook + system-level rows" gotcha) can still
+// scope this, same pattern as shift.service.js::listShifts. brandId is
+// null = shared across every Brand in the company (see utils/brandScope.js)
+// — reversing this module's earlier "Company Policies are company-wide
+// only" decision, since per-Brand independence is now a real requirement.
 //
 // rosterGroupId (singular) has three states, used by ESS's own "Company
 // Policies" view (admin management pages omit it entirely and see
@@ -65,8 +73,9 @@ async function withDownloadUrl(policy) {
 //     Roster links is dormant (a catalog entry not yet attached to any
 //     Roster), not a "company-wide" fallback.
 //   - a real id: only policies explicitly linked to that Roster.
-async function listCompanyPolicies({ companyId, rosterGroupId, limit, offset }) {
+async function listCompanyPolicies({ companyId, brandId, scopedBrandIds, rosterGroupId, limit, offset }) {
   const where = companyId ? { companyId } : {};
+  applyBrandListScope(where, { brandId, scopedBrandIds });
   const { rows, count } = await db.CompanyPolicy.findAndCountAll({
     where,
     limit,
@@ -82,9 +91,10 @@ async function listCompanyPolicies({ companyId, rosterGroupId, limit, offset }) 
   return { rows: await Promise.all(filtered.map(withDownloadUrl)), count };
 }
 
-async function getCompanyPolicyForWrite({ companyId, id }) {
+async function getCompanyPolicyForWrite({ companyId, id, scopedBrandIds }) {
   const policy = await db.CompanyPolicy.findOne({ where: { id, companyId } });
   if (!policy) throw new HttpError(404, 'Company Policy not found');
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: policy.brandId });
   return policy;
 }
 
@@ -103,11 +113,14 @@ async function syncCompanyPolicyRosterGroups(companyPolicyId, rosterGroupIds) {
 // generation at an arbitrary object path in the bucket. rosterGroupIds is
 // optional — omitted/empty means company-wide visible to everyone (as
 // before this dimension existed).
-async function createCompanyPolicy({ companyId, title, body, rosterGroupIds, createdBy }) {
-  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+async function createCompanyPolicy({ companyId, brandId, scopedBrandIds, title, body, rosterGroupIds, createdBy }) {
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
+  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, resolvedBrandId);
 
   const policy = await db.CompanyPolicy.create({
     companyId,
+    brandId: resolvedBrandId,
     title,
     body: body || null,
     createdBy: createdBy || null,
@@ -117,15 +130,20 @@ async function createCompanyPolicy({ companyId, title, body, rosterGroupIds, cre
   return withDownloadUrl(await db.CompanyPolicy.findOne({ where: { id: policy.id }, include: AUDIT_INCLUDES }));
 }
 
-async function updateCompanyPolicy({ companyId, id, updates, updatedBy }) {
-  const policy = await getCompanyPolicyForWrite({ companyId, id });
-  const { title, body, rosterGroupIds } = updates;
+async function updateCompanyPolicy({ companyId, id, updates, updatedBy, scopedBrandIds }) {
+  const policy = await getCompanyPolicyForWrite({ companyId, id, scopedBrandIds });
+  const { title, body, rosterGroupIds, brandId } = updates;
 
-  if (rosterGroupIds !== undefined) await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
+  const nextBrandId = brandId !== undefined ? brandId || null : policy.brandId;
+
+  if (rosterGroupIds !== undefined) await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, nextBrandId);
 
   await policy.update({
     ...(title !== undefined && { title }),
     ...(body !== undefined && { body }),
+    ...(brandId !== undefined && { brandId: brandId || null }),
     updatedBy: updatedBy || null,
   });
 
@@ -133,8 +151,8 @@ async function updateCompanyPolicy({ companyId, id, updates, updatedBy }) {
   return withDownloadUrl(await db.CompanyPolicy.findOne({ where: { id }, include: AUDIT_INCLUDES }));
 }
 
-async function deleteCompanyPolicy({ companyId, id }) {
-  const policy = await getCompanyPolicyForWrite({ companyId, id });
+async function deleteCompanyPolicy({ companyId, id, scopedBrandIds }) {
+  const policy = await getCompanyPolicyForWrite({ companyId, id, scopedBrandIds });
   if (policy.fileUrl) {
     try {
       await deleteObject(policy.fileUrl);
@@ -150,8 +168,8 @@ async function deleteCompanyPolicy({ companyId, id }) {
 // don't accumulate. originalName is sanitized into the object path only
 // (never trusted for anything else); mimeType is already validated against
 // an allowlist by upload.middleware.js before this ever runs.
-async function uploadPolicyAttachment({ companyId, id, buffer, originalName, mimeType, updatedBy }) {
-  const policy = await getCompanyPolicyForWrite({ companyId, id });
+async function uploadPolicyAttachment({ companyId, id, buffer, originalName, mimeType, updatedBy, scopedBrandIds }) {
+  const policy = await getCompanyPolicyForWrite({ companyId, id, scopedBrandIds });
 
   if (policy.fileUrl) {
     try {

@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
   class Shift extends Model {
     static associate(models) {
       Shift.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      Shift.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       Shift.hasMany(models.EmployeeShift, { foreignKey: 'shiftId', as: 'employeeShifts' });
       Shift.hasMany(models.ShiftRoster, { foreignKey: 'shiftId', as: 'rosterEntries' });
       Shift.belongsToMany(models.RosterGroup, {
@@ -21,6 +22,8 @@ module.exports = (sequelize, DataTypes) => {
   Shift.init(
     {
       companyId: { type: DataTypes.BIGINT, allowNull: false },
+      // NULL = shared across every Brand in the company. See utils/brandScope.js.
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       name: { type: DataTypes.STRING, allowNull: false },
       startTime: { type: DataTypes.TIME, allowNull: false },
       endTime: { type: DataTypes.TIME, allowNull: false },

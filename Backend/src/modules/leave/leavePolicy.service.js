@@ -3,6 +3,13 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
 async function assertBelongsToCompany(model, id, companyId, label) {
   const row = await model.findOne({ where: { id, companyId } });
@@ -17,9 +24,10 @@ const READ_INCLUDES = [
 // rosterGroupId (singular): undefined = every policy (defaults + overrides);
 // null = only the company-wide default(s) (zero Roster links); a real id =
 // only that Roster's override.
-async function listLeavePolicies({ limit, offset, leaveTypeId, rosterGroupId }) {
+async function listLeavePolicies({ limit, offset, leaveTypeId, brandId, scopedBrandIds, rosterGroupId }) {
   const where = {};
   if (leaveTypeId) where.leaveTypeId = leaveTypeId;
+  applyBrandListScope(where, { brandId, scopedBrandIds });
 
   // Relies on LeavePolicy's tenant-scope hook for company_id filtering.
   const { rows, count } = await db.LeavePolicy.findAndCountAll({
@@ -44,9 +52,10 @@ async function listLeavePolicies({ limit, offset, leaveTypeId, rosterGroupId }) 
   return { rows: filtered, count };
 }
 
-async function getLeavePolicyForWrite({ companyId, id }) {
+async function getLeavePolicyForWrite({ companyId, id, scopedBrandIds }) {
   const policy = await db.LeavePolicy.findOne({ where: { id, companyId } });
   if (!policy) throw new HttpError(404, 'Leave policy not found');
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: policy.brandId });
   return policy;
 }
 
@@ -57,19 +66,22 @@ async function getLeavePolicyForWrite({ companyId, id }) {
 // constraint beyond its primary key (see the migration that dropped it: a
 // plain (company, leaveType) unique index would have made Roster-scoped
 // overrides impossible). excludePolicyId lets an update re-save a policy's
-// own existing links without tripping over itself.
-async function assertNoLeaveTypeConflict({ companyId, leaveTypeId, rosterGroupIds, excludePolicyId }) {
+// own existing links without tripping over itself. The "default" (zero
+// Roster links) conflict check is scoped per-brand too — brandId null and
+// each real brandId each get their own independent default, same as a
+// Roster-scoped override is independent per Roster.
+async function assertNoLeaveTypeConflict({ companyId, brandId, leaveTypeId, rosterGroupIds, excludePolicyId }) {
   if (!rosterGroupIds || rosterGroupIds.length === 0) {
-    // Company-wide default: at most one LeavePolicy for this leaveType with
-    // zero Roster links.
+    // Company/Brand-wide default: at most one LeavePolicy for this
+    // (leaveType, brandId) pair with zero Roster links.
     const candidates = await db.LeavePolicy.findAll({
-      where: { companyId, leaveTypeId },
+      where: { companyId, leaveTypeId, brandId: brandId || null },
       include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
     });
     const conflict = candidates.find(
       (p) => String(p.id) !== String(excludePolicyId) && p.rosterGroups.length === 0
     );
-    if (conflict) throw new HttpError(409, 'A company-wide policy already exists for this leave type');
+    if (conflict) throw new HttpError(409, 'A default policy already exists for this leave type');
     return;
   }
 
@@ -92,13 +104,25 @@ async function syncLeavePolicyRosterGroups(leavePolicyId, leaveTypeId, rosterGro
   }
 }
 
-async function createLeavePolicy({ companyId, leaveTypeId, rosterGroupIds, annualQuota, accrual, applicableAfterDays }) {
+async function createLeavePolicy({
+  companyId,
+  brandId,
+  scopedBrandIds,
+  leaveTypeId,
+  rosterGroupIds,
+  annualQuota,
+  accrual,
+  applicableAfterDays,
+}) {
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
   await assertBelongsToCompany(db.LeaveType, leaveTypeId, companyId, 'Leave type');
-  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
-  await assertNoLeaveTypeConflict({ companyId, leaveTypeId, rosterGroupIds, excludePolicyId: null });
+  await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, resolvedBrandId);
+  await assertNoLeaveTypeConflict({ companyId, brandId: resolvedBrandId, leaveTypeId, rosterGroupIds, excludePolicyId: null });
 
   const policy = await db.LeavePolicy.create({
     companyId,
+    brandId: resolvedBrandId,
     leaveTypeId,
     annualQuota,
     accrual: accrual || 'yearly',
@@ -109,24 +133,44 @@ async function createLeavePolicy({ companyId, leaveTypeId, rosterGroupIds, annua
   return db.LeavePolicy.findOne({ where: { id: policy.id }, include: READ_INCLUDES });
 }
 
-async function updateLeavePolicy({ companyId, id, updates }) {
-  const policy = await getLeavePolicyForWrite({ companyId, id });
-  const { annualQuota, accrual, applicableAfterDays, rosterGroupIds } = updates;
+async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
+  const policy = await getLeavePolicyForWrite({ companyId, id, scopedBrandIds });
+  const { annualQuota, accrual, applicableAfterDays, rosterGroupIds, brandId } = updates;
+
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
+  const nextBrandId = brandId !== undefined ? brandId || null : policy.brandId;
 
   if (rosterGroupIds !== undefined) {
-    await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId);
+    await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, nextBrandId);
     await assertNoLeaveTypeConflict({
       companyId,
+      brandId: nextBrandId,
       leaveTypeId: policy.leaveTypeId,
       rosterGroupIds,
       excludePolicyId: id,
     });
+  } else if (brandId !== undefined) {
+    // brandId alone is changing — only a "default" (zero Roster links)
+    // policy needs re-checking against its new (brand, leaveType) slot; a
+    // Roster-scoped override's conflict key doesn't involve brandId at all.
+    const existingLinks = await db.RosterGroupLeavePolicy.findAll({ where: { leavePolicyId: id }, attributes: ['id'] });
+    if (existingLinks.length === 0) {
+      await assertNoLeaveTypeConflict({
+        companyId,
+        brandId: nextBrandId,
+        leaveTypeId: policy.leaveTypeId,
+        rosterGroupIds: [],
+        excludePolicyId: id,
+      });
+    }
   }
 
   await policy.update({
     ...(annualQuota !== undefined && { annualQuota }),
     ...(accrual !== undefined && { accrual }),
     ...(applicableAfterDays !== undefined && { applicableAfterDays }),
+    ...(brandId !== undefined && { brandId: nextBrandId }),
   });
 
   if (rosterGroupIds !== undefined) await syncLeavePolicyRosterGroups(id, policy.leaveTypeId, rosterGroupIds);

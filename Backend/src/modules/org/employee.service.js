@@ -72,6 +72,21 @@ async function assertBelongsToCompany(model, id, companyId, label) {
   if (!row) throw new HttpError(400, `${label} not found for this company`);
 }
 
+// Same company check, plus Brand isolation: Department/Designation/Roster
+// Group now each carry their own optional brand_id (see utils/brandScope.js)
+// — this employee may only be wired to one that's company-wide (brandId
+// null) or belongs to that SAME employee's own Brand. Without this, an
+// employee could be pointed at a sibling Brand's Department/Designation/
+// Roster purely because both share a company, silently coupling the two
+// Brands' org structures together.
+async function assertOwnedByBrand(model, id, companyId, employeeBrandId, label) {
+  const row = await model.findOne({ where: { id, companyId } });
+  if (!row) throw new HttpError(400, `${label} not found for this company`);
+  if (row.brandId && String(row.brandId) !== String(employeeBrandId ?? '')) {
+    throw new HttpError(400, `${label} belongs to a different Brand than this employee's`);
+  }
+}
+
 async function listEmployees({ limit, offset, companyId, brandId, departmentId, rosterGroupId, status, search, scopedBrandIds }) {
   const where = {};
   // Explicit companyId filter for callers whose tenant-scope hook is a
@@ -287,10 +302,10 @@ async function createEmployee({
   // Department is no longer required at creation either — Super Admin's
   // minimal "name only" flow leaves it unset; Company Admin assigns it
   // later via transferEmployee, same deferred-setup shape as Roster.
-  if (departmentId) await assertBelongsToCompany(db.Department, departmentId, companyId, 'Department');
-  if (designationId) await assertBelongsToCompany(db.Designation, designationId, companyId, 'Designation');
+  if (departmentId) await assertOwnedByBrand(db.Department, departmentId, companyId, brandId, 'Department');
+  if (designationId) await assertOwnedByBrand(db.Designation, designationId, companyId, brandId, 'Designation');
   if (managerId) await assertBelongsToCompany(db.Employee, managerId, companyId, 'Manager');
-  if (rosterGroupId) await assertBelongsToCompany(db.RosterGroup, rosterGroupId, companyId, 'Roster Group');
+  if (rosterGroupId) await assertOwnedByBrand(db.RosterGroup, rosterGroupId, companyId, brandId, 'Roster Group');
 
   // Roster is no longer a precondition for creating an employee — it can be
   // assigned any time afterward via shift_rosters (create/bulk-assign +
@@ -356,7 +371,7 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   }
 
   if (patch.managerId) await assertBelongsToCompany(db.Employee, patch.managerId, companyId, 'Manager');
-  if (patch.designationId) await assertBelongsToCompany(db.Designation, patch.designationId, companyId, 'Designation');
+  if (patch.designationId) await assertOwnedByBrand(db.Designation, patch.designationId, companyId, employee.brandId, 'Designation');
   if (patch.weekOffLeaveBlockedDays !== undefined) {
     const days = patch.weekOffLeaveBlockedDays;
     if (!Array.isArray(days) || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
@@ -418,7 +433,12 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
     }
   }
   if (departmentId) {
-    await assertBelongsToCompany(db.Department, departmentId, companyId, 'Department');
+    // The RESULTING Brand (this same call's own brandId change, if any,
+    // else the employee's current one) is what the target Department must
+    // match — moving Brand and Department in one call must land on a
+    // Department that's valid for the NEW Brand, not the old one.
+    const resultingBrandId = brandId !== undefined ? brandId : employee.brandId;
+    await assertOwnedByBrand(db.Department, departmentId, companyId, resultingBrandId, 'Department');
     patch.departmentId = departmentId;
   }
 

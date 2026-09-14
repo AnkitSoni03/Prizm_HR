@@ -4,7 +4,11 @@ const service = require('./compOffPolicy.service');
 
 async function list(req, res, next) {
   try {
-    const policies = await service.listCompOffPolicies({ companyId: req.auth.companyId });
+    const policies = await service.listCompOffPolicies({
+      companyId: req.auth.companyId,
+      brandId: req.query.brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     res.json({ data: policies });
   } catch (err) {
     next(err);
@@ -13,9 +17,11 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, expiryDays, carryForward } = req.body;
+    const { name, expiryDays, carryForward, brandId } = req.body;
     const policy = await service.createCompOffPolicy({
       companyId: req.auth.companyId,
+      brandId,
+      scopedBrandIds: req.auth.scopedBrandIds,
       name,
       expiryDays,
       carryForward,
@@ -34,6 +40,7 @@ async function update(req, res, next) {
       id: req.params.id,
       updates: req.body,
       updatedBy: req.auth.userId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.json({ data: policy });
   } catch (err) {
@@ -43,7 +50,11 @@ async function update(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    await service.deleteCompOffPolicy({ companyId: req.auth.companyId, id: req.params.id });
+    await service.deleteCompOffPolicy({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
     res.status(204).send();
   } catch (err) {
     next(err);

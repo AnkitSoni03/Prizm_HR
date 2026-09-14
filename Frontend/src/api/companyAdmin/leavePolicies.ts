@@ -5,6 +5,8 @@ import type { RosterPolicyGroup } from './rosterGroups';
 export interface LeavePolicy {
   id: string;
   companyId: string;
+  // NULL = shared across every Brand in the company.
+  brandId: string | null;
   leaveTypeId: string;
   // Empty = the company-wide default for this leave type; one or more = an
   // override that only applies to those Rosters' employees (see

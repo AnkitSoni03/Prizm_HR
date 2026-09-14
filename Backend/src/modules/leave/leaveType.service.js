@@ -2,6 +2,13 @@
 
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const {
+  resolveCreateBrandId,
+  assertBrandBelongsToCompany,
+  applyBrandListScope,
+  assertBrandWriteScope,
+  assertBrandReassignAllowed,
+} = require('../../utils/brandScope');
 
 // rosterGroupId (singular) has three states, mirroring
 // companyPolicy.service.js::listCompanyPolicies / holiday.service.js::
@@ -16,7 +23,7 @@ const { HttpError } = require('../../utils/errors');
 // their own Roster actually grants — LeaveType itself has no Roster
 // dimension of its own, applicability is entirely derived from whether a
 // RosterGroupLeavePolicy link exists.
-async function listLeaveTypes({ limit, offset, rosterGroupId }) {
+async function listLeaveTypes({ limit, offset, brandId, scopedBrandIds, rosterGroupId }) {
   if (rosterGroupId === undefined) {
     // Relies on LeaveType's tenant-scope hook for company_id filtering.
     // System-generated "Carry Forward - <name>" bucket types (see
@@ -24,8 +31,10 @@ async function listLeaveTypes({ limit, offset, rosterGroupId }) {
     // type (see weekOffLeave.service.js) are excluded from this general
     // catalog — neither is something an admin should be editing/reassigning
     // directly, only something an employee's own Roster ends up governing.
+    const where = { isCarryForwardBucket: false, isWeekOffBucket: false };
+    applyBrandListScope(where, { brandId, scopedBrandIds });
     const { rows, count } = await db.LeaveType.findAndCountAll({
-      where: { isCarryForwardBucket: false, isWeekOffBucket: false },
+      where,
       limit,
       offset,
       order: [['id', 'ASC']],
@@ -50,9 +59,10 @@ async function getLeaveTypeForRead(id) {
   return leaveType;
 }
 
-async function getLeaveTypeForWrite({ companyId, id }) {
+async function getLeaveTypeForWrite({ companyId, id, scopedBrandIds }) {
   const leaveType = await db.LeaveType.findOne({ where: { id, companyId } });
   if (!leaveType) throw new HttpError(404, 'Leave type not found');
+  assertBrandWriteScope({ scopedBrandIds, recordBrandId: leaveType.brandId });
   return leaveType;
 }
 
@@ -93,6 +103,8 @@ function resolveCustomCycleFields({ cycleType, customCycleStartMonth, customCycl
 
 async function createLeaveType({
   companyId,
+  brandId,
+  scopedBrandIds,
   code,
   name,
   isPaid,
@@ -103,6 +115,8 @@ async function createLeaveType({
   customCycleStartMonth,
   customCycleStartDay,
 }) {
+  const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
+  await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
   const resolvedCycleType = cycleType || 'calendar';
   const customCycle = resolveCustomCycleFields({
     cycleType: resolvedCycleType,
@@ -113,6 +127,7 @@ async function createLeaveType({
   try {
     return await db.LeaveType.create({
       companyId,
+      brandId: resolvedBrandId,
       code,
       name,
       isPaid: isPaid !== undefined ? !!isPaid : true,
@@ -130,8 +145,8 @@ async function createLeaveType({
   }
 }
 
-async function updateLeaveType({ companyId, id, updates }) {
-  const leaveType = await getLeaveTypeForWrite({ companyId, id });
+async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
+  const leaveType = await getLeaveTypeForWrite({ companyId, id, scopedBrandIds });
   const {
     name,
     isPaid,
@@ -141,10 +156,15 @@ async function updateLeaveType({ companyId, id, updates }) {
     defaultAccrual,
     customCycleStartMonth,
     customCycleStartDay,
+    brandId,
   } = updates;
+
+  assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
+  if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
 
   const patch = {
     ...(name !== undefined && { name }),
+    ...(brandId !== undefined && { brandId: brandId || null }),
     ...(isPaid !== undefined && { isPaid }),
     ...(carryForward !== undefined && { carryForward }),
     // Cap is only meaningful while carryForward is (or is becoming) true —
@@ -191,8 +211,8 @@ async function updateLeaveType({ companyId, id, updates }) {
 // `.destroy()`, respecting CLAUDE.md rule 2) so the history is gone from
 // every normal read path but is still recoverable at the DB layer, same
 // as any other soft-deleted row in this app.
-async function deleteLeaveType({ companyId, id, force = false }) {
-  const leaveType = await getLeaveTypeForWrite({ companyId, id });
+async function deleteLeaveType({ companyId, id, force = false, scopedBrandIds }) {
+  const leaveType = await getLeaveTypeForWrite({ companyId, id, scopedBrandIds });
 
   const [balanceCount, requestCount] = await Promise.all([
     db.LeaveBalance.count({ where: { leaveTypeId: id } }),
