@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Table } from '../../components/ui/Table';
+import { Send, CalendarRange, MapPin } from 'lucide-react';
+import { RequestCard, RequestCardGrid } from '../../components/ui/RequestCard';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
@@ -136,40 +137,40 @@ export function MyOdPage() {
 
       {error && <p className="mb-2.5 text-xs text-danger sm:mb-3 sm:text-sm">{error}</p>}
 
-      <Table
+      <RequestCardGrid
         isLoading={isLoading}
-        rows={requests}
+        items={requests}
         rowKey={(r) => r.id}
         emptyMessage="You haven't applied for on-duty yet."
-        columns={[
-          {
-            key: 'dates',
-            header: 'Dates',
-            render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
-          },
-          { key: 'purpose', header: 'Purpose', render: (r) => r.purpose },
-          { key: 'location', header: 'Location', render: (r) => r.location ?? '—' },
-          {
-            key: 'status',
-            header: 'Status',
-            render: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>,
-          },
-          {
-            key: 'actions',
-            header: '',
-            className: 'w-28 text-right',
-            render: (r) =>
-              r.status === 'pending' && (
+        renderCard={(r) => (
+          <RequestCard
+            icon={Send}
+            title={r.purpose}
+            status={<Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>}
+            footer={
+              r.status === 'pending' ? (
                 <button
                   type="button"
                   onClick={() => handleCancel(r.id)}
                   className="text-xs font-medium text-danger hover:underline"
                 >
-                  Cancel
+                  Cancel request
                 </button>
-              ),
-          },
-        ]}
+              ) : undefined
+            }
+          >
+            <div className="flex items-center gap-1.5 text-sm text-ink">
+              <CalendarRange className="h-3.5 w-3.5 shrink-0 text-ink-muted" strokeWidth={1.75} />
+              {formatDisplayDate(r.fromDate)} → {formatDisplayDate(r.toDate)}
+            </div>
+            {r.location && (
+              <div className="flex items-center gap-1.5 text-sm text-ink-muted">
+                <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                {r.location}
+              </div>
+            )}
+          </RequestCard>
+        )}
       />
       <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
 

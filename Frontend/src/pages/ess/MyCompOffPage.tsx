@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { RefreshCw } from 'lucide-react';
-import { Table } from '../../components/ui/Table';
+import { RequestCard, RequestCardGrid, RequestCardRow } from '../../components/ui/RequestCard';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -143,39 +143,31 @@ export function MyCompOffPage() {
         </p>
       )}
 
-      <Table
+      <RequestCardGrid
         isLoading={isLoading}
-        rows={credits}
+        items={credits}
         rowKey={(c) => c.id}
         emptyMessage="You haven't earned any comp-off credits yet."
-        columns={[
-          { key: 'earnedDate', header: 'Earned', render: (c) => formatDisplayDate(c.earnedDate) },
-          {
-            key: 'expiryDate',
-            header: 'Expires',
-            render: (c) => {
-              const daysLeft = c.expiryDate ? daysUntil(c.expiryDate) : null;
-              // Only a still-unused (approved) credit can be "wasted" — one
-              // already used/rejected/expired has nothing left to warn about.
-              const expiringSoon = c.status === 'approved' && daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
-              return (
-                <>
-                  {c.expiryDate ? formatDisplayDate(c.expiryDate) : 'Never'}
-                  {expiringSoon && (
-                    <span className="ml-1.5">
-                      <Badge tone="warning">{daysLeft === 0 ? 'Expires today' : `${daysLeft}d left`}</Badge>
-                    </span>
-                  )}
-                </>
-              );
-            },
-          },
-          {
-            key: 'status',
-            header: 'Status',
-            render: (c) => <Badge tone={STATUS_TONE[c.status]}>{c.status.replace('_', ' ')}</Badge>,
-          },
-        ]}
+        renderCard={(c) => {
+          const daysLeft = c.expiryDate ? daysUntil(c.expiryDate) : null;
+          // Only a still-unused (approved) credit can be "wasted" — one
+          // already used/rejected/expired has nothing left to warn about.
+          const expiringSoon = c.status === 'approved' && daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
+          return (
+            <RequestCard
+              icon={RefreshCw}
+              title={`Earned ${formatDisplayDate(c.earnedDate)}`}
+              status={<Badge tone={STATUS_TONE[c.status]}>{c.status.replace('_', ' ')}</Badge>}
+            >
+              <RequestCardRow label="Expires" value={c.expiryDate ? formatDisplayDate(c.expiryDate) : 'Never'} />
+              {expiringSoon && (
+                <div className="flex justify-end">
+                  <Badge tone="warning">{daysLeft === 0 ? 'Expires today' : `${daysLeft}d left`}</Badge>
+                </div>
+              )}
+            </RequestCard>
+          );
+        }}
       />
 
       {isModalOpen && (

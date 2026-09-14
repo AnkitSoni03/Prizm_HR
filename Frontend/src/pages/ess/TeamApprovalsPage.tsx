@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Bookmark, CalendarRange, CalendarX, Check, Clock, FileText, History, Layers, MapPin, User, Users, X } from 'lucide-react';
+import { Bookmark, CalendarRange, CalendarX, Clock, FileText, Layers, MapPin, User, Users } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
-import { Table } from '../../components/ui/Table';
 import { FilterSelect } from '../../components/ui/FilterSelect';
 import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
@@ -11,9 +10,9 @@ import { ApprovalHistoryModal } from '../../components/ApprovalHistoryModal';
 import { RequestCard, RequestCardSkeleton, RequestStatusBadge } from '../../components/RequestCard';
 import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
 import { myManagerApprovalStatus } from '../../utils/managerApproval';
-import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../context/auth-context';
+import { useConfirm } from '../../context/confirm-context';
 import {
   approveLeaveRequest,
   approveOdRequest,
@@ -39,15 +38,6 @@ function employeeLabel(employee: RequestEmployee | undefined, employeeId: string
   return employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
 }
 
-function EmployeeCell({ employee, employeeId }: { employee?: RequestEmployee; employeeId: string }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <Avatar src={employee?.photoDownloadUrl} size="sm" />
-      <span>{employeeLabel(employee, employeeId)}</span>
-    </div>
-  );
-}
-
 type Tab = 'leave' | 'od' | 'compOff';
 
 const LIMIT = 20;
@@ -57,53 +47,6 @@ const STATUS_OPTIONS = [
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ];
-
-function ActionButtons({
-  canApprove,
-  canReject,
-  onApprove,
-  onReject,
-  onHistory,
-}: {
-  canApprove: boolean;
-  canReject: boolean;
-  onApprove: () => void;
-  onReject: () => void;
-  onHistory: () => void;
-}) {
-  return (
-    <div className="flex justify-end gap-1">
-      <button
-        type="button"
-        onClick={onHistory}
-        aria-label="View history"
-        className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-ink"
-      >
-        <History className="h-4 w-4" strokeWidth={1.75} />
-      </button>
-      {canApprove && (
-        <button
-          type="button"
-          onClick={onApprove}
-          aria-label="Approve"
-          className="rounded-md p-1.5 text-ink-muted hover:bg-success/10 hover:text-success"
-        >
-          <Check className="h-4 w-4" strokeWidth={1.75} />
-        </button>
-      )}
-      {canReject && (
-        <button
-          type="button"
-          onClick={onReject}
-          aria-label="Reject"
-          className="rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger"
-        >
-          <X className="h-4 w-4" strokeWidth={1.75} />
-        </button>
-      )}
-    </div>
-  );
-}
 
 // Two independent ways to land on this page's rows, auto-detected per tab
 // from whichever permission the caller actually holds — never a client
@@ -150,6 +93,7 @@ function leaveDecisionAccess(r: LeaveRequest, hasPermission: (code: string) => b
 
 export function TeamApprovalsPage() {
   const { hasPermission, user } = useAuth();
+  const confirm = useConfirm();
   // Lets the notification bell deep-link straight into a tab.
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
@@ -237,10 +181,24 @@ export function TeamApprovalsPage() {
   }
 
   async function handleLeaveApprove(id: string) {
+    const confirmed = await confirm({
+      title: 'Approve leave request',
+      message: 'Approve this leave request?',
+      confirmLabel: 'Approve',
+      variant: 'primary',
+    });
+    if (!confirmed) return;
     await approveLeaveRequest(id);
     load();
   }
   async function handleOdApprove(id: string) {
+    const confirmed = await confirm({
+      title: 'Approve OD request',
+      message: 'Approve this on-duty request?',
+      confirmLabel: 'Approve',
+      variant: 'primary',
+    });
+    if (!confirmed) return;
     await approveOdRequest(id);
     load();
   }
@@ -312,62 +270,7 @@ export function TeamApprovalsPage() {
 
       {(isLoading || rows.length > 0) && activeTab === 'leave' && (
         <>
-          <div className="hidden md:block">
-            <Table
-              isLoading={isLoading}
-              rows={leaveRequests}
-              rowKey={(r) => r.id}
-              columns={[
-                {
-                  key: 'employee',
-                  header: 'Employee',
-                  render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
-                },
-                { key: 'type', header: 'Type', render: (r) => r.leaveType?.name ?? '—' },
-                {
-                  key: 'dates',
-                  header: 'Dates',
-                  render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
-                },
-                { key: 'days', header: 'Days', render: (r) => r.days },
-                { key: 'reason', header: 'Reason', render: (r) => r.reason ?? '—' },
-                {
-                  key: 'status',
-                  header: 'Status',
-                  render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
-                },
-                {
-                  key: 'managers',
-                  header: 'Managers',
-                  render: (r) =>
-                    r.status === 'cancelled' ? (
-                      '—'
-                    ) : (
-                      <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
-                    ),
-                },
-                {
-                  key: 'actions',
-                  header: '',
-                  className: 'w-28 text-right',
-                  render: (r) => {
-                    const { canApprove, canReject } = leaveDecisionAccess(r, hasPermission, user?.employeeId);
-                    return (
-                      <ActionButtons
-                        canApprove={canApprove}
-                        canReject={canReject}
-                        onApprove={() => handleLeaveApprove(r.id)}
-                        onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
-                        onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
-                      />
-                    );
-                  },
-                },
-              ]}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
               leaveRequests.map((r) => {
@@ -414,54 +317,7 @@ export function TeamApprovalsPage() {
 
       {(isLoading || rows.length > 0) && activeTab === 'od' && (
         <>
-          <div className="hidden md:block">
-            <Table
-              isLoading={isLoading}
-              rows={odRequests}
-              rowKey={(r) => r.id}
-              columns={[
-                {
-                  key: 'employee',
-                  header: 'Employee',
-                  render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
-                },
-                {
-                  key: 'dates',
-                  header: 'Dates',
-                  render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
-                },
-                { key: 'purpose', header: 'Purpose', render: (r) => r.purpose },
-                { key: 'location', header: 'Location', render: (r) => r.location ?? '—' },
-                {
-                  key: 'status',
-                  header: 'Status',
-                  render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
-                },
-                {
-                  key: 'actions',
-                  header: '',
-                  className: 'w-28 text-right',
-                  render: (r) => (
-                    <ActionButtons
-                      canApprove={
-                        r.status === 'pending' &&
-                        (hasPermission('od_request:approve') || hasPermission('od_request:approve_reports'))
-                      }
-                      canReject={
-                        r.status === 'pending' &&
-                        (hasPermission('od_request:reject') || hasPermission('od_request:reject_reports'))
-                      }
-                      onApprove={() => handleOdApprove(r.id)}
-                      onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
-                      onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
-                    />
-                  ),
-                },
-              ]}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
               odRequests.map((r) => (
@@ -500,47 +356,7 @@ export function TeamApprovalsPage() {
 
       {(isLoading || rows.length > 0) && activeTab === 'compOff' && (
         <>
-          <div className="hidden md:block">
-            <Table
-              isLoading={isLoading}
-              rows={compOffCredits}
-              rowKey={(r) => r.id}
-              columns={[
-                {
-                  key: 'employee',
-                  header: 'Employee',
-                  render: (r) => <EmployeeCell employee={r.employee} employeeId={r.employeeId} />,
-                },
-                { key: 'earnedDate', header: 'Earned Date', render: (r) => formatDisplayDate(r.earnedDate) },
-                {
-                  key: 'expiryDate',
-                  header: 'Expiry Date',
-                  render: (r) => (r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never'),
-                },
-                {
-                  key: 'status',
-                  header: 'Status',
-                  render: (r) => <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} />,
-                },
-                {
-                  key: 'actions',
-                  header: '',
-                  className: 'w-28 text-right',
-                  render: (r) => (
-                    <ActionButtons
-                      canApprove={false}
-                      canReject={false}
-                      onApprove={() => {}}
-                      onReject={() => {}}
-                      onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
-                    />
-                  ),
-                },
-              ]}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
               compOffCredits.map((r) => (

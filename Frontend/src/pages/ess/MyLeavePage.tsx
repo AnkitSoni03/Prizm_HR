@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Table } from '../../components/ui/Table';
+import { CalendarClock, CalendarRange } from 'lucide-react';
+import { RequestCard, RequestCardGrid, RequestCardRow } from '../../components/ui/RequestCard';
 import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
@@ -211,56 +212,41 @@ export function MyLeavePage() {
         </p>
       )}
 
-      <Table
+      <RequestCardGrid
         isLoading={isLoading}
-        rows={requests}
+        items={requests}
         rowKey={(r) => r.id}
         emptyMessage="You haven't applied for any leave yet."
-        columns={[
-          { key: 'type', header: 'Type', render: (r) => r.leaveType?.name ?? '—' },
-          {
-            key: 'dates',
-            header: 'Dates',
-            render: (r) => `${formatDisplayDate(r.fromDate)} → ${formatDisplayDate(r.toDate)}`,
-          },
-          { key: 'days', header: 'Days', render: (r) => r.days },
-          { key: 'reason', header: 'Reason', render: (r) => r.reason ?? '—' },
-          {
-            key: 'status',
-            header: 'Status',
-            render: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>,
-          },
-          {
-            key: 'managers',
-            header: 'Managers',
-            // Only meaningful for a request still going through the
-            // manager chain (pending) or one that finished via manager
-            // consensus — a cancelled request never had a decision, and an
-            // admin-override one shows its own "decided by an admin" note
-            // instead of chips (see ManagerApprovalStatus).
-            render: (r) =>
-              r.status === 'cancelled' ? (
-                '—'
-              ) : (
-                <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
-              ),
-          },
-          {
-            key: 'actions',
-            header: '',
-            className: 'w-28 text-right',
-            render: (r) =>
-              r.status === 'pending' && (
+        renderCard={(r) => (
+          <RequestCard
+            icon={CalendarClock}
+            title={r.leaveType?.name ?? 'Leave'}
+            status={<Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>}
+            footer={
+              r.status === 'pending' ? (
                 <button
                   type="button"
                   onClick={() => handleCancel(r.id)}
                   className="text-xs font-medium text-danger hover:underline"
                 >
-                  Cancel
+                  Cancel request
                 </button>
-              ),
-          },
-        ]}
+              ) : undefined
+            }
+          >
+            <div className="flex items-center gap-1.5 text-sm text-ink">
+              <CalendarRange className="h-3.5 w-3.5 shrink-0 text-ink-muted" strokeWidth={1.75} />
+              {formatDisplayDate(r.fromDate)} → {formatDisplayDate(r.toDate)}
+            </div>
+            <RequestCardRow label="Days" value={r.days} />
+            {r.reason && <RequestCardRow label="Reason" value={<span className="line-clamp-2">{r.reason}</span>} />}
+            {r.status !== 'cancelled' && (
+              <div className="border-t border-border pt-2">
+                <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} variant="list" />
+              </div>
+            )}
+          </RequestCard>
+        )}
       />
       <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
 
