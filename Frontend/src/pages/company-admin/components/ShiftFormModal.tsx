@@ -8,6 +8,7 @@ import { Select } from '../../../components/ui/Select';
 import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { createShift, updateShift } from '../../../api/companyAdmin/attendance';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand, Shift } from '../../../api/tenancy';
 
 interface ShiftFormModalProps {
@@ -52,7 +53,7 @@ const WEEKDAYS = [
   { value: 6, label: 'Sat' },
 ];
 
-function blankRow(id: number): ShiftRow {
+function blankRow(id: number, brandId = ''): ShiftRow {
   return {
     id,
     name: '',
@@ -62,7 +63,7 @@ function blankRow(id: number): ShiftRow {
     weekOffLeaveEnabled: false,
     weekOffLeaveBasisDays: [],
     rosterGroupIds: [],
-    brandId: '',
+    brandId,
   };
 }
 
@@ -120,6 +121,14 @@ function findNameConflicts(rows: ShiftRow[], existingShifts: Shift[]): string[] 
 
 export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupIds, onClose, onSaved }: ShiftFormModalProps) {
   const isEdit = !!shift;
+  // Company Admin managing a Brand-mode company must always pin every Shift
+  // to one real Brand — there's no "Shared (all brands)" choice any more.
+  // Brand Admin (identified by URL, not brand count — see the hook's own
+  // comment) and a direct-mode company (zero Brands) never see this field at
+  // all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [rows, setRows] = useState<ShiftRow[]>([
     shift
       ? {
@@ -131,9 +140,9 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           weekOffLeaveEnabled: shift.weekOffLeaveEnabled ?? false,
           weekOffLeaveBasisDays: shift.weekOffLeaveBasisDays ?? [],
           rosterGroupIds: shift.rosterGroups?.map((rg) => rg.id) ?? [],
-          brandId: shift.brandId ?? '',
+          brandId: shift.brandId || defaultBrandId,
         }
-      : { ...blankRow(0), rosterGroupIds: defaultRosterGroupIds ?? [] },
+      : { ...blankRow(0, defaultBrandId), rosterGroupIds: defaultRosterGroupIds ?? [] },
   ]);
   const [nextRowId, setNextRowId] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -147,8 +156,21 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
       .catch(() => setRosterGroups([]));
   }, []);
 
+  // Shared (brandId '') shows every Roster in the company, across every
+  // Brand — the backend allows a Shared shift to link to any of them (see
+  // rosterGroupAssignment.js::assertRosterGroupsBelongToCompany). A
+  // Brand-specific selection narrows the list down to ONLY that Brand's own
+  // Rosters — not a sibling Brand's, and not the company's Shared Rosters
+  // either, since picking a specific Brand here means "this shift belongs to
+  // Snow Village," and only Snow Village's own Rosters are relevant to
+  // choose from.
+  function rosterGroupsForBrand(brandId: string): RosterPolicyGroup[] {
+    if (!brandId) return rosterGroups;
+    return rosterGroups.filter((rg) => rg.brandId === brandId);
+  }
+
   function addRow() {
-    setRows((prev) => [...prev, blankRow(nextRowId)]);
+    setRows((prev) => [...prev, blankRow(nextRowId, defaultBrandId)]);
     setNextRowId((id) => id + 1);
   }
 
@@ -229,7 +251,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
-          brandId: brands.length > 1 ? row.brandId : undefined,
+          brandId: showBrandField ? row.brandId : undefined,
         });
         onSaved();
         onClose();
@@ -253,7 +275,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
-          brandId: brands.length > 1 ? row.brandId : undefined,
+          brandId: showBrandField ? row.brandId : undefined,
         });
         onSaved();
         onClose();
@@ -275,7 +297,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
           rosterGroupIds: row.rosterGroupIds,
-          brandId: brands.length > 1 ? row.brandId : undefined,
+          brandId: showBrandField ? row.brandId : undefined,
         })
       )
     );
@@ -338,13 +360,20 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
                 onChange={(event) => updateRow(row.id, { name: event.target.value })}
                 placeholder="Morning Shift"
               />
-              {brands.length > 1 && (
+              {showBrandField && (
                 <Select
                   id={`shift-brand-${row.id}`}
                   label="Brand"
+                  required
                   value={row.brandId}
-                  onChange={(event) => updateRow(row.id, { brandId: event.target.value })}
-                  placeholder="Shared (all brands)"
+                  onChange={(event) => {
+                    const nextBrandId = event.target.value;
+                    const stillValid = new Set(rosterGroupsForBrand(nextBrandId).map((rg) => rg.id));
+                    updateRow(row.id, {
+                      brandId: nextBrandId,
+                      rosterGroupIds: row.rosterGroupIds.filter((id) => stillValid.has(id)),
+                    });
+                  }}
                   options={brands.map((b) => ({ value: b.id, label: b.name }))}
                 />
               )}
@@ -453,7 +482,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
                 </div>
               )}
               <RosterMultiSelect
-                rosterGroups={rosterGroups}
+                rosterGroups={rosterGroupsForBrand(row.brandId)}
                 selectedIds={row.rosterGroupIds}
                 onChange={(ids) => updateRow(row.id, { rosterGroupIds: ids })}
               />

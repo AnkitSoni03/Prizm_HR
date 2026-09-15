@@ -8,12 +8,17 @@ const { HttpError } = require('./errors');
 // and needs the same tenancy check before touching any join table.
 //
 // ownerBrandId (optional) is the resolved brandId of the Shift/Holiday/
-// Company Policy/Leave Policy being saved — every Roster Group linked to it
-// must be company-wide (brandId null) or belong to that SAME Brand.
-// Without this, a Brand-A Shift could be linked to a Brand-B Roster Group,
-// silently wiring Brand A's scheduling config into Brand B's data (and vice
-// versa) even though the two entities are otherwise fully isolated — see
-// utils/brandScope.js.
+// Company Policy/Leave Policy being saved. A Brand-specific owner may only
+// link to Roster Groups that are company-wide (brandId null) or belong to
+// that SAME Brand — without this, a Brand-A Shift could be linked to a
+// Brand-B Roster Group, silently wiring Brand A's scheduling config into
+// Brand B's data (and vice versa) even though the two entities are otherwise
+// fully isolated — see utils/brandScope.js. A Shared owner (ownerBrandId
+// null), by contrast, is already visible/usable across every Brand, so it
+// may link to ANY Roster Group regardless of that Roster's own Brand — per
+// explicit product decision, "Shared" on the owner means "available
+// everywhere," including every Brand's own Rosters, not "restricted to
+// shared Rosters only."
 async function assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, ownerBrandId) {
   if (!Array.isArray(rosterGroupIds) || rosterGroupIds.length === 0) return;
   const uniqueIds = [...new Set(rosterGroupIds.map(String))];
@@ -21,7 +26,8 @@ async function assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, owne
   if (rows.length !== uniqueIds.length) {
     throw new HttpError(400, 'One or more Roster Groups not found for this company');
   }
-  const mismatched = rows.find((r) => r.brandId && String(r.brandId) !== String(ownerBrandId ?? ''));
+  if (!ownerBrandId) return;
+  const mismatched = rows.find((r) => r.brandId && String(r.brandId) !== String(ownerBrandId));
   if (mismatched) {
     throw new HttpError(400, 'One or more Roster Groups belong to a different Brand');
   }

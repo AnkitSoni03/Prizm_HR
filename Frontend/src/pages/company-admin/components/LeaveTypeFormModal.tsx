@@ -4,6 +4,7 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createLeaveType, updateLeaveType, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
 
 interface LeaveTypeFormModalProps {
@@ -45,9 +46,17 @@ const MONTH_OPTIONS = [
 // (LeavePolicyFormModal.tsx) — same fields, same endpoint, either way.
 export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }: LeaveTypeFormModalProps) {
   const isEdit = !!leaveType;
+  // Company Admin managing a Brand-mode company must always pin every Leave
+  // Type to one real Brand — there's no "Shared (all brands)" choice any
+  // more. Brand Admin (identified by URL, not brand count — see the hook's
+  // own comment) and a direct-mode company (zero Brands) never see this
+  // field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [name, setName] = useState(leaveType?.name ?? '');
   const [code, setCode] = useState(leaveType?.code ?? '');
-  const [brandId, setBrandId] = useState(leaveType?.brandId ?? '');
+  const [brandId, setBrandId] = useState(leaveType?.brandId || defaultBrandId);
   const [isPaid, setIsPaid] = useState(leaveType?.isPaid ?? true);
   const [carryForward, setCarryForward] = useState(leaveType?.carryForward ?? false);
   const [maxCarryForwardDays, setMaxCarryForwardDays] = useState(
@@ -79,8 +88,8 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           ? { customCycleStartMonth: Number(customCycleStartMonth), customCycleStartDay: Number(customCycleStartDay) }
           : { customCycleStartMonth: null, customCycleStartDay: null };
       // Only ever sent when the field below is actually rendered/editable
-      // (brands.length > 1) — see the brands prop's own comment above.
-      const brandPatch = brands.length > 1 ? { brandId } : {};
+      // (showBrandField) — see the brands prop's own comment above.
+      const brandPatch = showBrandField ? { brandId } : {};
       let saved: LeaveType;
       if (isEdit) {
         saved = await updateLeaveType(leaveType.id, {
@@ -137,13 +146,13 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           onChange={(event) => setCode(event.target.value)}
           placeholder="SICK"
         />
-        {brands.length > 1 && (
+        {showBrandField && (
           <Select
             id="leave-type-brand"
             label="Brand"
+            required
             value={brandId}
             onChange={(event) => setBrandId(event.target.value)}
-            placeholder="Shared (all brands)"
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}

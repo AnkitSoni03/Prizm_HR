@@ -148,6 +148,21 @@ export function EmployeeDetailModal({
   const canReadLeaveBalances = hasPermission('leave_balance:read');
   const canAdjustLeaveBalances = hasPermission('leave_balance:adjust');
 
+  // Designation/Manager/Roster Group are all edited here WITHOUT touching
+  // this employee's own Brand (that's the separate Transfer form below), so
+  // each narrows down to ONLY the employee's OWN Brand's records — never a
+  // sibling Brand's, and not the company's Shared ones either, matching the
+  // same "a specific Brand means only that Brand's own" rule already applied
+  // to the Add Employee form. A direct-mode company (usesBrands false) has
+  // no Brand dimension at all, so nothing is filtered there.
+  const availableDesignations = usesBrands
+    ? designations.filter((d) => d.brandId === employee.brandId)
+    : designations;
+  const availableManagers = (usesBrands ? employees.filter((e) => e.brandId === employee.brandId) : employees).filter(
+    (e) => e.id !== employee.id
+  );
+  const availableRosterGroups = usesBrands ? rosterGroups.filter((rg) => rg.brandId === employee.brandId) : rosterGroups;
+
   const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'powers' | 'leaves'>(initialTab);
 
   const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
@@ -328,6 +343,12 @@ export function EmployeeDetailModal({
   // so a caller without the permission never makes the call.
   const canAssignCompOff = hasPermission('comp_off_policy:assign');
   const [compOffPolicies, setCompOffPolicies] = useState<CompOffPolicy[]>([]);
+  // Same "only this employee's own Brand" narrowing as Designation/Manager/
+  // Roster Group above — a Comp-Off Policy tagged to a sibling Brand (or the
+  // company's Shared ones) has no business being offered here.
+  const availableCompOffPolicies = usesBrands
+    ? compOffPolicies.filter((p) => p.brandId === employee.brandId)
+    : compOffPolicies;
   const [assignCompOffPolicyId, setAssignCompOffPolicyId] = useState('');
   const [isAssigningCompOff, setIsAssigningCompOff] = useState(false);
   const [assignCompOffError, setAssignCompOffError] = useState<string | null>(null);
@@ -965,7 +986,7 @@ export function EmployeeDetailModal({
                     value={assignCompOffPolicyId}
                     onChange={(event) => setAssignCompOffPolicyId(event.target.value)}
                     placeholder="Not enrolled"
-                    options={compOffPolicies.map((p) => ({ value: p.id, label: p.name }))}
+                    options={availableCompOffPolicies.map((p) => ({ value: p.id, label: p.name }))}
                   />
                   <p className="text-xs text-ink-muted">
                     Comp-off is opt-in — this employee earns no credit for working a holiday/week-off until
@@ -1056,12 +1077,12 @@ export function EmployeeDetailModal({
                 onChange={(event) => setDesignationId(event.target.value)}
                 disabled={!canUpdate}
                 placeholder="No designation"
-                options={designations.map((d) => ({ value: d.id, label: d.title }))}
+                options={availableDesignations.map((d) => ({ value: d.id, label: d.title }))}
               />
               <ManagerCombobox
                 id="employee-manager-edit"
                 label="Manager"
-                employees={employees.filter((e) => e.id !== employee.id)}
+                employees={availableManagers}
                 selectedIds={managerIds}
                 onChange={setManagerIds}
                 disabled={!canUpdate}
@@ -1160,7 +1181,18 @@ export function EmployeeDetailModal({
                     id="employee-transfer-brand"
                     label="Brand"
                     value={transferBrandId}
-                    onChange={(event) => setTransferBrandId(event.target.value)}
+                    onChange={(event) => {
+                      const nextBrandId = event.target.value;
+                      setTransferBrandId(nextBrandId);
+                      // Moving to a different Brand invalidates whichever
+                      // Department was picked for the OLD Brand — drop it so
+                      // the admin can't submit a cross-Brand combination the
+                      // backend would reject anyway (see
+                      // employee.service.js::assertOwnedByBrand).
+                      setTransferDepartmentId((prev) =>
+                        departments.find((d) => d.id === prev)?.brandId === nextBrandId ? prev : ''
+                      );
+                    }}
                     options={brands.map((b) => ({ value: b.id, label: b.name }))}
                   />
                 )}
@@ -1169,7 +1201,11 @@ export function EmployeeDetailModal({
                   label="Department"
                   value={transferDepartmentId}
                   onChange={(event) => setTransferDepartmentId(event.target.value)}
-                  options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                  placeholder={usesBrands && transferBrandId ? 'Select a department' : undefined}
+                  options={(usesBrands && transferBrandId
+                    ? departments.filter((d) => d.brandId === transferBrandId)
+                    : departments
+                  ).map((d) => ({ value: d.id, label: d.name }))}
                 />
               </div>
               <div className="flex justify-end">
@@ -1797,7 +1833,7 @@ export function EmployeeDetailModal({
         <ChangeRosterModal
           employeeId={employee.id}
           currentRosterGroupId={employee.rosterGroupId}
-          rosterGroups={rosterGroups}
+          rosterGroups={availableRosterGroups}
           onClose={() => setIsChangeRosterModalOpen(false)}
           onChanged={handleRosterChanged}
         />

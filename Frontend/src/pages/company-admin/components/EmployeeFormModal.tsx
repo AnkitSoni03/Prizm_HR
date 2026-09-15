@@ -90,6 +90,42 @@ export function EmployeeFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Once a Brand is picked, every dependent field below (Department,
+  // Designation, Manager, Roster Group) narrows down to ONLY that Brand's
+  // own records — never a sibling Brand's, and not the company's Shared
+  // ones either, matching the same "a specific Brand means only that
+  // Brand's own" rule already applied to the Roster picker on the Shift/
+  // Holiday/Policy forms. A direct-mode company (usesBrands false) has no
+  // Brand dimension at all, so nothing is filtered there.
+  function ownedByBrand<T extends { brandId: string | null }>(items: T[], forBrandId: string): T[] {
+    if (!usesBrands || !forBrandId) return items;
+    return items.filter((item) => item.brandId === forBrandId);
+  }
+
+  const availableDepartments = ownedByBrand(departments, brandId);
+  const availableDesignations = ownedByBrand(designations, brandId);
+  const availableRosterGroups = ownedByBrand(rosterGroups, brandId);
+  const availableManagers = ownedByBrand(employees, brandId);
+
+  // Switching Brand prunes any already-picked Department/Designation/
+  // Manager/Roster Group that's no longer valid for the new Brand — same
+  // "drop what's no longer offered" behavior used elsewhere in this session
+  // (see ShiftFormModal.tsx's own Brand-change handler).
+  function handleBrandChange(nextBrandId: string) {
+    setBrandId(nextBrandId);
+    setDepartmentId((prev) =>
+      prev === NEW_OPTION_VALUE || ownedByBrand(departments, nextBrandId).some((d) => d.id === prev) ? prev : ''
+    );
+    setDesignationId((prev) =>
+      prev === NEW_OPTION_VALUE || ownedByBrand(designations, nextBrandId).some((d) => d.id === prev) ? prev : ''
+    );
+    setRosterGroupId((prev) => (ownedByBrand(rosterGroups, nextBrandId).some((rg) => rg.id === prev) ? prev : ''));
+    setManagerIds((prev) => {
+      const allowed = new Set(ownedByBrand(employees, nextBrandId).map((e) => e.id));
+      return prev.filter((id) => allowed.has(id));
+    });
+  }
+
   // Only meaningful for a 0-weekly-off + Week-Off-Leave-enabled Roster — a
   // Roster has at most one Shift, so shifts[0] is the whole picture.
   const selectedShift = rosterGroups.find((rg) => rg.id === rosterGroupId)?.shifts?.[0];
@@ -105,16 +141,28 @@ export function EmployeeFormModal({
     setError(null);
     setIsSubmitting(true);
     try {
+      // Inline-created here (via "+ Add new…"), a Department/Designation must
+      // land in the SAME Brand this employee is being created for — omitting
+      // brandId would silently create it company-wide/Shared instead (the
+      // backend's own default for a company-wide caller like Company Admin),
+      // invisible to that Brand's own Brand Admin. Same brandId the employee
+      // itself is about to be created with.
+      const newRecordBrandId = usesBrands ? brandId : undefined;
+
       let resolvedDepartmentId = departmentId;
       if (departmentId === NEW_OPTION_VALUE) {
-        const department = await createDepartment({ name: newDepartmentName });
+        const department = await createDepartment({ name: newDepartmentName, brandId: newRecordBrandId });
         onDepartmentCreated?.(department);
         resolvedDepartmentId = department.id;
       }
 
       let resolvedDesignationId = designationId;
       if (designationId === NEW_OPTION_VALUE) {
-        const designation = await createDesignation({ title: newDesignationTitle, level: null });
+        const designation = await createDesignation({
+          title: newDesignationTitle,
+          level: null,
+          brandId: newRecordBrandId,
+        });
         onDesignationCreated?.(designation);
         resolvedDesignationId = designation.id;
       }
@@ -233,7 +281,7 @@ export function EmployeeFormModal({
             label="Brand"
             required
             value={brandId}
-            onChange={(event) => setBrandId(event.target.value)}
+            onChange={(event) => handleBrandChange(event.target.value)}
             disabled={brands.length === 0}
             placeholder={brands.length === 0 ? 'No brands available' : 'Select a brand'}
             options={brands.map((brand) => ({ value: brand.id, label: brand.name }))}
@@ -246,12 +294,14 @@ export function EmployeeFormModal({
             required
             value={departmentId}
             onChange={(event) => setDepartmentId(event.target.value)}
-            disabled={departments.length === 0 && !canCreateDepartment}
+            disabled={availableDepartments.length === 0 && !canCreateDepartment}
             placeholder={
-              departments.length === 0 && !canCreateDepartment ? 'Create a department first' : 'Select a department'
+              availableDepartments.length === 0 && !canCreateDepartment
+                ? 'Create a department first'
+                : 'Select a department'
             }
             options={[
-              ...departments.map((department) => ({ value: department.id, label: department.name })),
+              ...availableDepartments.map((department) => ({ value: department.id, label: department.name })),
               ...(canCreateDepartment ? [{ value: NEW_OPTION_VALUE, label: '+ Add new department…' }] : []),
             ]}
           />
@@ -276,7 +326,7 @@ export function EmployeeFormModal({
             onChange={(event) => setDesignationId(event.target.value)}
             placeholder="No designation"
             options={[
-              ...designations.map((designation) => ({ value: designation.id, label: designation.title })),
+              ...availableDesignations.map((designation) => ({ value: designation.id, label: designation.title })),
               ...(canCreateDesignation ? [{ value: NEW_OPTION_VALUE, label: '+ Add new designation…' }] : []),
             ]}
           />
@@ -323,7 +373,7 @@ export function EmployeeFormModal({
         <ManagerCombobox
           id="employee-manager"
           label="Manager"
-          employees={employees}
+          employees={availableManagers}
           selectedIds={managerIds}
           onChange={setManagerIds}
           placeholder="No manager"
@@ -335,7 +385,7 @@ export function EmployeeFormModal({
           value={rosterGroupId}
           onChange={(event) => setRosterGroupId(event.target.value)}
           placeholder="None — company/brand-wide defaults"
-          options={rosterGroups.map((rg) => ({ value: rg.id, label: rg.name }))}
+          options={availableRosterGroups.map((rg) => ({ value: rg.id, label: rg.name }))}
         />
         <p className="-mt-2 text-xs text-ink-muted">
           Assigns this employee's default shift, region-specific holidays, and leave policy from
@@ -397,7 +447,7 @@ export function EmployeeFormModal({
             type="submit"
             isLoading={isSubmitting}
             disabled={
-              (departments.length === 0 && !canCreateDepartment) || (usesBrands && brands.length === 0)
+              (availableDepartments.length === 0 && !canCreateDepartment) || (usesBrands && brands.length === 0)
             }
           >
             Add Employee

@@ -2,12 +2,19 @@ import { useState, type FormEvent } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createDepartment, updateDepartment } from '../../../api/companyAdmin/org';
-import type { Department } from '../../../api/tenancy';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
+import type { Brand, Department } from '../../../api/tenancy';
 
 interface DepartmentFormModalProps {
   department?: Department;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has Brands — a direct-mode company/Brand Admin (always
+  // exactly 1 Brand from their own listBrands() call) has nothing meaningful
+  // to pick from, same convention as ShiftFormModal.tsx's own Brand field.
+  brands?: Brand[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -22,16 +29,32 @@ function parseList(raw: string): string[] {
     .filter(Boolean);
 }
 
-export function DepartmentFormModal({ department, onClose, onSaved }: DepartmentFormModalProps) {
+export function DepartmentFormModal({ department, brands = [], onClose, onSaved }: DepartmentFormModalProps) {
   const isEdit = !!department;
+  // Company Admin managing a Brand-mode company must always pin every
+  // Department to one real Brand — there's no "Shared (all brands)" choice
+  // any more. Brand Admin (identified by URL, not brand count — see the
+  // hook's own comment) and a direct-mode company (zero Brands) never see
+  // this field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [name, setName] = useState(department?.name ?? '');
   const [code, setCode] = useState(department?.code ?? '');
+  const [brandId, setBrandId] = useState(department?.brandId || defaultBrandId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{ created: string[]; failed: string[] } | null>(null);
 
   const parsedNames = isEdit ? [] : parseList(name);
   const isBulk = !isEdit && parsedNames.length > 1;
+
+  // Only ever sent when the field below is actually rendered/editable
+  // (showBrandField) — a brand-scoped caller (Brand Admin) is blocked
+  // server-side from submitting a brandId at all, even an unchanged one
+  // (see brandScope.js::assertBrandReassignAllowed), so it must never be
+  // included in their payload.
+  const brandPatch = showBrandField ? { brandId } : {};
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -40,7 +63,7 @@ export function DepartmentFormModal({ department, onClose, onSaved }: Department
     if (isEdit) {
       setIsSubmitting(true);
       try {
-        await updateDepartment(department.id, { name, code });
+        await updateDepartment(department.id, { name, code, ...brandPatch });
         onSaved();
         onClose();
       } catch {
@@ -58,7 +81,7 @@ export function DepartmentFormModal({ department, onClose, onSaved }: Department
     if (parsedNames.length === 1) {
       setIsSubmitting(true);
       try {
-        await createDepartment({ name: parsedNames[0], code });
+        await createDepartment({ name: parsedNames[0], code, ...brandPatch });
         onSaved();
         onClose();
       } catch {
@@ -89,7 +112,9 @@ export function DepartmentFormModal({ department, onClose, onSaved }: Department
     }
 
     setIsSubmitting(true);
-    const results = await Promise.allSettled(pairs.map((pair) => createDepartment({ name: pair.name, code: pair.code })));
+    const results = await Promise.allSettled(
+      pairs.map((pair) => createDepartment({ name: pair.name, code: pair.code, ...brandPatch }))
+    );
     const created = pairs.filter((_, i) => results[i].status === 'fulfilled').map((p) => p.name);
     const failed = pairs.filter((_, i) => results[i].status === 'rejected').map((p) => p.name);
     onSaved();
@@ -150,6 +175,16 @@ export function DepartmentFormModal({ department, onClose, onSaved }: Department
             </p>
           )}
         </div>
+        {showBrandField && (
+          <Select
+            id="department-brand"
+            label="Brand"
+            required
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

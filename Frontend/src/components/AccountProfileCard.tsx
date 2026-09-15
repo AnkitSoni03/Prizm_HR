@@ -27,7 +27,16 @@ function scopeLabel(role: AuthRole): string {
 // for the rare case a caller *does* have a linked Employee (that account
 // manages its photo from ESS "My Profile" instead, since the Employee's
 // photo always wins when both exist).
-export function AccountProfileCard() {
+interface AccountProfileCardProps {
+  // When true, skips the outer bordered/shadowed card wrapper and renders
+  // just the inner content — used by callers (Company Admin's Settings
+  // page) that compose this inside their own single outer card instead of
+  // stacking it as a separate box. Every other portal's Settings page
+  // renders this standalone and keeps the default (false) wrapper.
+  bare?: boolean;
+}
+
+export function AccountProfileCard({ bare = false }: AccountProfileCardProps) {
   const { user, refreshUser } = useAuth();
   const showToast = useToast();
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
@@ -85,8 +94,8 @@ export function AccountProfileCard() {
   }
 
   return (
-    <div className="max-w-md rounded-xl border border-border bg-card p-5">
-      <div className="mb-4">
+    <div className={bare ? '' : 'rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6'}>
+      <div className="mb-5">
         {user?.employeeId ? (
           <div className="flex items-center gap-3">
             <Avatar src={user?.photoUrl} alt={user?.email} size="lg" />
@@ -153,14 +162,21 @@ export function AccountProfileCard() {
         )}
       </div>
 
-      <div className="space-y-2 rounded-xl border border-border bg-page px-4 py-3 text-sm">
-        <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Roles</p>
-        {user?.roles.map((role) => (
-          <div key={`${role.name}-${role.companyId ?? ''}-${role.brandId ?? ''}`} className="flex items-center justify-between gap-3">
-            <span className="text-ink">{role.name}</span>
-            <span className="text-xs text-ink-muted">{scopeLabel(role)}</span>
-          </div>
-        ))}
+      <div className="rounded-xl border border-border">
+        <p className="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-ink-muted">Roles</p>
+        <div className="mt-2 divide-y divide-border">
+          {user?.roles.map((role) => (
+            <div
+              key={`${role.name}-${role.companyId ?? ''}-${role.brandId ?? ''}`}
+              className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
+            >
+              <span className="font-medium text-ink">{role.name}</span>
+              <span className="rounded-full bg-primary-light px-2 py-0.5 text-[11px] font-medium text-primary">
+                {scopeLabel(role)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

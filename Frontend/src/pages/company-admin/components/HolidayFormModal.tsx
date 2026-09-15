@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/Button';
 import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { createHoliday, updateHoliday, type Holiday } from '../../../api/companyAdmin/holidays';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
 
 interface HolidayFormModalProps {
@@ -24,10 +25,18 @@ interface HolidayFormModalProps {
 
 export function HolidayFormModal({ holiday, brands = [], defaultRosterGroupIds, onClose, onSaved }: HolidayFormModalProps) {
   const isEdit = !!holiday;
+  // Company Admin managing a Brand-mode company must always pin every
+  // Holiday to one real Brand — there's no "Shared (all brands)" choice any
+  // more. Brand Admin (identified by URL, not brand count — see the hook's
+  // own comment) and a direct-mode company (zero Brands) never see this
+  // field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [date, setDate] = useState(holiday?.date ?? '');
   const [toDate, setToDate] = useState(holiday?.endDate ?? holiday?.date ?? '');
   const [name, setName] = useState(holiday?.name ?? '');
-  const [brandId, setBrandId] = useState(holiday?.brandId ?? '');
+  const [brandId, setBrandId] = useState(holiday?.brandId || defaultBrandId);
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
     holiday?.rosterGroups?.map((rg) => rg.id) ?? defaultRosterGroupIds ?? []
@@ -41,18 +50,27 @@ export function HolidayFormModal({ holiday, brands = [], defaultRosterGroupIds, 
       .catch(() => setRosterGroups([]));
   }, []);
 
+  // Shared (brandId '') shows every Roster in the company, across every
+  // Brand — the backend allows a Shared holiday to link to any of them (see
+  // rosterGroupAssignment.js::assertRosterGroupsBelongToCompany). A
+  // Brand-specific selection narrows the list down to ONLY that Brand's own
+  // Rosters — not a sibling Brand's, and not the company's Shared Rosters
+  // either, since picking a specific Brand here means "this holiday belongs
+  // to Snow Village," and only Snow Village's own Rosters are relevant to
+  // choose from.
+  const availableRosterGroups = brandId ? rosterGroups.filter((rg) => rg.brandId === brandId) : rosterGroups;
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setIsSubmitting(true);
     try {
       // Only ever sent when the field above is actually rendered/editable
-      // (brands.length > 1) — a brand-scoped caller (Brand Admin, always
-      // exactly 1 Brand from their own listBrands() call) is blocked
+      // (showBrandField) — a brand-scoped caller (Brand Admin) is blocked
       // server-side from submitting a brandId at all, even an unchanged
       // one (see brandScope.js::assertBrandReassignAllowed), so it must
       // never be included in their payload.
-      const brandPatch = brands.length > 1 ? { brandId } : {};
+      const brandPatch = showBrandField ? { brandId } : {};
       if (isEdit) {
         await updateHoliday(holiday.id, { date, toDate: toDate || date, name, rosterGroupIds, ...brandPatch });
       } else {
@@ -105,17 +123,24 @@ export function HolidayFormModal({ holiday, brands = [], defaultRosterGroupIds, 
           onChange={(event) => setName(event.target.value)}
           placeholder="Independence Day"
         />
-        {brands.length > 1 && (
+        {showBrandField && (
           <Select
             id="holiday-brand"
             label="Brand"
+            required
             value={brandId}
-            onChange={(event) => setBrandId(event.target.value)}
-            placeholder="Shared (all brands)"
+            onChange={(event) => {
+              const nextBrandId = event.target.value;
+              const stillValid = new Set(
+                (nextBrandId ? rosterGroups.filter((rg) => rg.brandId === nextBrandId) : rosterGroups).map((rg) => rg.id)
+              );
+              setBrandId(nextBrandId);
+              setRosterGroupIds((prev) => prev.filter((id) => stillValid.has(id)));
+            }}
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}
-        <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
+        <RosterMultiSelect rosterGroups={availableRosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

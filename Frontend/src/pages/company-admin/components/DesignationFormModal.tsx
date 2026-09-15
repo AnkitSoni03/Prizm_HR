@@ -2,12 +2,17 @@ import { useState, type FormEvent } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createDesignation, updateDesignation } from '../../../api/companyAdmin/org';
-import type { Designation } from '../../../api/tenancy';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
+import type { Brand, Designation } from '../../../api/tenancy';
 
 interface DesignationFormModalProps {
   designation?: Designation;
+  // Only passed (and only then does the Brand field render) when the
+  // company actually has Brands — same convention as DepartmentFormModal.tsx.
+  brands?: Brand[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -28,15 +33,31 @@ function parseTitles(raw: string): string[] {
   return titles;
 }
 
-export function DesignationFormModal({ designation, onClose, onSaved }: DesignationFormModalProps) {
+export function DesignationFormModal({ designation, brands = [], onClose, onSaved }: DesignationFormModalProps) {
   const isEdit = !!designation;
+  // Company Admin managing a Brand-mode company must always pin every
+  // Designation to one real Brand — there's no "Shared (all brands)" choice
+  // any more. Brand Admin (identified by URL, not brand count — see the
+  // hook's own comment) and a direct-mode company (zero Brands) never see
+  // this field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [title, setTitle] = useState(designation?.title ?? '');
+  const [brandId, setBrandId] = useState(designation?.brandId || defaultBrandId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{ created: string[]; failed: string[] } | null>(null);
 
   const parsedTitles = isEdit ? [] : parseTitles(title);
   const isBulk = !isEdit && parsedTitles.length > 1;
+
+  // Only ever sent when the field below is actually rendered/editable
+  // (showBrandField) — a brand-scoped caller (Brand Admin) is blocked
+  // server-side from submitting a brandId at all, even an unchanged one
+  // (see brandScope.js::assertBrandReassignAllowed), so it must never be
+  // included in their payload.
+  const brandPatch = showBrandField ? { brandId } : {};
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -45,7 +66,7 @@ export function DesignationFormModal({ designation, onClose, onSaved }: Designat
     if (isEdit) {
       setIsSubmitting(true);
       try {
-        await updateDesignation(designation.id, { title, level: null });
+        await updateDesignation(designation.id, { title, level: null, ...brandPatch });
         onSaved();
         onClose();
       } catch {
@@ -63,7 +84,7 @@ export function DesignationFormModal({ designation, onClose, onSaved }: Designat
     if (parsedTitles.length === 1) {
       setIsSubmitting(true);
       try {
-        await createDesignation({ title: parsedTitles[0], level: null });
+        await createDesignation({ title: parsedTitles[0], level: null, ...brandPatch });
         onSaved();
         onClose();
       } catch {
@@ -75,7 +96,7 @@ export function DesignationFormModal({ designation, onClose, onSaved }: Designat
 
     setIsSubmitting(true);
     const results = await Promise.allSettled(
-      parsedTitles.map((t) => createDesignation({ title: t, level: null }))
+      parsedTitles.map((t) => createDesignation({ title: t, level: null, ...brandPatch }))
     );
     const created = parsedTitles.filter((_, i) => results[i].status === 'fulfilled');
     const failed = parsedTitles.filter((_, i) => results[i].status === 'rejected');
@@ -122,6 +143,16 @@ export function DesignationFormModal({ designation, onClose, onSaved }: Designat
             </p>
           )}
         </div>
+        {showBrandField && (
+          <Select
+            id="designation-brand"
+            label="Brand"
+            required
+            value={brandId}
+            onChange={(event) => setBrandId(event.target.value)}
+            options={brands.map((b) => ({ value: b.id, label: b.name }))}
+          />
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

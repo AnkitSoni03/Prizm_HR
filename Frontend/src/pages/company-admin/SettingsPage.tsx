@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Building2, CreditCard, Hash, Layers, Lock, Pencil, User } from 'lucide-react';
+import { Building2, CreditCard, Hash, Layers, Lock, ShieldCheck, User } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Tabs } from '../../components/ui/Tabs';
-import { DetailRow } from '../../components/ui/DetailRow';
 import { AccountProfileCard } from '../../components/AccountProfileCard';
 import { ChangePasswordCard } from '../../components/ChangePasswordCard';
 import { useAuth } from '../../context/auth-context';
-import { EditCompanyModal } from '../super-admin/components/EditCompanyModal';
 import { getCompany, listPlans, type Company, type Plan } from '../../api/tenancy';
 
 type Tab = 'profile' | 'password';
@@ -18,26 +16,42 @@ function companyStatusTone(status: Company['status']) {
   return 'danger';
 }
 
-// Company Admin never had a way to fix up their own company's profile
-// (name/legal name/GST/plan) despite already holding company:update in
-// RBAC — this is the first UI surface for it, reusing the same
-// EditCompanyModal the Super Admin and Group Admin portals use. Status
-// changes stay hidden inside that modal (company:suspend is Super-Admin-
-// only), so this page is deliberately silent about lifecycle status too.
+interface InfoTileProps {
+  icon: typeof Building2;
+  label: string;
+  value: string;
+}
+
+// Read-only label/value row — one plain row per field, all living inside a
+// single shared container (see the divide-y wrapper below) rather than each
+// field getting its own separate boxed div.
+function InfoTile({ icon: Icon, label, value }: InfoTileProps) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <Icon className="h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
+      <p className="text-sm text-ink-muted">{label}</p>
+      <p className="ml-auto truncate text-sm font-medium text-ink">{value}</p>
+    </div>
+  );
+}
+
+// The company profile section (legal name/GST/plan/organization mode) is
+// read-only here by design — those are platform-level facts set up by the
+// Super Admin at onboarding, not something a Company Admin self-serves.
+// Only the account's own photo/display name (AccountProfileCard) are
+// editable on this page.
 export function SettingsPage() {
-  const { user, hasPermission } = useAuth();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const initialTab: Tab = requestedTab === 'password' ? 'password' : 'profile';
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const canEdit = hasPermission('company:update');
   const companyId = user?.roles.find((role) => role.companyId)?.companyId ?? null;
 
   const [company, setCompany] = useState<Company | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   async function loadCompany(id: string) {
     setIsLoading(true);
@@ -62,7 +76,7 @@ export function SettingsPage() {
   const planName = plans.find((plan) => plan.id === company?.planId)?.name ?? '—';
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <Tabs
         items={[
           { key: 'profile', label: 'Profile', icon: User },
@@ -73,66 +87,54 @@ export function SettingsPage() {
       />
 
       {activeTab === 'profile' && (
-        <div className="space-y-6">
-          <AccountProfileCard />
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <AccountProfileCard bare />
 
-          {!companyId && <p className="text-sm text-danger">Could not determine your company.</p>}
-          {companyId && isLoading && <p className="text-sm text-ink-muted">Loading company profile…</p>}
+          {!companyId && <p className="mt-6 text-sm text-danger">Could not determine your company.</p>}
+          {companyId && isLoading && <p className="mt-6 text-sm text-ink-muted">Loading company profile…</p>}
           {companyId && !isLoading && (error || !company) && (
-            <p className="text-sm text-danger">{error ?? 'Company not found.'}</p>
+            <p className="mt-6 text-sm text-danger">{error ?? 'Company not found.'}</p>
           )}
 
           {companyId && !isLoading && company && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div className="mt-6 border-t border-border pt-5">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
-                    <Building2 className="h-5 w-5" strokeWidth={1.75} />
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-light text-primary">
+                    <Building2 className="h-6 w-6" strokeWidth={1.75} />
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold text-ink">{company.name}</h2>
                     <p className="text-sm text-ink-muted">Company Profile</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge tone={companyStatusTone(company.status)}>{company.status}</Badge>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setIsEditModalOpen(true)}
-                      aria-label={`Edit ${company.name}`}
-                      title="Edit Company"
-                      className="rounded-md p-1.5 text-ink-muted hover:bg-primary/10 hover:text-primary"
-                    >
-                      <Pencil className="h-4 w-4" strokeWidth={1.75} />
-                    </button>
-                  )}
-                </div>
+                <Badge tone={companyStatusTone(company.status)}>{company.status}</Badge>
               </div>
 
-              <div className="space-y-2.5 border-t border-border pt-3.5">
-                <DetailRow icon={Building2} label="Legal Name" value={company.legalName ?? '—'} />
-                <DetailRow icon={Hash} label="GST Number" value={company.gstNumber ?? '—'} />
-                <DetailRow icon={CreditCard} label="Plan" value={planName} />
-                <DetailRow icon={Layers} label="Organization Mode" value={company.usesBrands ? 'Brands' : 'Direct (no Brands)'} />
+              <div className="divide-y divide-border rounded-xl border border-border">
+                <InfoTile icon={Building2} label="Legal Name" value={company.legalName ?? '—'} />
+                <InfoTile icon={Hash} label="GST Number" value={company.gstNumber ?? '—'} />
+                <InfoTile icon={CreditCard} label="Plan" value={planName} />
+                <InfoTile
+                  icon={Layers}
+                  label="Organization Mode"
+                  value={company.usesBrands ? 'Brands' : 'Direct (no Brands)'}
+                />
+              </div>
+
+              <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-dashed border-border px-3.5 py-3">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" strokeWidth={1.75} />
+                <p className="text-xs text-ink-muted">
+                  These details are set up by your Super Admin and shown here as read-only. Reach out to
+                  them for any changes.
+                </p>
               </div>
             </div>
           )}
-
         </div>
       )}
 
       {activeTab === 'password' && <ChangePasswordCard />}
-
-
-      {isEditModalOpen && company && (
-        <EditCompanyModal
-          company={company}
-          plans={plans}
-          onClose={() => setIsEditModalOpen(false)}
-          onSaved={() => loadCompany(company.id)}
-        />
-      )}
     </div>
   );
 }

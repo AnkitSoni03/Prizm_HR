@@ -160,7 +160,9 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
   const [brandSearch, setBrandSearch] = useState('');
   const [brandStatusFilter, setBrandStatusFilter] = useState<'' | 'active' | 'inactive'>('');
   const [departmentSearch, setDepartmentSearch] = useState('');
+  const [departmentBrandFilter, setDepartmentBrandFilter] = useState('');
   const [designationSearch, setDesignationSearch] = useState('');
+  const [designationBrandFilter, setDesignationBrandFilter] = useState('');
 
   async function loadAll() {
     setIsLoading(true);
@@ -197,13 +199,23 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
   );
 
   const filteredDepartments = useMemo(
-    () => departments.filter((d) => matches(departmentSearch, d.name, d.code)),
-    [departments, departmentSearch],
+    () =>
+      departments.filter(
+        (d) =>
+          matches(departmentSearch, d.name, d.code) &&
+          (departmentBrandFilter === '' || d.brandId === departmentBrandFilter),
+      ),
+    [departments, departmentSearch, departmentBrandFilter],
   );
 
   const filteredDesignations = useMemo(
-    () => designations.filter((d) => matches(designationSearch, d.title)),
-    [designations, designationSearch],
+    () =>
+      designations.filter(
+        (d) =>
+          matches(designationSearch, d.title) &&
+          (designationBrandFilter === '' || d.brandId === designationBrandFilter),
+      ),
+    [designations, designationSearch, designationBrandFilter],
   );
 
   async function handleDeleteDepartment(department: Department) {
@@ -350,7 +362,18 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
       {activeTab === 'departments' && (
         <div>
           <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <SearchInput placeholder="Search departments…" value={departmentSearch} onChange={setDepartmentSearch} />
+            <div className="flex flex-1 flex-col gap-2.5 sm:flex-row sm:items-center">
+              <SearchInput placeholder="Search departments…" value={departmentSearch} onChange={setDepartmentSearch} />
+              {brands.length > 0 && (
+                <FilterSelect
+                  value={departmentBrandFilter}
+                  onChange={setDepartmentBrandFilter}
+                  placeholder="All brands"
+                  ariaLabel="Filter by brand"
+                  options={brands.map((b) => ({ value: b.id, label: b.name }))}
+                />
+              )}
+            </div>
             {hasPermission('department:create') && (
               <Button variant="secondary" onClick={() => setEditingDepartment('new')}>
                 <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -368,6 +391,15 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
               columns={[
                 { key: 'name', header: 'Name', render: (d) => <span className="font-medium text-ink">{d.name}</span> },
                 { key: 'code', header: 'Code', render: (d) => d.code ?? '—' },
+                ...(brands.length > 0
+                  ? [
+                      {
+                        key: 'brand',
+                        header: 'Brand',
+                        render: (d: Department) => brands.find((b) => b.id === d.brandId)?.name ?? 'Shared',
+                      },
+                    ]
+                  : []),
                 {
                   key: 'actions',
                   header: '',
@@ -427,6 +459,12 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
                     <span className="flex items-center gap-1">
                       <Hash className="h-3 w-3 shrink-0" strokeWidth={1.75} />
                       {department.code ?? 'No code'}
+                      {brands.length > 0 && (
+                        <>
+                          {' · '}
+                          {brands.find((b) => b.id === department.brandId)?.name ?? 'Shared'}
+                        </>
+                      )}
                     </span>
                   }
                   onEdit={hasPermission('department:update') ? () => setEditingDepartment(department) : undefined}
@@ -442,7 +480,18 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
       {activeTab === 'designations' && (
         <div>
           <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <SearchInput placeholder="Search designations…" value={designationSearch} onChange={setDesignationSearch} />
+            <div className="flex flex-1 flex-col gap-2.5 sm:flex-row sm:items-center">
+              <SearchInput placeholder="Search designations…" value={designationSearch} onChange={setDesignationSearch} />
+              {brands.length > 0 && (
+                <FilterSelect
+                  value={designationBrandFilter}
+                  onChange={setDesignationBrandFilter}
+                  placeholder="All brands"
+                  ariaLabel="Filter by brand"
+                  options={brands.map((b) => ({ value: b.id, label: b.name }))}
+                />
+              )}
+            </div>
             {hasPermission('designation:create') && (
               <Button variant="secondary" onClick={() => setEditingDesignation('new')}>
                 <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -459,6 +508,15 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
               emptyMessage={designations.length === 0 ? 'No designations yet.' : 'No designations match your search.'}
               columns={[
                 { key: 'title', header: 'Title', render: (d) => <span className="font-medium text-ink">{d.title}</span> },
+                ...(brands.length > 0
+                  ? [
+                      {
+                        key: 'brand',
+                        header: 'Brand',
+                        render: (d: Designation) => brands.find((b) => b.id === d.brandId)?.name ?? 'Shared',
+                      },
+                    ]
+                  : []),
                 {
                   key: 'actions',
                   header: '',
@@ -514,7 +572,15 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
                   key={designation.id}
                   icon={Briefcase}
                   title={designation.title}
-                  subtitle={designation.level !== null ? `Level ${designation.level}` : undefined}
+                  subtitle={
+                    designation.level !== null || brands.length > 0 ? (
+                      <span className="flex items-center gap-1">
+                        {designation.level !== null ? `Level ${designation.level}` : null}
+                        {designation.level !== null && brands.length > 0 ? ' · ' : null}
+                        {brands.length > 0 ? brands.find((b) => b.id === designation.brandId)?.name ?? 'Shared' : null}
+                      </span>
+                    ) : undefined
+                  }
                   onEdit={hasPermission('designation:update') ? () => setEditingDesignation(designation) : undefined}
                   onDelete={hasPermission('designation:delete') ? () => handleDeleteDesignation(designation) : undefined}
                 />
@@ -528,6 +594,7 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
       {editingDepartment && (
         <DepartmentFormModal
           department={editingDepartment === 'new' ? undefined : editingDepartment}
+          brands={brands}
           onClose={() => setEditingDepartment(null)}
           onSaved={loadAll}
         />
@@ -536,6 +603,7 @@ export function OrganizationPage({ showBrandTools = true }: OrganizationPageProp
       {editingDesignation && (
         <DesignationFormModal
           designation={editingDesignation === 'new' ? undefined : editingDesignation}
+          brands={brands}
           onClose={() => setEditingDesignation(null)}
           onSaved={loadAll}
         />

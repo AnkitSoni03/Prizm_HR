@@ -8,6 +8,7 @@ import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { useAuth } from '../../../context/auth-context';
 import { createLeavePolicy, updateLeavePolicy, type LeavePolicy } from '../../../api/companyAdmin/leavePolicies';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
 import type { LeaveType } from '../../../api/companyAdmin/leaveBalance';
 import { LeaveTypeFormModal } from './LeaveTypeFormModal';
@@ -49,6 +50,14 @@ export function LeavePolicyFormModal({
   const { hasPermission } = useAuth();
   const canCreateLeaveType = hasPermission('leave_type:create');
   const isEdit = !!policy;
+  // Company Admin managing a Brand-mode company must always pin every Leave
+  // Policy to one real Brand — there's no "Shared (all brands)" choice any
+  // more. Brand Admin (identified by URL, not brand count — see the hook's
+  // own comment) and a direct-mode company (zero Brands) never see this
+  // field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [localLeaveTypes, setLocalLeaveTypes] = useState(leaveTypes);
   const [leaveTypeId, setLeaveTypeId] = useState(policy?.leaveTypeId ?? leaveTypes[0]?.id ?? '');
   const [annualQuota, setAnnualQuota] = useState(policy ? String(policy.annualQuota) : '');
@@ -56,7 +65,7 @@ export function LeavePolicyFormModal({
   const [applicableAfterDays, setApplicableAfterDays] = useState(
     policy ? String(policy.applicableAfterDays) : '0'
   );
-  const [brandId, setBrandId] = useState(policy?.brandId ?? '');
+  const [brandId, setBrandId] = useState(policy?.brandId || defaultBrandId);
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
     policy?.rosterGroups?.map((rg) => rg.id) ?? defaultRosterGroupIds ?? []
@@ -85,15 +94,25 @@ export function LeavePolicyFormModal({
       .catch(() => setRosterGroups([]));
   }, []);
 
+  // Shared (brandId '') shows every Roster in the company, across every
+  // Brand — the backend allows a Shared leave policy to link to any of them
+  // (see rosterGroupAssignment.js::assertRosterGroupsBelongToCompany). A
+  // Brand-specific selection narrows the list down to ONLY that Brand's own
+  // Rosters — not a sibling Brand's, and not the company's Shared Rosters
+  // either, since picking a specific Brand here means "this policy belongs
+  // to Snow Village," and only Snow Village's own Rosters are relevant to
+  // choose from.
+  const availableRosterGroups = brandId ? rosterGroups.filter((rg) => rg.brandId === brandId) : rosterGroups;
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setIsSubmitting(true);
     try {
       // Only ever sent when the field below is actually rendered/editable
-      // (brands.length > 1) — see LeaveTypeFormModal.tsx's own brands prop
+      // (showBrandField) — see LeaveTypeFormModal.tsx's own brands prop
       // comment for why a brand-scoped caller must never have it submitted.
-      const brandPatch = brands.length > 1 ? { brandId } : {};
+      const brandPatch = showBrandField ? { brandId } : {};
       if (isEdit) {
         await updateLeavePolicy(policy.id, {
           annualQuota: Number(annualQuota),
@@ -160,13 +179,20 @@ export function LeavePolicyFormModal({
             options={localLeaveTypes.map((lt) => ({ value: lt.id, label: lt.name }))}
           />
         </div>
-        {brands.length > 1 && (
+        {showBrandField && (
           <Select
             id="leave-policy-brand"
             label="Brand"
+            required
             value={brandId}
-            onChange={(event) => setBrandId(event.target.value)}
-            placeholder="Shared (all brands)"
+            onChange={(event) => {
+              const nextBrandId = event.target.value;
+              const stillValid = new Set(
+                (nextBrandId ? rosterGroups.filter((rg) => rg.brandId === nextBrandId) : rosterGroups).map((rg) => rg.id)
+              );
+              setBrandId(nextBrandId);
+              setRosterGroupIds((prev) => prev.filter((id) => stillValid.has(id)));
+            }}
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}
@@ -195,7 +221,7 @@ export function LeavePolicyFormModal({
           value={applicableAfterDays}
           onChange={(event) => setApplicableAfterDays(event.target.value)}
         />
-        <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
+        <RosterMultiSelect rosterGroups={availableRosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <p className="-mt-2 text-xs text-ink-muted">
           Only the Roster(s) checked here will have this leave type available at all — leaving this
           unchecked means no employee gets it through this policy.

@@ -14,6 +14,7 @@ import {
 } from '../../../api/companyAdmin/companyPolicies';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
 
 interface PolicyFormModalProps {
@@ -38,9 +39,17 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 export function PolicyFormModal({ policy, brands = [], defaultRosterGroupIds, onClose, onSaved }: PolicyFormModalProps) {
   const isEdit = !!policy;
   const showToast = useToast();
+  // Company Admin managing a Brand-mode company must always pin every
+  // Policy to one real Brand — there's no "Shared (all brands)" choice any
+  // more. Brand Admin (identified by URL, not brand count — see the hook's
+  // own comment) and a direct-mode company (zero Brands) never see this
+  // field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [title, setTitle] = useState(policy?.title ?? '');
   const [body, setBody] = useState(policy?.body ?? '');
-  const [brandId, setBrandId] = useState(policy?.brandId ?? '');
+  const [brandId, setBrandId] = useState(policy?.brandId || defaultBrandId);
   const [file, setFile] = useState<File | null>(null);
   const [rosterGroups, setRosterGroups] = useState<RosterPolicyGroup[]>([]);
   const [rosterGroupIds, setRosterGroupIds] = useState<string[]>(
@@ -55,6 +64,16 @@ export function PolicyFormModal({ policy, brands = [], defaultRosterGroupIds, on
       .then(setRosterGroups)
       .catch(() => setRosterGroups([]));
   }, []);
+
+  // Shared (brandId '') shows every Roster in the company, across every
+  // Brand — the backend allows a Shared policy to link to any of them (see
+  // rosterGroupAssignment.js::assertRosterGroupsBelongToCompany). A
+  // Brand-specific selection narrows the list down to ONLY that Brand's own
+  // Rosters — not a sibling Brand's, and not the company's Shared Rosters
+  // either, since picking a specific Brand here means "this policy belongs
+  // to Snow Village," and only Snow Village's own Rosters are relevant to
+  // choose from.
+  const availableRosterGroups = brandId ? rosterGroups.filter((rg) => rg.brandId === brandId) : rosterGroups;
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;
@@ -74,8 +93,8 @@ export function PolicyFormModal({ policy, brands = [], defaultRosterGroupIds, on
     setIsSubmitting(true);
     try {
       // Only ever sent when the field below is actually rendered/editable
-      // (brands.length > 1) — see the brands prop's own comment above.
-      const brandPatch = brands.length > 1 ? { brandId } : {};
+      // (showBrandField) — see the brands prop's own comment above.
+      const brandPatch = showBrandField ? { brandId } : {};
       const saved = isEdit
         ? await updateCompanyPolicy(policy.id, { title, body, rosterGroupIds, ...brandPatch })
         : await createCompanyPolicy({ title, body, rosterGroupIds, ...brandPatch });
@@ -126,17 +145,24 @@ export function PolicyFormModal({ policy, brands = [], defaultRosterGroupIds, on
             className="w-full rounded-xl border border-border bg-card px-3 py-2 text-base text-ink placeholder:text-ink-muted transition-all duration-150 hover:border-primary/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-sm"
           />
         </div>
-        {brands.length > 1 && (
+        {showBrandField && (
           <Select
             id="policy-brand"
             label="Brand"
+            required
             value={brandId}
-            onChange={(event) => setBrandId(event.target.value)}
-            placeholder="Shared (all brands)"
+            onChange={(event) => {
+              const nextBrandId = event.target.value;
+              const stillValid = new Set(
+                (nextBrandId ? rosterGroups.filter((rg) => rg.brandId === nextBrandId) : rosterGroups).map((rg) => rg.id)
+              );
+              setBrandId(nextBrandId);
+              setRosterGroupIds((prev) => prev.filter((id) => stillValid.has(id)));
+            }}
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}
-        <RosterMultiSelect rosterGroups={rosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
+        <RosterMultiSelect rosterGroups={availableRosterGroups} selectedIds={rosterGroupIds} onChange={setRosterGroupIds} />
         <div>
           <label htmlFor="policy-file" className="mb-1.5 block text-sm font-medium text-ink">
             Attachment (optional)

@@ -4,6 +4,7 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createRosterGroup, updateRosterGroup, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
 
 interface RosterGroupFormModalProps {
@@ -21,9 +22,17 @@ interface RosterGroupFormModalProps {
 // ("Assign to Roster(s)"), not from here.
 export function RosterGroupFormModal({ rosterGroup, brands = [], onClose, onSaved }: RosterGroupFormModalProps) {
   const isEdit = !!rosterGroup;
+  // Company Admin managing a Brand-mode company must always pin every
+  // Roster to one real Brand — there's no "Shared (all brands)" choice any
+  // more. Brand Admin (identified by URL, not brand count — see the hook's
+  // own comment) and a direct-mode company (zero Brands) never see this
+  // field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [name, setName] = useState(rosterGroup?.name ?? '');
   const [description, setDescription] = useState(rosterGroup?.description ?? '');
-  const [brandId, setBrandId] = useState(rosterGroup?.brandId ?? '');
+  const [brandId, setBrandId] = useState(rosterGroup?.brandId || defaultBrandId);
   // Validity period is optional — blank validityValue means "no expiry",
   // same as both columns being null on the backend. Kept as a string in
   // state (not number) so the field can be genuinely empty rather than
@@ -44,8 +53,7 @@ export function RosterGroupFormModal({ rosterGroup, brands = [], onClose, onSave
     setIsSubmitting(true);
     try {
       // Only ever sent when the field below is actually rendered/editable
-      // (brands.length > 1) — a brand-scoped caller (Brand Admin, always
-      // exactly 1 Brand from their own listBrands() call) is blocked
+      // (showBrandField) — a brand-scoped caller (Brand Admin) is blocked
       // server-side from submitting a brandId at all, even an unchanged
       // one (see brandScope.js::assertBrandReassignAllowed).
       const payload = {
@@ -53,7 +61,7 @@ export function RosterGroupFormModal({ rosterGroup, brands = [], onClose, onSave
         description: description || null,
         validityValue: parsedValidity,
         validityUnit: parsedValidity === null ? null : validityUnit,
-        ...(brands.length > 1 ? { brandId } : {}),
+        ...(showBrandField ? { brandId } : {}),
       };
       if (isEdit) {
         await updateRosterGroup(rosterGroup.id, payload);
@@ -87,13 +95,13 @@ export function RosterGroupFormModal({ rosterGroup, brands = [], onClose, onSave
           onChange={(event) => setDescription(event.target.value)}
           placeholder="Kolkata-based employees — regional holidays and leave quota"
         />
-        {brands.length > 1 && (
+        {showBrandField && (
           <Select
             id="roster-group-brand"
             label="Brand"
+            required
             value={brandId}
             onChange={(event) => setBrandId(event.target.value)}
-            placeholder="Shared (all brands)"
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}

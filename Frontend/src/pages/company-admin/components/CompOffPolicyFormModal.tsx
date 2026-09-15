@@ -8,6 +8,7 @@ import {
   updateCompOffPolicy,
   type CompOffPolicy,
 } from '../../../api/companyAdmin/compOffPolicies';
+import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
 
 interface CompOffPolicyFormModalProps {
@@ -25,10 +26,18 @@ interface CompOffPolicyFormModalProps {
 
 export function CompOffPolicyFormModal({ policy, brands = [], onClose, onSaved }: CompOffPolicyFormModalProps) {
   const isEdit = !!policy;
+  // Company Admin managing a Brand-mode company must always pin every
+  // Comp-Off Policy to one real Brand — there's no "Shared (all brands)"
+  // choice any more. Brand Admin (identified by URL, not brand count — see
+  // the hook's own comment) and a direct-mode company (zero Brands) never
+  // see this field at all, same as before.
+  const isBrandAdminPortal = useIsBrandAdminPortal();
+  const showBrandField = !isBrandAdminPortal && brands.length > 0;
+  const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [name, setName] = useState(policy?.name ?? '');
   const [expiryDays, setExpiryDays] = useState(policy ? String(policy.expiryDays) : '90');
   const [carryForward, setCarryForward] = useState(policy?.carryForward ?? false);
-  const [brandId, setBrandId] = useState(policy?.brandId ?? '');
+  const [brandId, setBrandId] = useState(policy?.brandId || defaultBrandId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,8 +51,8 @@ export function CompOffPolicyFormModal({ policy, brands = [], onClose, onSaved }
         expiryDays: Number(expiryDays) || 90,
         carryForward,
         // Only ever sent when the field below is actually rendered/editable
-        // (brands.length > 1) — see the brands prop's own comment above.
-        ...(brands.length > 1 ? { brandId } : {}),
+        // (showBrandField) — see the brands prop's own comment above.
+        ...(showBrandField ? { brandId } : {}),
       };
       const saved = isEdit ? await updateCompOffPolicy(policy.id, input) : await createCompOffPolicy(input);
       onSaved(saved);
@@ -67,13 +76,13 @@ export function CompOffPolicyFormModal({ policy, brands = [], onClose, onSaved }
           placeholder="Standard Comp-Off"
         />
 
-        {brands.length > 1 && (
+        {showBrandField && (
           <Select
             id="comp-off-policy-brand"
             label="Brand"
+            required
             value={brandId}
             onChange={(event) => setBrandId(event.target.value)}
-            placeholder="Shared (all brands)"
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}
