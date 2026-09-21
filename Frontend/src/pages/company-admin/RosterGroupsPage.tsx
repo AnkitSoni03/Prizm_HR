@@ -157,6 +157,21 @@ export function RosterGroupsPage() {
     }
   }
 
+  // Re-fetches employees too, not just Roster Groups — RosterGroupDetailModal's
+  // candidate list depends on each employee's current rosterGroupId, so an
+  // assign/remove in one Roster's modal must refresh this shared `employees`
+  // state or a sibling Roster's picker keeps showing/hiding people based on
+  // stale data until a full page reload.
+  async function refreshRosterGroupsAndEmployees() {
+    try {
+      const [groups, emp] = await Promise.all([listRosterGroups(), listEmployees({ limit: 100 })]);
+      setRosterGroups(groups);
+      setEmployees(emp.data);
+    } catch {
+      setError('Could not load Rosters.');
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
@@ -305,8 +320,9 @@ export function RosterGroupsPage() {
         <RosterGroupDetailModal
           rosterGroup={viewingGroup}
           allEmployees={employees}
+          allRosterGroups={rosterGroups}
+          onUpdated={refreshRosterGroupsAndEmployees}
           onClose={() => setViewingGroup(null)}
-          onUpdated={loadRosterGroups}
         />
       )}
     </div>

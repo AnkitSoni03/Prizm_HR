@@ -8,6 +8,7 @@ import {
   getAttendanceBoard,
   getAttendanceBoardXlsx,
   type AttendanceBoardDay,
+  type AttendanceBoardLeaveLegendEntry,
   type AttendanceBoardRow,
   type AttendanceRosterStatus,
 } from '../../api/companyAdmin/attendanceRecords';
@@ -42,17 +43,16 @@ const CATEGORY_STYLE: Record<AttendanceRosterStatus, string> = {
   not_marked: 'text-ink-muted',
 };
 
-const LEGEND: { code: string; label: string; category: AttendanceRosterStatus }[] = [
+// Fixed, non-leave codes — always relevant regardless of which leave types
+// a company actually defines. The leave codes (AL/SHL/CO/... or a custom
+// type's own code) are NOT hardcoded here — they come from the board
+// response's own `leaveLegend`, the exact set of leave types that actually
+// appear on this board (this company, this month), instead of every leave
+// type this app merely knows how to display.
+const FIXED_LEGEND: { code: string; label: string; category: AttendanceRosterStatus }[] = [
   { code: 'P', label: 'Present', category: 'present' },
   { code: 'A', label: 'Absent', category: 'absent' },
   { code: 'HD', label: 'Half Day', category: 'half_day' },
-  { code: 'AL', label: 'Annual Leave', category: 'leave' },
-  { code: 'SHL', label: 'Short Leave', category: 'leave' },
-  { code: 'SPL', label: 'Special Leave', category: 'leave' },
-  { code: 'UPHD', label: 'Unpaid Half Day', category: 'leave' },
-  { code: 'UL', label: 'Unpaid Leave', category: 'leave' },
-  { code: 'MTL', label: 'Maternity Leave', category: 'leave' },
-  { code: 'PTL', label: 'Paternity Leave', category: 'leave' },
   { code: 'OD', label: 'On Duty', category: 'on_duty' },
   { code: 'H', label: 'Holiday', category: 'holiday' },
   { code: 'W', label: 'Weekend / Week Off', category: 'weekoff' },
@@ -88,6 +88,7 @@ export function AttendanceBoardPage() {
 
   const [rows, setRows] = useState<AttendanceBoardRow[]>([]);
   const [daysInMonth, setDaysInMonth] = useState(31);
+  const [leaveLegend, setLeaveLegend] = useState<AttendanceBoardLeaveLegendEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -116,6 +117,7 @@ export function AttendanceBoardPage() {
         if (cancelled) return;
         setRows(result.rows);
         setDaysInMonth(result.daysInMonth);
+        setLeaveLegend(result.leaveLegend);
       })
       .catch(() => {
         if (!cancelled) setError('Could not load the attendance board.');
@@ -242,7 +244,7 @@ export function AttendanceBoardPage() {
       <div className="mb-4 rounded-xl border border-border bg-card p-4 shadow-xs">
         <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">Status Codes</p>
         <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {LEGEND.map((item) => (
+          {FIXED_LEGEND.map((item) => (
             <span key={item.code} className="flex items-center gap-1.5 text-xs text-ink-muted">
               <span
                 className={`flex h-5 min-w-5 items-center justify-center rounded px-1 text-[10px] font-bold ${CATEGORY_STYLE[item.category]}`}
@@ -250,6 +252,16 @@ export function AttendanceBoardPage() {
                 {item.code}
               </span>
               {item.label}
+            </span>
+          ))}
+          {leaveLegend.map((item) => (
+            <span key={item.code} className="flex items-center gap-1.5 text-xs text-ink-muted">
+              <span
+                className={`flex h-5 min-w-5 items-center justify-center rounded px-1 text-[10px] font-bold ${CATEGORY_STYLE.leave}`}
+              >
+                {item.code}
+              </span>
+              {item.name}
             </span>
           ))}
         </div>

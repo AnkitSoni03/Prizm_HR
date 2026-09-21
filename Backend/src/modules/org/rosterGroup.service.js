@@ -177,6 +177,16 @@ async function bulkAssignRosterGroup({ companyId, id, employeeIds, scopedBrandId
       results.push({ employeeId, status: 'skipped', reason: 'Employee not found for this company' });
       continue;
     }
+    // Bulk-assign is only for previously-unassigned employees — the frontend
+    // already excludes anyone with a rosterGroupId from the picker, this is
+    // the server-side backstop. Moving someone off an existing Roster is a
+    // deliberate action (carry-forward balances or not) that only
+    // changeEmployeeRoster (PATCH /employees/:id/roster) exposes; silently
+    // overwriting rosterGroupId here would bypass that choice entirely.
+    if (employee.rosterGroupId && employee.rosterGroupId !== id) {
+      results.push({ employeeId, status: 'skipped', reason: 'Employee already has a Roster assigned — remove them from it first to reassign' });
+      continue;
+    }
     // rosterAssignedAt anchors this Roster's own validity period (if any)
     // for this specific employee — see rosterValidity.js. Reset the
     // notified-threshold so the expiry-reminder job treats this as a fresh

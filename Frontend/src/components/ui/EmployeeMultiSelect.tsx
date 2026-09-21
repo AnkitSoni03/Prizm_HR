@@ -7,6 +7,10 @@ interface EmployeeMultiSelectProps {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   emptyMessage?: string;
+  // Optional per-employee note shown next to their name (e.g. which Roster
+  // they're currently on) — return null/undefined to show nothing for that
+  // employee.
+  getNote?: (employee: Employee) => string | null | undefined;
 }
 
 // Checkbox list with a search filter and select-all/clear — used wherever an
@@ -20,6 +24,7 @@ export function EmployeeMultiSelect({
   selectedIds,
   onChange,
   emptyMessage = 'No employees available.',
+  getNote,
 }: EmployeeMultiSelectProps) {
   const [search, setSearch] = useState('');
 
@@ -69,23 +74,27 @@ export function EmployeeMultiSelect({
         {filtered.length === 0 ? (
           <p className="p-3 text-sm text-ink-muted">{emptyMessage}</p>
         ) : (
-          filtered.map((employee) => (
-            <label
-              key={employee.id}
-              className="flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 text-sm text-ink last:border-b-0 hover:bg-page"
-            >
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(employee.id)}
-                onChange={() => toggle(employee.id)}
-                className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
-              />
-              <span>
-                {employee.name}
-                {employee.employeeCode && <span className="text-ink-muted"> ({employee.employeeCode})</span>}
-              </span>
-            </label>
-          ))
+          filtered.map((employee) => {
+            const note = getNote?.(employee);
+            return (
+              <label
+                key={employee.id}
+                className="flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 text-sm text-ink last:border-b-0 hover:bg-page"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(employee.id)}
+                  onChange={() => toggle(employee.id)}
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
+                />
+                <span>
+                  {employee.name}
+                  {employee.employeeCode && <span className="text-ink-muted"> ({employee.employeeCode})</span>}
+                  {note && <span className="ml-1.5 text-xs text-warning">{note}</span>}
+                </span>
+              </label>
+            );
+          })
         )}
       </div>
     </div>

@@ -12,7 +12,7 @@ import { listLeavePolicies, type LeavePolicy } from '../../api/companyAdmin/leav
 import { listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands } from '../../api/companyAdmin/org';
-import type { RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
+import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
 import type { Brand, Employee } from '../../api/tenancy';
 import { LeavePolicyFormModal } from './components/LeavePolicyFormModal';
 import { RosterGroupDetailModal } from './components/RosterGroupDetailModal';
@@ -122,6 +122,11 @@ export function LeavePolicySettingsPage() {
   const [policies, setPolicies] = useState<LeavePolicy[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Full Roster list, only for RosterGroupDetailModal's "Currently: X" note
+  // when a candidate employee is already on a Roster other than the one
+  // being viewed here — the policy-level `rosterGroups` arrays don't cover
+  // every Roster in the company.
+  const [allRosterGroups, setAllRosterGroups] = useState<RosterPolicyGroup[]>([]);
   // Reused as-is by Brand Admin — a Brand Admin's own listBrands() call now
   // correctly returns only their own Brand (brand.service.js::listBrands),
   // so the filter/form field (both gated on brands.length > 1) stays
@@ -143,6 +148,25 @@ export function LeavePolicySettingsPage() {
     }
   }
 
+  // Also re-fetches employees — RosterGroupDetailModal's candidate list
+  // depends on each employee's current rosterGroupId, so an assign/remove in
+  // its "Employees" tab (opened from here via onViewRoster) must refresh
+  // this page's own `employees` state, or the picker keeps using stale data.
+  async function refreshPoliciesAndEmployees() {
+    try {
+      const [p, emp, rg] = await Promise.all([
+        listLeavePolicies({ brandId: brandFilter || undefined }),
+        listEmployees({ limit: 100 }),
+        listRosterGroups(),
+      ]);
+      setPolicies(p);
+      setEmployees(emp.data);
+      setAllRosterGroups(rg);
+    } catch {
+      setError('Could not load leave policies.');
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
@@ -151,11 +175,13 @@ export function LeavePolicySettingsPage() {
       listLeavePolicies({ brandId: brandFilter || undefined }),
       listLeaveTypes(),
       listEmployees({ limit: 100 }),
+      listRosterGroups(),
     ])
-      .then(([p, lt, emp]) => {
+      .then(([p, lt, emp, rg]) => {
         setPolicies(p);
         setLeaveTypes(lt);
         setEmployees(emp.data);
+        setAllRosterGroups(rg);
       })
       .catch(() => setError('Could not load leave policies.'))
       .finally(() => setIsLoading(false));
@@ -301,8 +327,9 @@ export function LeavePolicySettingsPage() {
         <RosterGroupDetailModal
           rosterGroup={viewingRosterGroup}
           allEmployees={employees}
+          allRosterGroups={allRosterGroups}
           onClose={() => setViewingRosterGroup(null)}
-          onUpdated={loadPolicies}
+          onUpdated={refreshPoliciesAndEmployees}
         />
       )}
     </div>

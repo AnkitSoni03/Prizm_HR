@@ -102,8 +102,10 @@ export function ChangeRosterModal({
             {carryForward === true && (
               <p className="text-xs text-ink-muted">
                 A leave type the new Roster also grants keeps its balance exactly as-is. A leave type only the
-                old Roster granted has its remaining balance (capped per that leave type's own carry-forward
-                rule, if set) moved into a new "Carry Forward" leave type instead of being lost.
+                old Roster granted carries over only if that leave type itself was created with "Carry Forward"
+                enabled — its remaining balance (capped at its own max carry-forward days, if set) moves into a
+                new "Carry Forward" leave type. A leave type without carry-forward enabled is not carried at all,
+                even with "Yes" selected here.
               </p>
             )}
             {carryForward === false && (

@@ -569,7 +569,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
     order: [['name', 'ASC']],
   });
   const employeeIds = employees.map((e) => e.id);
-  if (employeeIds.length === 0) return { year: y, month: m, daysInMonth, rows: [] };
+  if (employeeIds.length === 0) return { year: y, month: m, daysInMonth, rows: [], leaveLegend: [] };
 
   const rosterGroupIds = [...new Set(employees.map((e) => e.rosterGroupId).filter(Boolean))];
 
@@ -746,7 +746,24 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
     };
   });
 
-  return { year: y, month: m, daysInMonth, rows };
+  // Only the leave types that can actually show up as a day code on THIS
+  // board (this month, these employees) — not this codebase's full built-in
+  // default catalog. Fixes the on-screen/exported legend listing leave types
+  // (e.g. Maternity, Paternity, Special Leave) a company may never have
+  // used, or doesn't even define, alongside the ones that matter. Derived
+  // straight from `leaveRequests` (already the exact set `leaveCodeForDate`
+  // draws from above), deduped by display code since two differently-named
+  // custom leave types could theoretically collide after the 4-char
+  // truncation in leaveDisplayCodeForType.
+  const leaveLegendByCode = new Map();
+  for (const lr of leaveRequests) {
+    if (!lr.leaveType) continue;
+    const code = leaveDisplayCodeForType(lr.leaveType);
+    if (!leaveLegendByCode.has(code)) leaveLegendByCode.set(code, lr.leaveType.name);
+  }
+  const leaveLegend = [...leaveLegendByCode].map(([code, name]) => ({ code, name }));
+
+  return { year: y, month: m, daysInMonth, rows, leaveLegend };
 }
 
 // present/half_day/absent go straight to the attendance row (below); 'leave'

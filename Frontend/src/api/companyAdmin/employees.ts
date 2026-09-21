@@ -69,7 +69,7 @@ export async function updateEmployee(
 export interface RosterTransferDetail {
   leaveTypeId: string;
   leaveTypeName: string;
-  action: 'kept' | 'reset' | 'moved_to_carry_forward' | 'capped_to_zero';
+  action: 'kept' | 'reset' | 'moved_to_carry_forward' | 'capped_to_zero' | 'not_carry_forward_type';
   previousBalance?: number;
   newAllotted?: number;
   matchedInNewRoster?: boolean;

@@ -249,13 +249,26 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
         continue;
       }
 
-      // New Roster doesn't govern this leave type at all — move the
-      // (capped) remainder into a "Carry Forward - <name>" bucket rather
-      // than letting it silently vanish.
-      const cap = leaveType.maxCarryForwardDays;
-      const carriedAmount = cap != null ? Math.min(remainder, Number(cap)) : remainder;
+      // New Roster doesn't govern this leave type at all. Whether ANYTHING
+      // carries over — and how much — is decided by the leave type's OWN
+      // carry-forward setting (leave_types.carry_forward/max_carry_forward_days),
+      // the exact same fields and cap logic leaveBalance.service.js's normal
+      // year-end rollover already uses. The admin's "Yes, carry forward"
+      // choice at roster-switch time can only ever carry what the leave type
+      // itself is configured to carry — it's not a way to grant carry-forward
+      // to a type that was never created as one.
+      const carriedAmount = leaveType.carryForward
+        ? (leaveType.maxCarryForwardDays != null ? Math.min(remainder, Number(leaveType.maxCarryForwardDays)) : remainder)
+        : 0;
 
-      if (carriedAmount > 0) {
+      if (!leaveType.carryForward) {
+        details.push({
+          leaveTypeId,
+          leaveTypeName: leaveType.name,
+          action: 'not_carry_forward_type',
+          previousBalance: remainder,
+        });
+      } else if (carriedAmount > 0) {
         const cfType = await findOrCreateCarryForwardBucket({
           companyId: employee.companyId,
           sourceLeaveType: leaveType,

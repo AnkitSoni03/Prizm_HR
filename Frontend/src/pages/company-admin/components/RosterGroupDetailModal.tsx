@@ -29,6 +29,7 @@ import { LeavePolicyFormModal } from './LeavePolicyFormModal';
 interface RosterGroupDetailModalProps {
   rosterGroup: RosterPolicyGroup;
   allEmployees: Employee[];
+  allRosterGroups: RosterPolicyGroup[];
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -43,11 +44,12 @@ type Tab = 'employees' | 'shifts' | 'holidays' | 'companyPolicies' | 'leavePolic
 // endpoint, so nothing about the underlying data model changes. This modal
 // otherwise summarizes what's already linked, plus manages which employees
 // are assigned to this Roster.
-export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onUpdated }: RosterGroupDetailModalProps) {
+export function RosterGroupDetailModal({ rosterGroup, allEmployees, allRosterGroups, onClose, onUpdated }: RosterGroupDetailModalProps) {
   const { hasPermission } = useAuth();
   const confirm = useConfirm();
   const showToast = useToast();
   const canUpdate = hasPermission('roster_group:update');
+  const canSwitchRoster = hasPermission('employee:update');
   const canCreateShift = hasPermission('shift:create');
   const canCreateHoliday = hasPermission('holiday:create');
   const canCreateCompanyPolicy = hasPermission('company_policy:create');
@@ -97,6 +99,10 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
   // Employees currently assigned to this group + candidates to add
   const [assignedEmployees, setAssignedEmployees] = useState<Employee[] | null>(null);
   const [selectedToAdd, setSelectedToAdd] = useState<string[]>([]);
+  // Only asked once per batch, and only when the selection actually includes
+  // someone switching off an existing Roster — mirrors ChangeRosterModal's
+  // Yes/No choice, applied to every such employee in this Assign click.
+  const [carryForward, setCarryForward] = useState<boolean | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [renewingId, setRenewingId] = useState<string | null>(null);
@@ -133,17 +139,44 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
   }, [activeTab, assignedEmployees]);
 
   const assignedIds = new Set((assignedEmployees ?? []).map((e) => e.id));
+  // Everyone not already on THIS Roster is offered here, including someone
+  // currently on a different one — picking them is a real "switch", handled
+  // below via changeEmployeeRoster (carry-forward choice), not the plain
+  // bulk-assign endpoint (which only ever touches previously-unassigned
+  // employees and refuses anyone who already has a Roster).
   const candidateEmployees = allEmployees.filter((e) => !assignedIds.has(e.id));
+  const rosterGroupNameById = new Map(allRosterGroups.map((rg) => [rg.id, rg.name]));
+
+  const employeesToAdd = candidateEmployees.filter((e) => selectedToAdd.includes(e.id));
+  const switchingEmployees = employeesToAdd.filter((e) => e.rosterGroupId);
+  const freshEmployees = employeesToAdd.filter((e) => !e.rosterGroupId);
+  const needsCarryForwardChoice = switchingEmployees.length > 0;
+  const canAssign = selectedToAdd.length > 0 && (!needsCarryForwardChoice || carryForward !== null);
 
   async function handleAssign() {
-    if (selectedToAdd.length === 0) return;
+    if (!canAssign) return;
     setAssignError(null);
     setIsAssigning(true);
     try {
-      await bulkAssignRosterGroup(rosterGroup.id, selectedToAdd);
+      const failures: string[] = [];
+      if (freshEmployees.length > 0) {
+        const results = await bulkAssignRosterGroup(rosterGroup.id, freshEmployees.map((e) => e.id));
+        for (const result of results) {
+          if (result.status === 'skipped') failures.push(result.reason ?? 'Could not assign.');
+        }
+      }
+      for (const employee of switchingEmployees) {
+        try {
+          await changeEmployeeRoster(employee.id, { rosterGroupId: rosterGroup.id, carryForward: !!carryForward });
+        } catch {
+          failures.push(`Could not switch ${formatEmployeeLabel(employee)} onto this Roster.`);
+        }
+      }
       setSelectedToAdd([]);
+      setCarryForward(null);
       await loadAssigned();
       onUpdated();
+      if (failures.length > 0) setAssignError(failures.join(' '));
     } catch {
       setAssignError('Could not assign these employees. Please try again.');
     } finally {
@@ -263,14 +296,51 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, onClose, onU
                 label="Add Employees"
                 employees={candidateEmployees}
                 selectedIds={selectedToAdd}
-                onChange={setSelectedToAdd}
-                emptyMessage="Everyone is already assigned to this Roster."
+                onChange={(ids) => {
+                  setSelectedToAdd(ids);
+                  setCarryForward(null);
+                }}
+                getNote={(e) => (e.rosterGroupId ? `Currently: ${rosterGroupNameById.get(e.rosterGroupId) ?? 'another Roster'}` : null)}
+                emptyMessage="No employees available."
               />
+
+              {needsCarryForwardChoice && (
+                <div className="space-y-2 rounded-lg border border-border bg-page p-3">
+                  <p className="text-sm font-medium text-ink">
+                    {switchingEmployees.length} employee(s) already have a Roster — carry forward their existing
+                    leave balances?
+                  </p>
+                  <p className="text-xs text-ink-muted">
+                    Only leave types created with "Carry Forward" enabled actually carry over (capped at each
+                    type's own max carry-forward days, if set) — the rest reset regardless of this choice.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={carryForward === true ? 'primary' : 'secondary'}
+                      onClick={() => setCarryForward(true)}
+                    >
+                      Yes, carry forward
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={carryForward === false ? 'primary' : 'secondary'}
+                      onClick={() => setCarryForward(false)}
+                    >
+                      No, start fresh
+                    </Button>
+                  </div>
+                  {!canSwitchRoster && (
+                    <p className="text-xs text-danger">You don't have permission to switch an employee's Roster.</p>
+                  )}
+                </div>
+              )}
+
               <Button
                 type="button"
                 onClick={handleAssign}
                 isLoading={isAssigning}
-                disabled={selectedToAdd.length === 0}
+                disabled={!canAssign || (needsCarryForwardChoice && !canSwitchRoster)}
                 className="w-full"
               >
                 <Plus className="h-4 w-4" strokeWidth={1.75} />

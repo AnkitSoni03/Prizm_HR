@@ -67,11 +67,21 @@ export interface AttendanceBoardRow {
   days: AttendanceBoardDay[];
 }
 
+// Only the leave types that actually appear on this board (this company,
+// this month) — not every leave type the app merely knows how to display.
+// Lets the "Status Codes" legend skip leave types the company never defined
+// or simply didn't use this month.
+export interface AttendanceBoardLeaveLegendEntry {
+  code: string;
+  name: string;
+}
+
 export interface AttendanceBoardResult {
   year: number;
   month: number;
   daysInMonth: number;
   rows: AttendanceBoardRow[];
+  leaveLegend: AttendanceBoardLeaveLegendEntry[];
 }
 
 // Every active employee in scope x every day of one calendar month, in a

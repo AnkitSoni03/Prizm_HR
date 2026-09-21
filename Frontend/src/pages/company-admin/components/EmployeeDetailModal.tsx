@@ -325,7 +325,7 @@ export function EmployeeDetailModal({
     setIsChangeRosterModalOpen(false);
     if (details.length > 0) {
       const movedCount = details.filter((d) => d.action === 'moved_to_carry_forward').length;
-      const resetCount = details.filter((d) => d.action === 'reset').length;
+      const resetCount = details.filter((d) => d.action === 'reset' || d.action === 'not_carry_forward_type' || d.action === 'capped_to_zero').length;
       const parts: string[] = [];
       if (movedCount > 0) parts.push(`${movedCount} moved to Carry Forward`);
       if (resetCount > 0) parts.push(`${resetCount} reset`);
