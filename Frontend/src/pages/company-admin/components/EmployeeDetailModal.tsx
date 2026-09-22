@@ -53,6 +53,7 @@ import type { Brand, Department, Designation, Employee } from '../../../api/tena
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { assignCompOffPolicy, listCompOffPolicies, type CompOffPolicy } from '../../../api/companyAdmin/compOffPolicies';
 import { INDIAN_STATES } from '../../../utils/indianStates';
+import { GENDER_OPTIONS } from '../../../utils/gender';
 import { holidayAuditName } from '../../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime, daysUntil } from '../../../utils/dateDisplay';
 import { WEEKDAY_LABELS, weeklyOffLabel } from '../../../utils/weekdays';
@@ -181,6 +182,7 @@ export function EmployeeDetailModal({
   const [managerIds, setManagerIds] = useState<string[]>(employee.managerId ? [employee.managerId] : []);
   const [dateOfJoining, setDateOfJoining] = useState(employee.dateOfJoining ?? '');
   const [dateOfBirth, setDateOfBirth] = useState(employee.dateOfBirth ?? '');
+  const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>(employee.gender ?? '');
   const [employmentType, setEmploymentType] = useState(employee.employmentType);
   const [status, setStatus] = useState(employee.status);
   const [workState, setWorkState] = useState(employee.workState ?? '');
@@ -687,6 +689,7 @@ export function EmployeeDetailModal({
         status,
         dateOfJoining: dateOfJoining || null,
         dateOfBirth: dateOfBirth || null,
+        gender: gender || null,
         managerId: managerIds[0] || null,
         workState: workState || null,
         weekOffLeaveBlockedDays,
@@ -1104,6 +1107,15 @@ export function EmployeeDetailModal({
                 value={dateOfBirth}
                 onChange={(event) => setDateOfBirth(event.target.value)}
                 disabled={!canUpdate}
+              />
+              <Select
+                id="employee-gender-edit"
+                label="Gender"
+                value={gender}
+                onChange={(event) => setGender(event.target.value as 'male' | 'female' | 'other' | '')}
+                disabled={!canUpdate}
+                placeholder="Not set"
+                options={GENDER_OPTIONS}
               />
               <Select
                 id="employee-type-edit"

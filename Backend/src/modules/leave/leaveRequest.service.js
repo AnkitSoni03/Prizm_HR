@@ -105,6 +105,17 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
     throw new HttpError(400, 'toDate cannot be before fromDate');
   }
 
+  // Admin-configured gender restriction (leave_types.applicable_gender) —
+  // the frontend's own leave-type dropdown already excludes a mismatched
+  // type (see leaveType.service.js::listLeaveTypes's employeeId-scoped
+  // filter), this is the server-side backstop against a spoofed leaveTypeId.
+  // An employee with no gender set on file (employees.gender null) can never
+  // satisfy a real restriction, same "don't guess eligibility" stance as the
+  // list-filtering side.
+  if (leaveType.applicableGender !== 'all' && employee.gender !== leaveType.applicableGender) {
+    throw new HttpError(422, `${leaveType.name} is not applicable for your gender`);
+  }
+
   const isCompOff = leaveType.code === 'CO';
   if (isCompOff && fromDate !== toDate) {
     throw new HttpError(400, 'Comp-off requests must be a single day — submit one request per day');

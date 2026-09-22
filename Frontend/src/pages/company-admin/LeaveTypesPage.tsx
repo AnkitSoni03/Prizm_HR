@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { ArrowRightLeft, Building2, Hash, Pencil, Plus, RotateCw, Trash2, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowRightLeft, Building2, Hash, Pencil, Plus, RotateCw, Trash2, TrendingUp, Users, Wallet } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -15,6 +15,7 @@ import { useToast } from '../../context/toast-context';
 import { deleteLeaveType, listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
 import { listBrands } from '../../api/companyAdmin/org';
 import type { Brand } from '../../api/tenancy';
+import { APPLICABLE_GENDER_LABELS } from '../../utils/gender';
 import { LeaveTypeFormModal } from './components/LeaveTypeFormModal';
 
 const CYCLE_LABELS: Record<LeaveType['cycleType'], string> = {
@@ -111,6 +112,9 @@ function LeaveTypeCard({ leaveType, brandName, onEdit, onDelete }: LeaveTypeCard
           label="Default Accrual"
           value={leaveType.defaultAccrual ? ACCRUAL_LABELS[leaveType.defaultAccrual] : '—'}
         />
+        {leaveType.applicableGender !== 'all' && (
+          <DetailRow icon={Users} label="Applicable To" value={APPLICABLE_GENDER_LABELS[leaveType.applicableGender]} />
+        )}
         {brandName !== undefined && <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />}
       </div>
 
@@ -317,6 +321,16 @@ export function LeaveTypesPage() {
                   key: 'defaultAccrual',
                   header: 'Default Accrual',
                   render: (lt) => (lt.defaultAccrual ? ACCRUAL_LABELS[lt.defaultAccrual] : <span className="text-ink-muted">—</span>),
+                },
+                {
+                  key: 'applicableGender',
+                  header: 'Applicable To',
+                  render: (lt) =>
+                    lt.applicableGender === 'all' ? (
+                      <span className="text-ink-muted">Both / All</span>
+                    ) : (
+                      <span className="text-ink">{APPLICABLE_GENDER_LABELS[lt.applicableGender]}</span>
+                    ),
                 },
                 {
                   key: 'actions',

@@ -159,6 +159,9 @@ export interface Employee {
   // Optional — captured by Company Admin/Brand Admin when filling in an
   // employee's details, not required at creation.
   dateOfBirth: string | null;
+  // Optional, same precedent as dateOfBirth — drives which gender-restricted
+  // leave types (e.g. Maternity/Paternity Leave) this employee is offered.
+  gender: 'male' | 'female' | 'other' | null;
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   // Free text — used for Professional Tax slab lookup only (see
   // Backend/src/config/statutoryDefaults.js). An unrecognized/blank value

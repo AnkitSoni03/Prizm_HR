@@ -26,6 +26,9 @@ export interface EmployeeProfile {
   // Captured by Company Admin/Brand Admin when filling in an employee's
   // details, not required at creation.
   dateOfBirth: string | null;
+  // Drives eligibility for gender-restricted leave types (e.g.
+  // Maternity/Paternity Leave) — see leave_types.applicable_gender.
+  gender: 'male' | 'female' | 'other' | null;
   // Free text — used for Professional Tax slab lookup only. An unrecognized
   // or blank value just falls back to the 'default' PT slab.
   workState: string | null;

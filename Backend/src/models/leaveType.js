@@ -58,6 +58,18 @@ module.exports = (sequelize, DataTypes) => {
       // weekly-off day — excluded from the normal "Add Leave Type" catalog
       // pickers, same as isCarryForwardBucket above.
       isWeekOffBucket: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      // 'all' (default — every existing type keeps working exactly as
+      // before) or a restriction to one gender (e.g. Maternity Leave ->
+      // 'female', Paternity Leave -> 'male'). Enforced against the
+      // requesting employee's own employees.gender — see
+      // leaveRequest.service.js::createLeaveRequest (the real backstop) and
+      // leaveType.service.js::listLeaveTypes (filters it out of an ESS
+      // caller's own applicable-types list).
+      applicableGender: {
+        type: DataTypes.ENUM('all', 'male', 'female', 'other'),
+        allowNull: false,
+        defaultValue: 'all',
+      },
     },
     {
       sequelize,

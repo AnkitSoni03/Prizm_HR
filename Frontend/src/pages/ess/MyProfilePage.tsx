@@ -40,6 +40,7 @@ import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
 import { holidayAuditName } from '../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime } from '../../utils/dateDisplay';
 import { weeklyOffLabel } from '../../utils/weekdays';
+import { GENDER_LABEL } from '../../utils/gender';
 import { computeRosterExpiry, daysUntil as daysUntilRosterExpiry, rosterExpiryLabel } from '../../utils/rosterValidity';
 
 function extractError(err: unknown, fallback: string): string {
@@ -307,6 +308,7 @@ export function MyProfilePage() {
             <Field label="Employment Type" value={EMPLOYMENT_TYPE_LABEL[profile.employmentType]} />
             <Field label="Date of Joining" value={formatDisplayDate(profile.dateOfJoining)} />
             <Field label="Date of Birth" value={formatDisplayDate(profile.dateOfBirth)} />
+            <Field label="Gender" value={profile.gender ? GENDER_LABEL[profile.gender] : '—'} />
             <Field label="Work State" value={profile.workState ?? '—'} />
           </div>
         </div>

@@ -12,6 +12,7 @@ async function list(req, res, next) {
       brandId: req.query.brandId,
       scopedBrandIds: req.auth.scopedBrandIds,
       rosterGroupId: req.query.rosterGroupId,
+      employeeId: req.auth.employeeId,
     });
     res.json({ data: rows, pagination: { total: count, limit, offset } });
   } catch (err) {
@@ -41,6 +42,7 @@ async function create(req, res, next) {
       customCycleStartMonth,
       customCycleStartDay,
       brandId,
+      applicableGender,
     } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'code and name are required' });
@@ -59,6 +61,7 @@ async function create(req, res, next) {
       defaultAccrual,
       customCycleStartMonth,
       customCycleStartDay,
+      applicableGender,
     });
     res.status(201).json({ data: leaveType });
   } catch (err) {

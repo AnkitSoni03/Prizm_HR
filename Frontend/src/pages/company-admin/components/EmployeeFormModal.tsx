@@ -20,6 +20,7 @@ import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
+import { GENDER_OPTIONS } from '../../../utils/gender';
 import { WEEKDAY_LABELS } from '../../../utils/weekdays';
 
 interface EmployeeFormModalProps {
@@ -80,6 +81,7 @@ export function EmployeeFormModal({
   const [rosterGroupId, setRosterGroupId] = useState('');
   const [dateOfJoining, setDateOfJoining] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
+  const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>('');
   const [employmentType, setEmploymentType] = useState<
     'full_time' | 'part_time' | 'contract' | 'probation'
   >('full_time');
@@ -182,6 +184,7 @@ export function EmployeeFormModal({
         rosterGroupId: rosterGroupId || null,
         dateOfJoining,
         dateOfBirth: dateOfBirth || undefined,
+        gender: gender || undefined,
         employmentType,
         workState: workState || undefined,
       });
@@ -369,7 +372,19 @@ export function EmployeeFormModal({
             value={dateOfBirth}
             onChange={(event) => setDateOfBirth(event.target.value)}
           />
+          <Select
+            id="employee-gender"
+            label="Gender (optional)"
+            value={gender}
+            onChange={(event) => setGender(event.target.value as 'male' | 'female' | 'other' | '')}
+            placeholder="Not set"
+            options={GENDER_OPTIONS}
+          />
         </div>
+        <p className="-mt-2 text-xs text-ink-muted">
+          Used to determine eligibility for gender-restricted leave types (e.g. Maternity/Paternity
+          Leave).
+        </p>
         <ManagerCombobox
           id="employee-manager"
           label="Manager"

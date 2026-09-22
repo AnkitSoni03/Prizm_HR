@@ -39,6 +39,7 @@ export async function createEmployee(input: {
   rosterGroupId?: string | null;
   dateOfJoining: string;
   dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
   workState?: string;
 }): Promise<Employee> {
@@ -55,6 +56,7 @@ export async function updateEmployee(
     status: Employee['status'];
     dateOfJoining: string | null;
     dateOfBirth: string | null;
+    gender: 'male' | 'female' | 'other' | null;
     managerId: string | null;
     workState: string | null;
     weekOffLeaveBlockedDays: number[];

@@ -10,6 +10,8 @@ const {
   assertBrandReassignAllowed,
 } = require('../../utils/brandScope');
 
+const APPLICABLE_GENDER_VALUES = ['all', 'male', 'female', 'other'];
+
 // rosterGroupId (singular) has three states, mirroring
 // companyPolicy.service.js::listCompanyPolicies / holiday.service.js::
 // listHolidays: undefined = no filter, every LeaveType (admin management
@@ -23,7 +25,15 @@ const {
 // their own Roster actually grants — LeaveType itself has no Roster
 // dimension of its own, applicability is entirely derived from whether a
 // RosterGroupLeavePolicy link exists.
-async function listLeaveTypes({ limit, offset, brandId, scopedBrandIds, rosterGroupId }) {
+// employeeId is only ever meaningful (and only ever passed) alongside a real
+// rosterGroupId — that's the ESS "own applicable types" branch below, the
+// only caller that's asking on behalf of one specific employee. Filters out
+// any type whose applicableGender doesn't match that employee's own
+// employees.gender; a type left at 'all' (the default) is unaffected, and an
+// employee with gender left unset (null) sees every gender-restricted type
+// hidden rather than guessed — same "don't show what you can't confirm
+// they're eligible for" reasoning as the leaveRequest.service.js backstop.
+async function listLeaveTypes({ limit, offset, brandId, scopedBrandIds, rosterGroupId, employeeId }) {
   if (rosterGroupId === undefined) {
     // Relies on LeaveType's tenant-scope hook for company_id filtering.
     // System-generated "Carry Forward - <name>" bucket types (see
@@ -49,7 +59,14 @@ async function listLeaveTypes({ limit, offset, brandId, scopedBrandIds, rosterGr
     limit,
     offset,
   });
-  const rows = links.map((link) => link.leaveType);
+  let rows = links.map((link) => link.leaveType);
+
+  if (employeeId) {
+    const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['gender'] });
+    const employeeGender = employee ? employee.gender : null;
+    rows = rows.filter((lt) => lt.applicableGender === 'all' || lt.applicableGender === employeeGender);
+  }
+
   return { rows, count: rows.length };
 }
 
@@ -114,6 +131,7 @@ async function createLeaveType({
   defaultAccrual,
   customCycleStartMonth,
   customCycleStartDay,
+  applicableGender,
 }) {
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
@@ -123,6 +141,10 @@ async function createLeaveType({
     customCycleStartMonth,
     customCycleStartDay,
   });
+  const resolvedApplicableGender = applicableGender || 'all';
+  if (!APPLICABLE_GENDER_VALUES.includes(resolvedApplicableGender)) {
+    throw new HttpError(400, `applicableGender must be one of ${APPLICABLE_GENDER_VALUES.join(', ')}`);
+  }
 
   try {
     return await db.LeaveType.create({
@@ -135,6 +157,7 @@ async function createLeaveType({
       maxCarryForwardDays: carryForward && maxCarryForwardDays !== undefined ? maxCarryForwardDays : null,
       cycleType: resolvedCycleType,
       defaultAccrual: defaultAccrual || null,
+      applicableGender: resolvedApplicableGender,
       ...customCycle,
     });
   } catch (err) {
@@ -157,10 +180,14 @@ async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
     customCycleStartMonth,
     customCycleStartDay,
     brandId,
+    applicableGender,
   } = updates;
 
   assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
   if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
+  if (applicableGender !== undefined && !APPLICABLE_GENDER_VALUES.includes(applicableGender)) {
+    throw new HttpError(400, `applicableGender must be one of ${APPLICABLE_GENDER_VALUES.join(', ')}`);
+  }
 
   const patch = {
     ...(name !== undefined && { name }),
@@ -175,6 +202,7 @@ async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
     }),
     ...(cycleType !== undefined && { cycleType }),
     ...(defaultAccrual !== undefined && { defaultAccrual }),
+    ...(applicableGender !== undefined && { applicableGender }),
   };
 
   // Only re-resolve the custom-cycle columns when this update actually

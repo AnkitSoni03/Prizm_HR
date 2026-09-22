@@ -89,6 +89,11 @@ module.exports = (sequelize, DataTypes) => {
       // Optional — captured by Company Admin/Brand Admin when filling in an
       // employee's details, not required at creation.
       dateOfBirth: { type: DataTypes.DATEONLY, allowNull: true },
+      // Optional, same precedent as dateOfBirth — drives which gender-
+      // restricted leave types (leaveType.applicableGender) this employee is
+      // offered/eligible for. See leaveType.service.js::listLeaveTypes and
+      // leaveRequest.service.js::createLeaveRequest.
+      gender: { type: DataTypes.ENUM('male', 'female', 'other'), allowNull: true },
       // Free text, not an ENUM — used for Professional Tax slab lookup only;
       // an unrecognized/blank value just falls back to the 'default' slab
       // (see statutoryDeduction.service.js).

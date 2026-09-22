@@ -24,6 +24,10 @@ export interface LeaveType {
   // field when this type is selected — never enforced, a Roster-specific
   // policy can still pick a different accrual for the same leave type.
   defaultAccrual: 'yearly' | 'monthly' | 'monthly_reset' | null;
+  // 'all' (default, every employee) or a restriction to one gender (e.g.
+  // Maternity Leave -> 'female', Paternity Leave -> 'male'). Enforced
+  // against the applying employee's own Employee.gender.
+  applicableGender: 'all' | 'male' | 'female' | 'other';
 }
 
 export interface LeaveBalance {
@@ -56,6 +60,7 @@ interface LeaveTypeWriteInput {
   customCycleStartMonth?: number | null;
   customCycleStartDay?: number | null;
   defaultAccrual?: 'yearly' | 'monthly' | 'monthly_reset' | null;
+  applicableGender?: 'all' | 'male' | 'female' | 'other';
 }
 
 export async function createLeaveType(input: LeaveTypeWriteInput): Promise<LeaveType> {

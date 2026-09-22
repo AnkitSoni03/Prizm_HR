@@ -13,6 +13,8 @@ const { getActiveEmployeeShift } = require('../attendance/employeeShift.service'
 const { dateOnly } = require('../../utils/dateRange');
 const { syncWeekOffLeaveForEmployee } = require('../leave/weekOffLeave.service');
 
+const GENDER_VALUES = ['male', 'female', 'other'];
+
 // photoUrl stores an internal GCS object path (private bucket), same
 // convention as company_policies.file_url — never handed to the frontend
 // directly. Every response mints a fresh, short-lived v4 signed URL as
@@ -286,9 +288,13 @@ async function createEmployee({
   userId,
   dateOfJoining,
   dateOfBirth,
+  gender,
   employmentType,
   workState,
 }) {
+  if (gender !== undefined && gender !== null && !GENDER_VALUES.includes(gender)) {
+    throw new HttpError(400, `gender must be one of ${GENDER_VALUES.join(', ')}`);
+  }
   const company = await db.Company.findByPk(companyId);
   if (!company) throw new HttpError(404, 'Company not found');
   if (company.usesBrands && !brandId) {
@@ -329,6 +335,7 @@ async function createEmployee({
       userId: userId || null,
       dateOfJoining: dateOfJoining || null,
       dateOfBirth: dateOfBirth || null,
+      gender: gender || null,
       employmentType: employmentType || 'full_time',
       workState: workState || null,
       status: 'onboarding',
@@ -360,7 +367,7 @@ async function createEmployee({
 // no separate permission code is needed. Optional and harmless to set on any
 // employee — it only ever affects behavior for one on a 0-weekly-off +
 // Week-Off-Leave-enabled roster (see leaveRequest.service.js::createLeaveRequest).
-const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'managerId', 'userId', 'workState', 'weekOffLeaveBlockedDays'];
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'userId', 'workState', 'weekOffLeaveBlockedDays'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
@@ -370,6 +377,9 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
     if (updates[field] !== undefined) patch[field] = updates[field];
   }
 
+  if (patch.gender !== null && patch.gender !== undefined && !GENDER_VALUES.includes(patch.gender)) {
+    throw new HttpError(400, `gender must be one of ${GENDER_VALUES.join(', ')}`);
+  }
   if (patch.managerId) await assertBelongsToCompany(db.Employee, patch.managerId, companyId, 'Manager');
   if (patch.designationId) await assertOwnedByBrand(db.Designation, patch.designationId, companyId, employee.brandId, 'Designation');
   if (patch.weekOffLeaveBlockedDays !== undefined) {

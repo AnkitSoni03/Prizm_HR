@@ -5,6 +5,7 @@ import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { createLeaveType, updateLeaveType, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
 import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
+import { APPLICABLE_GENDER_OPTIONS } from '../../../utils/gender';
 import type { Brand } from '../../../api/tenancy';
 
 interface LeaveTypeFormModalProps {
@@ -63,6 +64,9 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
     leaveType?.maxCarryForwardDays != null ? String(leaveType.maxCarryForwardDays) : ''
   );
   const [cycleType, setCycleType] = useState<LeaveType['cycleType']>(leaveType?.cycleType ?? 'calendar');
+  const [applicableGender, setApplicableGender] = useState<LeaveType['applicableGender']>(
+    leaveType?.applicableGender ?? 'all'
+  );
   const [customCycleStartMonth, setCustomCycleStartMonth] = useState(
     leaveType?.customCycleStartMonth != null ? String(leaveType.customCycleStartMonth) : '4'
   );
@@ -98,6 +102,7 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           carryForward,
           maxCarryForwardDays: maxCarryForwardValue,
           cycleType,
+          applicableGender,
           ...cyclePayload,
           ...brandPatch,
         });
@@ -109,6 +114,7 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           carryForward,
           maxCarryForwardDays: maxCarryForwardValue,
           cycleType,
+          applicableGender,
           ...cyclePayload,
           ...brandPatch,
         });
@@ -165,6 +171,18 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           />
           Paid leave
         </label>
+
+        <Select
+          id="leave-type-applicable-gender"
+          label="Applicable To"
+          value={applicableGender}
+          onChange={(event) => setApplicableGender(event.target.value as LeaveType['applicableGender'])}
+          options={APPLICABLE_GENDER_OPTIONS}
+        />
+        <p className="-mt-2 text-xs text-ink-muted">
+          Restrict this leave type to one gender (e.g. Maternity Leave → Female only, Paternity
+          Leave → Male only). Employees whose gender doesn't match never see or can apply it.
+        </p>
 
         <Select
           id="leave-type-cycle"

@@ -64,6 +64,7 @@ async function create(req, res, next) {
       userId,
       dateOfJoining,
       dateOfBirth,
+      gender,
       employmentType,
       workState,
     } = req.body;
@@ -104,6 +105,7 @@ async function create(req, res, next) {
       userId,
       dateOfJoining,
       dateOfBirth,
+      gender,
       employmentType,
       workState,
     });
