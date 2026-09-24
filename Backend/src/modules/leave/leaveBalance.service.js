@@ -254,14 +254,26 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
 // employee viewing their OWN balances (leaveBalance.routes.js's
 // requireReadAccess own-scope path) — an admin browsing the company-wide
 // list doesn't trigger this for every employee on every page load.
+// Mirrors leaveType.service.js::listLeaveTypes — 'all' is open to everyone;
+// a restricted type needs an exact match, so an employee with gender unset
+// sees no restricted type rather than a guessed one.
+function isGenderEligible(leaveType, employeeGender) {
+  if (!leaveType || !leaveType.applicableGender || leaveType.applicableGender === 'all') return true;
+  return leaveType.applicableGender === employeeGender;
+}
+
 async function ensureBalancesForEmployee({ employeeId, year }) {
   const employee = await db.Employee.findOne({ where: { id: employeeId } });
   if (!employee || !employee.rosterGroupId) return;
 
-  const links = await db.RosterGroupLeavePolicy.findAll({
+  const allLinks = await db.RosterGroupLeavePolicy.findAll({
     where: { rosterGroupId: employee.rosterGroupId },
     attributes: ['leaveTypeId'],
+    include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['id', 'applicableGender'] }],
   });
+  // Never seed a balance for a gender-restricted type this employee isn't
+  // eligible for (e.g. Maternity Leave for a male employee).
+  const links = allLinks.filter((link) => isGenderEligible(link.leaveType, employee.gender));
   if (links.length === 0) return;
 
   const currentYear = toBusinessLocal().getFullYear();
@@ -304,7 +316,7 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
 // is deliberately NOT filtered this way — an admin needs to see a stray
 // balance to clean it up, not have it hidden from them too.
 async function attachAccrualInfo(rows, employeeId) {
-  const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['rosterGroupId'] });
+  const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['rosterGroupId', 'gender'] });
   if (!employee || !employee.rosterGroupId) return [];
 
   const links = await db.RosterGroupLeavePolicy.findAll({
@@ -313,8 +325,13 @@ async function attachAccrualInfo(rows, employeeId) {
   });
   const accrualByTypeId = new Map(links.map((link) => [String(link.leaveTypeId), link.leavePolicy.accrual]));
 
+  // Also hides a gender-restricted type the employee isn't eligible for
+  // (e.g. Paternity Leave for a female employee) — same rule
+  // leaveType.service.js::listLeaveTypes applies to the ESS type list, so the
+  // Dashboard's balance widget and the Leave Balance page always agree.
   return rows
     .filter((row) => accrualByTypeId.has(String(row.leaveTypeId)))
+    .filter((row) => isGenderEligible(row.leaveType, employee.gender))
     .map((row) => {
     const plain = row.toJSON ? row.toJSON() : row;
     return { ...plain, accrual: accrualByTypeId.get(String(plain.leaveTypeId)) ?? null };
