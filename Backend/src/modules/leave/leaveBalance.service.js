@@ -262,6 +262,19 @@ function isGenderEligible(leaveType, employeeGender) {
   return leaveType.applicableGender === employeeGender;
 }
 
+// Admin-side guard: rejects assigning a gender-restricted leave type to an
+// employee it doesn't apply to.
+function assertGenderEligible(leaveType, employee) {
+  if (!isGenderEligible(leaveType, employee.gender)) {
+    throw new HttpError(
+      422,
+      employee.gender
+        ? `${leaveType.name} is not applicable for this employee's gender`
+        : `${leaveType.name} is restricted by gender — set this employee's gender first`
+    );
+  }
+}
+
 async function ensureBalancesForEmployee({ employeeId, year }) {
   const employee = await db.Employee.findOne({ where: { id: employeeId } });
   if (!employee || !employee.rosterGroupId) return;
@@ -367,6 +380,22 @@ async function listLeaveBalances({ companyId, employeeId, year, limit, offset })
     where[Op.or] = [{ month: null }, { month: currentMonth }];
   }
 
+  // Hide balances for a gender-restricted leave type the employee isn't
+  // eligible for (e.g. stray Maternity rows on a male employee) — done in SQL
+  // so pagination/count stay correct on the company-wide admin list.
+  // Both columns are distinct Postgres enums, hence the ::text casts.
+  const genderEligible = {
+    [Op.or]: [
+      { '$leaveType.applicable_gender$': 'all' },
+      db.sequelize.where(
+        db.sequelize.cast(db.sequelize.col('leaveType.applicable_gender'), 'text'),
+        '=',
+        db.sequelize.cast(db.sequelize.col('employee.gender'), 'text')
+      ),
+    ],
+  };
+  where[Op.and] = [...(where[Op.and] || []), genderEligible];
+
   const { rows, count } = await db.LeaveBalance.findAndCountAll({
     where,
     limit: resolveCycleKeysPerRow ? undefined : limit,
@@ -407,6 +436,10 @@ async function adjustLeaveBalance({ companyId, employeeId, leaveTypeId, year, al
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
 
+  const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId } });
+  if (!leaveType) throw new HttpError(404, 'Leave type not found');
+  assertGenderEligible(leaveType, employee);
+
   const balance = await getOrCreateBalance({ employeeId, leaveTypeId, year });
   await balance.update({ allotted, balance: Number(allotted) - Number(balance.used) });
   return balance;
@@ -432,6 +465,7 @@ async function bulkAdjustLeaveBalances({ companyId, employeeId, adjustments }) {
   for (const { leaveTypeId, year, month, allotted, used } of adjustments) {
     const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId } });
     if (!leaveType) throw new HttpError(404, 'Leave type not found');
+    assertGenderEligible(leaveType, employee);
 
     const monthKey = month ?? null;
     const [balance] = await db.LeaveBalance.findOrCreate({

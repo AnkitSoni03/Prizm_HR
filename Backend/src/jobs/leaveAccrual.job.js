@@ -50,7 +50,7 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
 
     const leaveType = await db.LeaveType.findOne({
       where: { id: policy.leaveTypeId },
-      attributes: ['id', 'cycleType', 'customCycleStartMonth', 'customCycleStartDay'],
+      attributes: ['id', 'cycleType', 'customCycleStartMonth', 'customCycleStartDay', 'applicableGender'],
     });
     const cycleType = leaveType ? leaveType.cycleType : 'calendar';
 
@@ -59,6 +59,12 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
         companyId: policy.companyId,
         status: { [Op.in]: ['active', 'onboarding', 'on_notice'] },
         rosterGroupId: { [Op.in]: linkedRosterGroupIds },
+        // Gender-restricted type (e.g. Maternity Leave) only accrues for
+        // employees whose gender matches — same rule as the apply-leave
+        // check in leaveRequest.service.js.
+        ...(leaveType && leaveType.applicableGender && leaveType.applicableGender !== 'all'
+          ? { gender: leaveType.applicableGender }
+          : {}),
       },
       attributes: ['id', 'dateOfJoining'],
     });
