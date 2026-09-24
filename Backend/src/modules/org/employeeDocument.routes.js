@@ -3,7 +3,25 @@
 const { Router } = require('express');
 const controller = require('./employeeDocument.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
-const { requirePermission, userHasPermission } = require('../../middleware/rbac.middleware');
+const { userHasPermission, getBrandScope } = require('../../middleware/rbac.middleware');
+const db = require('../../models');
+
+// A brand-scoped holder of `code` (Brand Admin, a Brand-level power) may only
+// touch documents of employees in their own Brand(s). Resolved from the
+// target employee's own record, never a client-supplied brandId.
+async function isEmployeeInBrandScope(auth, code, employeeId) {
+  const scope = await getBrandScope(auth, code);
+  if (!scope.allowed) return false;
+  if (scope.companyWide) return true;
+  const employee = await db.Employee.findByPk(employeeId, { attributes: ['id', 'brandId'] });
+  return !!employee && scope.brandIds.some((brandId) => String(brandId) === String(employee.brandId));
+}
+
+function requireVerifyAccess(req, res, next) {
+  isEmployeeInBrandScope(req.auth, 'employee_document:verify', req.params.employeeId)
+    .then((ok) => (ok ? next() : res.status(403).json({ error: 'Forbidden', permission: 'employee_document:verify' })))
+    .catch(next);
+}
 const { upload } = require('../../middleware/upload.middleware');
 
 const router = Router({ mergeParams: true });
@@ -13,7 +31,7 @@ router.use(requireAuth);
 // caller's own linked employee record.
 async function requireDocumentReadAccess(req, res, next) {
   try {
-    if (await userHasPermission(req.auth, 'employee_document:read')) return next();
+    if (await isEmployeeInBrandScope(req.auth, 'employee_document:read', req.params.employeeId)) return next();
 
     const canReadOwn = await userHasPermission(req.auth, 'employee_document:read_own');
     if (
@@ -34,7 +52,7 @@ async function requireDocumentReadAccess(req, res, next) {
 // the caller's own linked employee record — self-service document upload.
 async function requireDocumentUploadAccess(req, res, next) {
   try {
-    if (await userHasPermission(req.auth, 'employee_document:upload')) return next();
+    if (await isEmployeeInBrandScope(req.auth, 'employee_document:upload', req.params.employeeId)) return next();
 
     const canUploadOwn = await userHasPermission(req.auth, 'employee_document:upload_own');
     if (
@@ -60,7 +78,7 @@ router.post('/', requireDocumentUploadAccess, upload.single('file'), controller.
 // either once the document is verified.
 router.patch('/:id', requireDocumentUploadAccess, controller.update);
 router.delete('/:id', requireDocumentUploadAccess, controller.remove);
-router.patch('/:id/verify', requirePermission('employee_document:verify'), controller.verify);
-router.patch('/:id/reject', requirePermission('employee_document:verify'), controller.reject);
+router.patch('/:id/verify', requireVerifyAccess, controller.verify);
+router.patch('/:id/reject', requireVerifyAccess, controller.reject);
 
 module.exports = router;

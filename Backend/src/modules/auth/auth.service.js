@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { sendActivationEmail } = require('../../utils/mailer');
@@ -9,6 +10,7 @@ const { runWithTenant } = require('../../config/tenant-context');
 const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
 const { isCompanyInactive } = require('../../utils/companyStatus');
+const { grantWhere } = require('../../middleware/rbac.middleware');
 const { resolveEscalationContact } = require('../../utils/accountEscalation');
 const {
   signAccessToken,
@@ -508,14 +510,26 @@ async function logout() {
 // dodge the tenant-scope hook, which would otherwise silently filter out
 // system roles (company_id IS NULL) for any non-Super-Admin caller — see
 // CLAUDE.md's "tenant-scope hook + system-level rows" gotcha.
-async function getCurrentUser({ userId, companyId }) {
+// While acting in a sibling company (group-level power), the tenant context
+// is that company — but the caller's own User/Employee/UserRole rows all
+// live in their home company, so this whole lookup runs with the tenant
+// hook off (every query here already filters by the caller's own ids).
+async function getCurrentUser(auth) {
+  if (!auth.homeCompanyId) return loadCurrentUser(auth);
+  return runWithTenant({ companyId: null }, () => loadCurrentUser(auth));
+}
+
+async function loadCurrentUser({ userId, companyId, homeCompanyId }) {
   const user = await db.User.findByPk(userId, {
     attributes: ['id', 'email', 'employeeId', 'photoUrl', 'name'],
   });
   if (!user) throw new HttpError(404, 'User not found');
 
+  // Same grant selection rbac.middleware.js uses, so the permissions the
+  // frontend gates on always match what the server will actually allow —
+  // including while acting in a sibling company (only group-level grants).
   const userRoles = await db.UserRole.findAll({
-    where: { userId, companyId },
+    where: grantWhere({ userId, companyId, homeCompanyId }),
     include: [
       {
         model: db.Role,
@@ -525,6 +539,28 @@ async function getCurrentUser({ userId, companyId }) {
       },
     ],
   });
+
+  // Companies a group-level power holder can switch into (their own
+  // included), and which one this request is acting in. Empty/null for
+  // everyone else.
+  const ownCompanyId = homeCompanyId || companyId;
+  let groupPowerCompanies = [];
+  if (ownCompanyId) {
+    const groupGrant = await db.UserRole.findOne({
+      where: { userId, companyId: ownCompanyId, groupId: { [Op.ne]: null } },
+      attributes: ['groupId'],
+    });
+    if (groupGrant) {
+      const companies = await db.Company.findAll({
+        where: { groupId: groupGrant.groupId },
+        attributes: ['id', 'name', 'status'],
+        order: [['name', 'ASC']],
+      });
+      groupPowerCompanies = companies
+        .filter((c) => String(c.id) === String(ownCompanyId) || !isCompanyInactive(c.status))
+        .map((c) => ({ id: c.id, name: c.name, isHome: String(c.id) === String(ownCompanyId) }));
+    }
+  }
 
   const roles = userRoles.map((userRole) => ({
     name: userRole.role.name,
@@ -611,6 +647,8 @@ async function getCurrentUser({ userId, companyId }) {
     rosterGroupId,
     compOffEnrolled,
     photoUrl,
+    groupPowerCompanies,
+    actingCompanyId: homeCompanyId ? companyId : null,
   };
 }
 

@@ -136,12 +136,26 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
 // handing out comp-off, so there's no separate decision step left to make.
 // No sourceAttendanceId (nullable — see the migration that relaxed it):
 // there's no worked holiday/weekoff day behind a manually-granted credit.
-async function createCompOffCredit({ companyId, employeeId, earnedDate, expiryDate, reason, actorUserId, actorEmployeeId }) {
+async function createCompOffCredit({
+  companyId,
+  employeeId,
+  earnedDate,
+  expiryDate,
+  reason,
+  actorUserId,
+  actorEmployeeId,
+  scopedBrandIds,
+}) {
   if (!employeeId) throw new HttpError(400, 'employeeId is required');
   if (!earnedDate) throw new HttpError(400, 'earnedDate is required');
 
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
+  // A brand-scoped caller (Brand Admin, Brand-level power) may only credit
+  // their own Brand's employees — 404, not 403, same as employee writes.
+  if (scopedBrandIds && !scopedBrandIds.some((brandId) => String(brandId) === String(employee.brandId))) {
+    throw new HttpError(404, 'Employee not found');
+  }
 
   const credit = await db.sequelize.transaction(async (t) => {
     const created = await db.CompOffCredit.create(

@@ -81,7 +81,14 @@ async function requireReadAccess(req, res, next) {
 function requireDecisionAccess(action) {
   return async function (req, res, next) {
     try {
-      if (await userHasPermission(req.auth, `od_request:${action}`)) return next();
+      // Brand-scoped holders only decide requests from their own Brand(s) —
+      // see leaveRequest.routes.js's requireDecisionAccess.
+      const scope = await getBrandScope(req.auth, `od_request:${action}`);
+      if (scope.allowed) {
+        if (scope.companyWide) return next();
+        const request = await service.getOdRequestForDecision({ companyId: req.auth.companyId, id: req.params.id });
+        if (scope.brandIds.some((brandId) => String(brandId) === String(request.employee.brandId))) return next();
+      }
 
       if (
         (await userHasPermission(req.auth, `od_request:${action}_reports`)) &&

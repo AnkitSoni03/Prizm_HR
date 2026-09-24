@@ -1,4 +1,5 @@
 import { apiClient } from '../client';
+import type { PowerLevelMap } from '../powers';
 import type { Employee, InviteResult } from '../tenancy';
 
 export interface EmployeeListParams {
@@ -142,10 +143,12 @@ export async function setEmployeeActive(id: string, isActive: boolean): Promise<
   return data.data;
 }
 
-// Replaces this employee's assigned "powers" wholesale with the given set
-// (empty array = revoke all) — see api/powers.ts for the catalog.
-export async function assignEmployeePowers(id: string, powerKeys: string[]): Promise<Employee> {
-  const { data } = await apiClient.put<{ data: Employee }>(`/employees/${id}/powers`, { powerKeys });
+// Replaces this employee's assigned "powers" wholesale, each at its own
+// level (empty map = revoke all) — see api/powers.ts for the catalog.
+export async function assignEmployeePowers(id: string, powers: PowerLevelMap): Promise<Employee> {
+  const { data } = await apiClient.put<{ data: Employee }>(`/employees/${id}/powers`, {
+    powers: Object.entries(powers).map(([key, level]) => ({ key, level })),
+  });
   return data.data;
 }
 

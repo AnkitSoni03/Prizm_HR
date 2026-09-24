@@ -28,6 +28,22 @@ export interface NavItem {
   // "Document Verification" Power (see powerCatalog.js), so it shouldn't
   // clutter every employee's sidebar.
   permission?: string;
+  // Only consulted while working in another company via a group-level power
+  // (user.actingCompanyId set): there, personal pages (My Leave, Payslips…)
+  // don't apply, so an item without `permission` is hidden unless the caller
+  // holds one of these — e.g. Team Approvals for an approve-requests holder.
+  actingPermissions?: string[];
+}
+
+// Single visibility rule shared by Sidebar and Topbar's nav search.
+export function isNavItemVisible(
+  item: NavItem,
+  hasPermission: (code: string) => boolean,
+  isActing: boolean
+): boolean {
+  if (item.permission) return hasPermission(item.permission);
+  if (!isActing) return true;
+  return !!item.actingPermissions?.some((code) => hasPermission(code));
 }
 
 export const SUPER_ADMIN_NAV: NavItem[] = [
@@ -84,13 +100,18 @@ export const ESS_NAV: NavItem[] = [
   { label: 'My Attendance', path: '/ess/attendance', icon: CalendarCheck },
   { label: 'Leave Balance', path: '/ess/leave-balance', icon: Wallet },
   { label: 'My Leave', path: '/ess/leave', icon: CalendarClock },
-  { label: 'Team Approvals', path: '/ess/team-approvals', icon: ClipboardCheck },
+  {
+    label: 'Team Approvals',
+    path: '/ess/team-approvals',
+    icon: ClipboardCheck,
+    actingPermissions: ['leave_request:approve', 'od_request:approve'],
+  },
   { label: 'My OD', path: '/ess/od', icon: Send },
   { label: 'My Comp-Off', path: '/ess/comp-off', icon: RefreshCw },
   { label: 'Comp Off Setting', path: '/ess/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
   { label: 'My Payslips', path: '/ess/payslips', icon: Wallet },
-  { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock },
-  { label: 'Company Policies', path: '/ess/policies', icon: FileText },
+  { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock, actingPermissions: ['holiday:create'] },
+  { label: 'Company Policies', path: '/ess/policies', icon: FileText, actingPermissions: ['company_policy:create'] },
   {
     label: 'Document Verification',
     path: '/ess/document-verification',

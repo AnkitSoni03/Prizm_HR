@@ -14,9 +14,10 @@
 const POWER_CATALOG = [
   {
     key: 'roster',
+    levels: ['brand', 'company', 'group'],
     label: 'Create & Assign Roster',
     description:
-      'Create Rosters, and create/edit/assign the Shift, Holidays, Company Policies, and Leave Policy that go with them.',
+      'Create Rosters, and create/edit/assign the Shift, Holidays, Company Policies, Leave Types, and Leave Policy that go with them.',
     // Roster is the container everything an employee's day-to-day setup now
     // depends on (see leaveBalance.service.js::resolveLeavePolicy /
     // workingDays.js::isHoliday — both roster-exclusive, no company-wide
@@ -42,8 +43,9 @@ const POWER_CATALOG = [
   },
   {
     key: 'approve_requests',
+    levels: ['brand', 'company', 'group'],
     label: 'Approve Leave / OD Requests',
-    description: "Approve or reject any employee's leave and on-duty requests, company-wide.",
+    description: "Approve or reject employees' leave and on-duty requests.",
     permissionCodes: [
       'leave_request:read', 'leave_request:approve', 'leave_request:reject',
       'od_request:read', 'od_request:approve', 'od_request:reject',
@@ -51,6 +53,7 @@ const POWER_CATALOG = [
   },
   {
     key: 'document_verification',
+    levels: ['brand', 'company', 'group'],
     label: 'Document Verification',
     description: "View any employee's documents and mark them verified.",
     // The "Document Verification" page has to browse/filter the employee
@@ -66,6 +69,7 @@ const POWER_CATALOG = [
   },
   {
     key: 'assign_comp_off',
+    levels: ['brand', 'company', 'group'],
     label: 'Assign Comp-Off',
     description:
       'Manually credit a comp-off day to any employee (credited immediately, no separate approval needed), plus manage Comp-Off Policies and enroll employees into one.',
@@ -94,6 +98,9 @@ const POWER_CATALOG = [
   {
     key: 'run_payroll',
     label: 'Manage & Run Payroll',
+    // Payroll runs are company-wide (no brand dimension), so a Brand-level
+    // grant would be meaningless here.
+    levels: ['company', 'group'],
     description: 'Configure salary structures, add adjustments, and process/pay monthly payroll runs.',
     // employee:read is needed to browse/pick employees when assigning a
     // salary structure, same rationale as the document_verification bundle
@@ -111,6 +118,18 @@ const POWER_CATALOG = [
 
 const POWER_KEYS = new Set(POWER_CATALOG.map((power) => power.key));
 
+// Scope a power can be granted at, narrowest first:
+//   brand   — only the employee's own Brand (a UserRole with brand_id set)
+//   company — every Brand in the employee's company (brand_id NULL)
+//   group   — every company in the employee's Group (group_id set; used in a
+//             sibling company via the X-Acting-Company-Id header, see
+//             middleware/auth.middleware.js)
+const POWER_LEVELS = ['brand', 'company', 'group'];
+
+function findPower(key) {
+  return POWER_CATALOG.find((p) => p.key === key) || null;
+}
+
 function permissionCodesForKeys(powerKeys) {
   const codes = new Set();
   for (const key of powerKeys) {
@@ -120,4 +139,4 @@ function permissionCodesForKeys(powerKeys) {
   return [...codes];
 }
 
-module.exports = { POWER_CATALOG, POWER_KEYS, permissionCodesForKeys };
+module.exports = { POWER_CATALOG, POWER_KEYS, POWER_LEVELS, findPower, permissionCodesForKeys };

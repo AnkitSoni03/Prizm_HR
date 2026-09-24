@@ -71,6 +71,48 @@ async function authenticate(token, req, res, next) {
         code: 'COMPANY_DEACTIVATED',
       });
     }
+
+    // Group-level powers (see utils/customPowerSync.js): an employee holding
+    // one may work in a sibling company of their own Group by sending
+    // X-Acting-Company-Id. The request then runs as that company
+    // (req.auth.companyId, tenant scope), with req.auth.homeCompanyId
+    // telling rbac.middleware.js to honour ONLY the caller's group-level
+    // grants there — never their ordinary own-company roles. Anything that
+    // doesn't check out is a hard 403, never a silent fall back to the home
+    // company (the client would otherwise show home data labelled as the
+    // other company's).
+    const actingHeader = req.get('X-Acting-Company-Id');
+    if (actingHeader && String(actingHeader) !== String(req.auth.companyId)) {
+      try {
+        const denied = () =>
+          res.status(403).json({
+            error: 'You do not have group-level access to that company.',
+            code: 'ACTING_COMPANY_FORBIDDEN',
+          });
+        if (!/^\d+$/.test(actingHeader)) return denied();
+
+        const home = await db.Company.findByPk(req.auth.companyId, { attributes: ['id', 'groupId'] });
+        if (!home || !home.groupId) return denied();
+        const target = await db.Company.findOne({
+          where: { id: actingHeader, groupId: home.groupId },
+          attributes: ['id', 'status'],
+        });
+        if (!target) return denied();
+        if (isCompanyInactive(target.status)) {
+          return res.status(403).json({ error: 'That company has been deactivated.', code: 'COMPANY_DEACTIVATED' });
+        }
+        const groupGrant = await db.UserRole.findOne({
+          where: { userId: req.auth.userId, companyId: home.id, groupId: home.groupId },
+          attributes: ['id'],
+        });
+        if (!groupGrant) return denied();
+
+        req.auth.homeCompanyId = home.id;
+        req.auth.companyId = target.id;
+      } catch (err) {
+        return next(err);
+      }
+    }
   }
 
   // Everything downstream (rbac middleware, tenant-scoped model hooks) reads

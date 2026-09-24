@@ -84,6 +84,9 @@ module.exports = (sequelize, DataTypes) => {
       // not-enrolled state rather than an empty credits table).
       compOffPolicyId: { type: DataTypes.BIGINT, allowNull: true },
       customRoleId: { type: DataTypes.BIGINT, allowNull: true },
+      // Per-power scope ('brand' | 'company' | 'group') keyed by power key —
+      // see employee.service.js::assignEmployeePowers.
+      customPowerLevels: { type: DataTypes.JSONB, allowNull: true },
       userId: { type: DataTypes.BIGINT, allowNull: true },
       dateOfJoining: { type: DataTypes.DATEONLY, allowNull: true },
       // Optional — captured by Company Admin/Brand Admin when filling in an

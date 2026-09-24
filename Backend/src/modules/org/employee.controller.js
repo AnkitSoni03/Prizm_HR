@@ -247,9 +247,12 @@ async function assignPowers(req, res, next) {
   try {
     const employee = await service.assignEmployeePowers({
       companyId: req.auth.companyId,
+      groupId: req.auth.groupId,
       id: req.params.id,
+      powers: req.body.powers,
       powerKeys: req.body.powerKeys,
       scopedBrandIds: req.auth.scopedBrandIds,
+      auth: req.auth,
     });
     res.json({ data: employee });
   } catch (err) {

@@ -4,8 +4,9 @@ const crypto = require('crypto');
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { ensureCustomRoleGrant } = require('../../utils/customPowerSync');
-const { POWER_KEYS, permissionCodesForKeys } = require('../../config/powerCatalog');
+const { ensureCustomRoleGrant, findCustomPowerRoles, customPowerRoleName } = require('../../utils/customPowerSync');
+const { checkGrantAuthority } = require('../../utils/powerAuthority');
+const { POWER_CATALOG, POWER_KEYS, findPower } = require('../../config/powerCatalog');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
 const { deleteFace: deleteRekognitionFace } = require('../../utils/rekognition');
 const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
@@ -453,6 +454,9 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
   }
 
   await employee.update(patch);
+  // A Brand-level power grant follows the employee to their new Brand (or
+  // is dropped if they no longer have one).
+  if (patch.brandId !== undefined) await ensureCustomRoleGrant({ employeeId: employee.id });
 
   return withPhotoUrl(employee);
 }
@@ -555,6 +559,14 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
     if (customRoleId) {
       await db.Role.destroy({ where: { id: customRoleId }, force: true, transaction: t });
     }
+    await db.Role.destroy({
+      where: {
+        companyId: employee.companyId,
+        name: { [Op.in]: ['brand', 'group'].map((level) => customPowerRoleName(employee.id, level)) },
+      },
+      force: true,
+      transaction: t,
+    });
 
     await employee.destroy({ force: true, transaction: t });
   });
@@ -596,71 +608,163 @@ async function setEmployeeActiveStatus({ companyId, id, scopedBrandIds, isActive
 // permission-resolution stack (getCurrentUser, rbac.middleware.js) needs no
 // changes at all — it already unions permissions across every UserRole row
 // a user holds.
-async function assignEmployeePowers({ companyId, id, powerKeys, scopedBrandIds }) {
-  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+// Current { powerKey: level } for an employee. Prefers the recorded
+// custom_power_levels; for an employee whose powers predate levels (column
+// null), derives the granted keys from their company-level customRole and
+// reports them as 'company' — what every power meant back then.
+async function getEmployeePowerLevels(employee) {
+  if (employee.customPowerLevels && typeof employee.customPowerLevels === 'object') {
+    return { ...employee.customPowerLevels };
+  }
+  if (!employee.customRoleId) return {};
+  const role = await db.Role.findByPk(employee.customRoleId, {
+    include: [{ model: db.Permission, as: 'permissions', attributes: ['code'] }],
+  });
+  const granted = new Set((role ? role.permissions : []).map((p) => p.code));
+  const levels = {};
+  for (const power of POWER_CATALOG) {
+    if (power.permissionCodes.every((code) => granted.has(code))) levels[power.key] = 'company';
+  }
+  return levels;
+}
 
+// Normalizes the request body into { powerKey: level }. Accepts the new
+// `powers: [{ key, level }]` shape, or the older `powerKeys: string[]`
+// (treated as company level) so an un-updated client keeps working.
+function normalizeRequestedPowers({ powers, powerKeys }) {
+  if (Array.isArray(powers)) {
+    const levels = {};
+    for (const entry of powers) {
+      const key = entry && entry.key;
+      if (!POWER_KEYS.has(key)) throw new HttpError(400, `Unknown power key: ${key}`);
+      if (levels[key]) throw new HttpError(400, `Power listed twice: ${key}`);
+      const level = entry.level || 'company';
+      if (!findPower(key).levels.includes(level)) {
+        throw new HttpError(400, `"${findPower(key).label}" can't be granted at ${level} level`);
+      }
+      levels[key] = level;
+    }
+    return levels;
+  }
   const keys = Array.isArray(powerKeys) ? powerKeys : [];
   const unknownKeys = keys.filter((key) => !POWER_KEYS.has(key));
   if (unknownKeys.length > 0) {
     throw new HttpError(400, `Unknown power key(s): ${unknownKeys.join(', ')}`);
   }
+  return Object.fromEntries(keys.map((key) => [key, 'company']));
+}
 
-  const codes = permissionCodesForKeys(keys);
-  const permissions = codes.length > 0
-    ? await db.Permission.findAll({ where: { code: { [Op.in]: codes } } })
-    : [];
+// Replaces an employee's powers wholesale, each at its own scope level
+// (see utils/customPowerSync.js for the one-Role-per-level layout). Every
+// added, removed, or re-levelled power is checked against the caller's own
+// authority (utils/powerAuthority.js) — an entry left exactly as it was is
+// not re-checked, so e.g. a Brand Admin can save Brand-level changes on an
+// employee who also holds a Company-level power a Company Admin granted,
+// without being able to alter or remove that one.
+async function assignEmployeePowers({ companyId, groupId, id, powers, powerKeys, scopedBrandIds, auth }) {
+  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId });
+  const requested = normalizeRequestedPowers({ powers, powerKeys });
+  const previous = await getEmployeePowerLevels(employee);
+
+  for (const [key, level] of Object.entries(requested)) {
+    if (level === 'brand' && !employee.brandId) {
+      throw new HttpError(400, `"${findPower(key).label}" can't be Brand level — this employee has no Brand`);
+    }
+  }
+
+  const touched = new Set([...Object.keys(requested), ...Object.keys(previous)]);
+  for (const key of touched) {
+    if (requested[key] === previous[key]) continue;
+    const power = findPower(key);
+    if (!power) continue;
+    // Adding/re-levelling needs authority at the new level; removing or
+    // narrowing someone else's grant needs authority at the old one.
+    for (const level of [requested[key], previous[key]].filter(Boolean)) {
+      // eslint-disable-next-line no-await-in-loop
+      const reason = await checkGrantAuthority(auth, power, level, employee.brandId);
+      if (reason) throw new HttpError(403, reason);
+    }
+  }
+
+  // Codes per level; a code shared by two powers at different levels is
+  // simply granted at both (the RBAC union resolves to the wider one).
+  const codesByLevel = { brand: new Set(), company: new Set(), group: new Set() };
+  for (const [key, level] of Object.entries(requested)) {
+    findPower(key).permissionCodes.forEach((code) => codesByLevel[level].add(code));
+  }
+  const allCodes = [...new Set(Object.values(codesByLevel).flatMap((set) => [...set]))];
+  const permissions = allCodes.length > 0 ? await db.Permission.findAll({ where: { code: { [Op.in]: allCodes } } }) : [];
+  const permissionIdByCode = new Map(permissions.map((p) => [p.code, p.id]));
+
+  const employeeCompanyId = employee.companyId;
 
   await db.sequelize.transaction(async (t) => {
-    let role = employee.customRoleId
-      ? await db.Role.findByPk(employee.customRoleId, { transaction: t })
-      : null;
+    const roles = await findCustomPowerRoles(employee, t);
 
-    if (!role) {
-      const roleName = `Custom Powers – ${employee.id}`;
-      try {
-        role = await db.Role.create(
-          { companyId, name: roleName, isSystem: false, description: 'Per-employee custom powers' },
-          { transaction: t }
-        );
-      } catch (err) {
-        if (err.name === 'SequelizeUniqueConstraintError') {
-          // Race: another concurrent assignment for the same employee beat
-          // this one to the find-or-create (same pattern as
-          // leaveBalance.service.js::getOrCreateBalance).
-          role = await db.Role.findOne({ where: { companyId, name: roleName }, transaction: t });
-        } else {
-          throw err;
-        }
+    for (const level of ['brand', 'company', 'group']) {
+      const codes = [...codesByLevel[level]];
+      let role = roles[level];
+      if (!role && codes.length === 0) continue;
+
+      // A brand/group level left with no powers is removed outright, grant
+      // included — an empty group-level grant would otherwise still count as
+      // "holds a group power" for the X-Acting-Company-Id check and the
+      // /auth/me company switcher. (The company-level role is kept, as
+      // before: employees.custom_role_id points at it.)
+      if (role && codes.length === 0 && level !== 'company') {
+        await db.UserRole.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+        await db.RolePermission.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+        await role.destroy({ force: true, transaction: t });
+        continue;
       }
-      await employee.update({ customRoleId: role.id }, { transaction: t });
+
+      if (!role) {
+        const roleName = customPowerRoleName(employee.id, level);
+        try {
+          role = await db.Role.create(
+            {
+              companyId: employeeCompanyId,
+              name: roleName,
+              isSystem: false,
+              description: `Per-employee custom powers (${level} level)`,
+            },
+            { transaction: t }
+          );
+        } catch (err) {
+          if (err.name === 'SequelizeUniqueConstraintError') {
+            // Race: another concurrent assignment for the same employee beat
+            // this one to the find-or-create (same pattern as
+            // leaveBalance.service.js::getOrCreateBalance).
+            role = await db.Role.findOne({ where: { companyId: employeeCompanyId, name: roleName }, transaction: t });
+          } else {
+            throw err;
+          }
+        }
+        if (level === 'company') await employee.update({ customRoleId: role.id }, { transaction: t });
+      }
+
+      // Hard delete — role_permissions is paranoid but (unlike every other
+      // model in this app) never actually soft-deleted anywhere else in the
+      // codebase. A normal .destroy() would leave a dead row occupying the
+      // (role_id, permission_id) composite PK, silently no-op'ing a later
+      // re-grant of the same power.
+      await db.RolePermission.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+      const rows = codes
+        .filter((code) => permissionIdByCode.has(code))
+        .map((code) => ({ roleId: role.id, permissionId: permissionIdByCode.get(code) }));
+      if (rows.length > 0) await db.RolePermission.bulkCreate(rows, { transaction: t });
     }
 
-    // Hard delete — role_permissions is paranoid but (unlike every other
-    // model in this app) never actually soft-deleted anywhere else in the
-    // codebase. A normal .destroy() would leave a dead row occupying the
-    // (role_id, permission_id) composite PK, silently no-op'ing a later
-    // re-grant of the same power (bulkCreate + ignoreDuplicates would think
-    // the row already exists and skip it, while default queries exclude
-    // soft-deleted rows — the permission would look "saved" but grant
-    // nothing).
-    await db.RolePermission.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+    await employee.update({ customPowerLevels: requested }, { transaction: t });
 
-    if (permissions.length > 0) {
-      await db.RolePermission.bulkCreate(
-        permissions.map((permission) => ({ roleId: role.id, permissionId: permission.id })),
-        { transaction: t }
-      );
-    }
-
-    // Only relevant the first time an employee (already activated before
-    // any power was ever assigned) gets their first power — every later
-    // edit reuses the same UserRole row and just changes the Role's
-    // permissions in place, which resolves live on the next request with no
-    // further grant bookkeeping needed.
+    // Creates/re-scopes the UserRole grant per level for an employee who
+    // already has an ESS login; one invited later gets them at activation
+    // (auth.service.js::activateAccount).
     await ensureCustomRoleGrant({ employeeId: employee.id, transaction: t });
   });
 
-  return getEmployeeForRead(employee.id);
+  const updated = await getEmployeeForRead(employee.id);
+  return updated;
 }
 
 // Replaces this employee's set of ADDITIONAL managers wholesale — the

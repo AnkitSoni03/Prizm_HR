@@ -50,7 +50,15 @@ router.get('/:id/roster-transfer-history', requirePermission('employee:update'),
 // Gated by the same employee:update permission every admin who can already
 // edit an employee already holds — no separate gate permission, per the
 // user's explicit "all admins have right to assign that power".
-router.put('/:id/powers', requirePermission('employee:update'), controller.assignPowers);
+// Group Admin and Super Admin (both company-less) pass structurally instead:
+// they're the only callers allowed to grant Group-level powers, and Group
+// Admin holds no employee:update of its own. Group Admin is still confined
+// to its own Group's employees by getEmployeeForWrite's groupId check.
+function requirePowerAssignAccess(req, res, next) {
+  if (!req.auth.companyId) return next();
+  return requirePermission('employee:update')(req, res, next);
+}
+router.put('/:id/powers', requirePowerAssignAccess, controller.assignPowers);
 // Same employee:update gate as the powers route above — any admin who can
 // already edit an employee can manage their additional managers too.
 router.put('/:id/managers', requirePermission('employee:update'), controller.setManagers);

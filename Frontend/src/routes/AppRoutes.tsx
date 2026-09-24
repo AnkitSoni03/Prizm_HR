@@ -71,7 +71,7 @@ import { EmployeesPage as BrandEmployeesPage } from '../pages/brand-admin/Employ
 import { ShiftsRostersPage as BrandShiftsRostersPage } from '../pages/brand-admin/ShiftsRostersPage';
 import { ApprovalsPage as BrandApprovalsPage } from '../pages/brand-admin/ApprovalsPage';
 import { SettingsPage as BrandAdminSettingsPage } from '../pages/brand-admin/SettingsPage';
-import { EssDashboard } from '../pages/ess/EssDashboard';
+import { EssHomePage } from '../pages/ess/EssHomePage';
 import { MyAttendancePage } from '../pages/ess/MyAttendancePage';
 import { LeaveBalancePage } from '../pages/ess/LeaveBalancePage';
 import { MyLeavePage } from '../pages/ess/MyLeavePage';
@@ -562,7 +562,7 @@ export function AppRoutes() {
         element={
           <ProtectedRoute>
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Dashboard">
-              <EssDashboard />
+              <EssHomePage />
             </Layout>
           </ProtectedRoute>
         }

@@ -39,6 +39,7 @@ async function create(req, res, next) {
       reason: req.body.reason,
       actorUserId: req.auth.userId,
       actorEmployeeId: req.auth.employeeId,
+      scopedBrandIds: req.auth.scopedBrandIds,
     });
     res.status(201).json({ data: credit });
   } catch (err) {

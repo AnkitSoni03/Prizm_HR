@@ -1,9 +1,11 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import {
   clearTokens,
+  getActingCompanyId,
   getSessionEpoch,
   getTokens,
   notifyAuthExpired,
+  setActingCompanyId,
   setPendingSessionMessage,
   setTokens,
 } from './tokenStore';
@@ -29,6 +31,8 @@ apiClient.interceptors.request.use((config) => {
   const { accessToken } = getTokens();
   if (accessToken && !isAuthFreePath(config.url)) {
     config.headers.Authorization = `Bearer ${accessToken}`;
+    const actingCompanyId = getActingCompanyId();
+    if (actingCompanyId) config.headers['X-Acting-Company-Id'] = actingCompanyId;
   }
   // The shared instance defaults every request to Content-Type:
   // application/json — wrong for a multipart file upload, and setting
@@ -130,6 +134,18 @@ apiClient.interceptors.response.use(
       if (message) setPendingSessionMessage(message);
       clearTokens();
       notifyAuthExpired();
+      throw error;
+    }
+
+    // The group-level power this tab was using to work in another company
+    // is gone (revoked or re-levelled) — drop back to the home company.
+    if (
+      error.response?.status === 403 &&
+      (error.response.data as { code?: string } | undefined)?.code === 'ACTING_COMPANY_FORBIDDEN' &&
+      getActingCompanyId()
+    ) {
+      setActingCompanyId(null);
+      window.location.reload();
       throw error;
     }
 

@@ -46,7 +46,7 @@ import {
   type EmployeeDocument,
   type DocumentUploadRequest,
 } from '../../../api/companyAdmin/employeeDocuments';
-import { listPowers } from '../../../api/powers';
+import { listPowers, resolvePowerLevels, type PowerLevelMap } from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import { listLeaveBalances, bulkAdjustLeaveBalances, type LeaveBalance } from '../../../api/companyAdmin/leaveBalance';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
@@ -140,6 +140,11 @@ export function EmployeeDetailModal({
   const showToast = useToast();
   const usesBrands = user?.companyUsesBrands ?? true;
   const canUpdate = hasPermission('employee:update');
+  // Group Admin / Super Admin assign powers without holding employee:update
+  // themselves — they're the only ones who can grant Group level (see
+  // Backend/src/modules/org/employee.routes.js's requirePowerAssignAccess).
+  const canManagePowers =
+    canUpdate || !!user?.roles.some((role) => role.name === 'Group Admin' || role.name === 'Super Admin');
   const canTransfer = hasPermission('employee:transfer');
   const canDelete = hasPermission('employee:delete');
   const canReadDocs = hasPermission('employee_document:read');
@@ -550,29 +555,25 @@ export function EmployeeDetailModal({
     }
   }
 
-  const [powerKeys, setPowerKeys] = useState<string[]>([]);
+  const [powerLevels, setPowerLevels] = useState<PowerLevelMap>({});
+  const [initialPowerLevels, setInitialPowerLevels] = useState<PowerLevelMap>({});
   const [isSavingPowers, setIsSavingPowers] = useState(false);
   const [powersError, setPowersError] = useState<string | null>(null);
   const [powersSuccess, setPowersSuccess] = useState(false);
 
   useEffect(() => {
-    if (activeTab !== 'powers' || !canUpdate) return;
-    // The `employee` prop comes from the list view (no customRole
-    // eager-load) — fetch the full record here instead, which does
-    // eager-load customRole + its permissions (see
-    // employee.service.js::getEmployeeForRead), so the checkboxes pre-check
-    // whichever catalog keys are already granted.
+    if (activeTab !== 'powers' || !canManagePowers) return;
+    // The `employee` prop comes from the list view (no customRole/levels
+    // eager-load) — fetch the full record here instead, so each power
+    // pre-selects at the level it's already granted at.
     Promise.all([listPowers(), getEmployee(employee.id)])
       .then(([catalog, freshEmployee]) => {
-        const grantedCodes = new Set((freshEmployee.customRole?.permissions ?? []).map((p) => p.code));
-        setPowerKeys(
-          catalog
-            .filter((power) => power.permissionCodes.every((code) => grantedCodes.has(code)))
-            .map((power) => power.key)
-        );
+        const levels = resolvePowerLevels(catalog, freshEmployee);
+        setPowerLevels(levels);
+        setInitialPowerLevels(levels);
       })
       .catch(() => setPowersError('Could not load current powers.'));
-  }, [activeTab, canUpdate, employee.id]);
+  }, [activeTab, canManagePowers, employee.id]);
 
   // Doesn't call onUpdated() — same reasoning as the ESS-invite section
   // below (that also closes the modal), so the success message stays
@@ -582,7 +583,8 @@ export function EmployeeDetailModal({
     setPowersSuccess(false);
     setIsSavingPowers(true);
     try {
-      await assignEmployeePowers(employee.id, powerKeys);
+      await assignEmployeePowers(employee.id, powerLevels);
+      setInitialPowerLevels(powerLevels);
       setPowersSuccess(true);
     } catch (err) {
       setPowersError(extractError(err, 'Could not save powers. Please try again.'));
@@ -1657,15 +1659,21 @@ export function EmployeeDetailModal({
 
       {activeTab === 'powers' && (
         <div className="space-y-4">
-          {!canUpdate && <p className="text-sm text-ink-muted">You don&apos;t have access to manage powers.</p>}
-          {canUpdate && (
+          {!canManagePowers && <p className="text-sm text-ink-muted">You don&apos;t have access to manage powers.</p>}
+          {canManagePowers && (
             <>
               <p className="text-sm text-ink-muted">
-                Hand-pick extra capabilities for this employee, independent of their role.
+                Hand-pick extra capabilities for this employee, independent of their role, and choose how far
+                each one reaches.
               </p>
               {powersError && <p className="text-sm text-danger">{powersError}</p>}
               {powersSuccess && <p className="text-sm text-success">Powers updated.</p>}
-              <PowerAssignment selectedKeys={powerKeys} onChange={setPowerKeys} />
+              <PowerAssignment
+                value={powerLevels}
+                onChange={setPowerLevels}
+                initialValue={initialPowerLevels}
+                employeeHasBrand={!!employee.brandId}
+              />
               <div className="flex justify-end">
                 <Button onClick={handleSavePowers} isLoading={isSavingPowers}>
                   Save Powers

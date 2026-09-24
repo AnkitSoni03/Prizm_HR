@@ -1,10 +1,11 @@
 import { AlignLeft, ChevronDown, LogOut, Loader2, Moon, Search, Sun, UserRound, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import type { NavItem } from '../../routes/navConfig';
+import { isNavItemVisible, type NavItem } from '../../routes/navConfig';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
 import { NotificationBell } from '../NotificationBell';
+import { CompanySwitcher } from '../CompanySwitcher';
 import { Avatar } from '../ui/Avatar';
 
 interface TopbarProps {
@@ -47,7 +48,7 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
   })();
 
   const searchableItems = navItems.filter(
-    (item) => !item.disabled && (!item.permission || hasPermission(item.permission)),
+    (item) => !item.disabled && isNavItemVisible(item, hasPermission, !!user?.actingCompanyId),
   );
   const results =
     query.trim().length > 0
@@ -146,6 +147,7 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:gap-3">
+        <CompanySwitcher />
         <NotificationBell />
 
         {/* Theme toggle, profile, and logout move into the mobile Sidebar

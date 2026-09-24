@@ -35,6 +35,12 @@ export interface AuthUser {
   // any — most pure admin accounts have none and this is simply null,
   // falling back to the generic avatar icon.
   photoUrl: string | null;
+  // Companies this user can switch into via a group-level power (their own
+  // included, flagged isHome) — empty for everyone without one.
+  groupPowerCompanies: { id: string; name: string; isHome: boolean }[];
+  // Set while this tab is working in a sibling company (X-Acting-Company-Id);
+  // null in their own company.
+  actingCompanyId: string | null;
 }
 
 export interface AuthContextValue {

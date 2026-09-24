@@ -16,6 +16,7 @@ import { createDepartment, createDesignation } from '../../../api/companyAdmin/o
 import { useAuth } from '../../../context/auth-context';
 import { useToast } from '../../../context/toast-context';
 import { PowerAssignment } from '../../../components/PowerAssignment';
+import type { PowerLevelMap } from '../../../api/powers';
 import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
@@ -87,7 +88,7 @@ export function EmployeeFormModal({
   >('full_time');
   const [workState, setWorkState] = useState('');
   const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>([]);
-  const [powerKeys, setPowerKeys] = useState<string[]>([]);
+  const [powerLevels, setPowerLevels] = useState<PowerLevelMap>({});
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,9 +218,9 @@ export function EmployeeFormModal({
       // separate, non-blocking concern (surfaced but not conflated with
       // "employee creation failed"). Powers can always be assigned later
       // from the edit modal.
-      if (canAssignPowers && powerKeys.length > 0) {
+      if (canAssignPowers && Object.keys(powerLevels).length > 0) {
         try {
-          await assignEmployeePowers(employee.id, powerKeys);
+          await assignEmployeePowers(employee.id, powerLevels);
         } catch {
           showToast(
             `${employee.name ?? employee.employeeCode} was created, but the selected powers could not be assigned. You can assign them from the employee's details.`
@@ -451,7 +452,7 @@ export function EmployeeFormModal({
             <p className="mb-2 text-xs text-ink-muted">
               Hand-pick extra capabilities for this employee, independent of their role.
             </p>
-            <PowerAssignment selectedKeys={powerKeys} onChange={setPowerKeys} />
+            <PowerAssignment value={powerLevels} onChange={setPowerLevels} employeeHasBrand={!!brandId} />
           </div>
         )}
         <div className="flex justify-end gap-2 pt-2">

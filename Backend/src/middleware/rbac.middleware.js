@@ -2,6 +2,7 @@
 
 const { Op } = require('sequelize');
 const { UserRole, Role, Permission } = require('../models');
+const { runWithTenant, getTenantStore } = require('../config/tenant-context');
 
 // Checks user_roles -> role -> permissions for `code`, scoped to the caller's
 // own company_id and, when brandId is given, either brand-wide (brand_id
@@ -9,13 +10,32 @@ const { UserRole, Role, Permission } = require('../models');
 // "full access OR own-record access" (e.g. employee:read vs
 // employee:read_own) can compose it themselves instead of only getting a
 // single-code allow/deny middleware.
-async function userHasPermission({ userId, companyId }, code, brandId = null) {
-  const where = { userId, companyId };
+// Which UserRole rows count for a caller. Normally: their rows for their
+// own company. While acting in a sibling company via a group-level power
+// (auth.middleware.js sets homeCompanyId), ONLY their group-level grants
+// count (rows on their home company with group_id set) — their ordinary
+// roles never reach into another company.
+function grantWhere({ userId, companyId, homeCompanyId }) {
+  if (homeCompanyId) return { userId, companyId: homeCompanyId, groupId: { [Op.ne]: null } };
+  return { userId, companyId };
+}
+
+// UserRole is tenant-scoped (models/hooks/tenant-scope.js). While acting,
+// the tenant is the TARGET company, which would force company_id back to it
+// and hide the caller's home-company grants — so those lookups run with the
+// hook switched off (grantWhere already pins company_id explicitly).
+function queryGrants(auth, fn) {
+  if (!auth.homeCompanyId) return fn();
+  return runWithTenant({ ...(getTenantStore() || {}), companyId: null }, fn);
+}
+
+async function userHasPermission(auth, code, brandId = null) {
+  const where = grantWhere(auth);
   if (brandId) {
     where[Op.or] = [{ brandId: null }, { brandId }];
   }
 
-  const grant = await UserRole.findOne({
+  const grant = await queryGrants(auth, () => UserRole.findOne({
     where,
     include: [
       {
@@ -32,7 +52,7 @@ async function userHasPermission({ userId, companyId }, code, brandId = null) {
         ],
       },
     ],
-  });
+  }));
 
   return !!grant;
 }
@@ -48,9 +68,9 @@ async function userHasPermission({ userId, companyId }, code, brandId = null) {
 // brand scoping entirely and got company-wide access for that one call —
 // hit in shift_roster update, inviteEmployeeUser, and the
 // leave_request/od_request/attendance_regularization/comp_off list routes.
-async function getBrandScope({ userId, companyId }, code) {
-  const grants = await UserRole.findAll({
-    where: { userId, companyId },
+async function getBrandScope(auth, code) {
+  const grants = await queryGrants(auth, () => UserRole.findAll({
+    where: grantWhere(auth),
     include: [
       {
         model: Role,
@@ -66,7 +86,7 @@ async function getBrandScope({ userId, companyId }, code) {
         ],
       },
     ],
-  });
+  }));
 
   if (grants.length === 0) return { allowed: false, companyWide: false, brandIds: [] };
 
@@ -115,4 +135,4 @@ function requirePermission(code) {
   };
 }
 
-module.exports = { requirePermission, userHasPermission, getBrandScope };
+module.exports = { requirePermission, userHasPermission, getBrandScope, grantWhere };

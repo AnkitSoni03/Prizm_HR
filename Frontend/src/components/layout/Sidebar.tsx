@@ -14,7 +14,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import type { NavItem } from "../../routes/navConfig";
+import { isNavItemVisible, type NavItem } from "../../routes/navConfig";
 import { useAuth } from "../../context/auth-context";
 import { useTheme } from "../../context/theme-context";
 
@@ -51,12 +51,12 @@ export function Sidebar({
   isOpen,
   onClose,
 }: SidebarProps) {
-  const { hasPermission, logout } = useAuth();
+  const { user, hasPermission, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const visibleNavItems = navItems.filter(
-    (item) => !item.permission || hasPermission(item.permission),
+  const visibleNavItems = navItems.filter((item) =>
+    isNavItemVisible(item, hasPermission, !!user?.actingCompanyId),
   );
 
   function handleLogout() {

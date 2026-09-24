@@ -96,9 +96,20 @@ async function requireReadAccess(req, res, next) {
 function requireDecisionAccess(action) {
   return async function (req, res, next) {
     try {
-      if (await userHasPermission(req.auth, `leave_request:${action}`)) {
-        req.leaveDecisionMode = 'admin';
-        return next();
+      // Brand-scoped holders (Brand Admin, a Brand-level power) only decide
+      // requests from their own Brand(s) — checked against the request's
+      // own employee, never a client-supplied brandId.
+      const scope = await getBrandScope(req.auth, `leave_request:${action}`);
+      if (scope.allowed) {
+        let inScope = scope.companyWide;
+        if (!inScope) {
+          const request = await service.getLeaveRequestForDecision({ companyId: req.auth.companyId, id: req.params.id });
+          inScope = scope.brandIds.some((brandId) => String(brandId) === String(request.employee.brandId));
+        }
+        if (inScope) {
+          req.leaveDecisionMode = 'admin';
+          return next();
+        }
       }
 
       if (

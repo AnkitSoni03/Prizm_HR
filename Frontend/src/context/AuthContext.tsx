@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { apiClient, refreshAccessToken, revokeRefreshToken } from '../api/client';
-import { clearTokens, getTokens, registerAuthExpiredHandler, setTokens } from '../api/tokenStore';
+import {
+  clearTokens,
+  getTokens,
+  registerAuthExpiredHandler,
+  setActingCompanyId,
+  setTokens,
+} from '../api/tokenStore';
 import { AuthContext, type AuthContextValue, type AuthUser } from './auth-context';
 
 async function fetchCurrentUser(): Promise<AuthUser> {
@@ -64,6 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void revokeRefreshToken(staleRefreshToken);
       }
       setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
+      // A company switch from an earlier session in this tab must never
+      // carry over into a fresh login.
+      setActingCompanyId(null);
       const profile = await fetchCurrentUser();
       setUser(profile);
       return profile;

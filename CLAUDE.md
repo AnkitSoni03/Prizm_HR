@@ -1170,6 +1170,28 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     401; a deleted kiosk can no longer sign in). Migrations and the seeder applied cleanly.
     `tsc -p tsconfig.app.json --noEmit`, `eslint` and `vite build` all pass. Test fixtures
     hard-deleted afterward (verified zero rows left).
+- ✅ Per-power scope levels (2026-09-24): each employee power is now granted at **Brand**
+  (own Brand only), **Company** (all Brands) or **Group** (all companies in the Group) level,
+  chosen per power (`employees.custom_power_levels` JSONB, migration `20260924090000`;
+  `levels` per power in `powerCatalog.js` — payroll is company/group only). One Role per level
+  per employee (`utils/customPowerSync.js`: company = `custom_role_id`, brand/group by name),
+  granted via `UserRole.brand_id` / `UserRole.group_id`; an emptied brand/group level deletes its
+  Role+grant. **No one grants wider than they hold** (`utils/powerAuthority.js`): Brand Admin →
+  Brand only, Company Admin/HR → Brand/Company, and only for codes they themselves hold; Group
+  level only by Group Admin / Super Admin (the powers route lets those two through structurally).
+  **Group level at runtime**: the client sends `X-Acting-Company-Id`; `auth.middleware.js`
+  validates same Group + an actual group grant, then runs the request as that company with
+  `req.auth.homeCompanyId` set, and `rbac.middleware.js::grantWhere` counts ONLY group-level
+  grants there (own-company roles never reach a sibling company). Grant lookups in acting mode
+  bypass the tenant hook (UserRole/User/Employee are tenant-scoped to the target otherwise).
+  Frontend: level picker in `PowerAssignment.tsx`, `CompanySwitcher.tsx` in the Topbar (per-tab,
+  sessionStorage), `EssHomePage.tsx` + `NavItem.actingPermissions` hide personal pages while
+  acting. Also closed pre-existing brand-scope gaps found on the way: leave/OD approve/reject
+  (`requireDecisionAccess` ignored brand), comp-off manual credit, and employee documents
+  read/upload/verify — a Brand Admin could previously act on another Brand's records by id.
+  Verified live (35 HTTP assertions, fixtures removed). Not live-tested: leave/OD cross-brand
+  decision (needs a pending request in a second Brand). Notifications to approvers
+  (`notifyApprovers`) don't yet include group-level holders of other companies.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

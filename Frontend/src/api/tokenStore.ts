@@ -50,6 +50,29 @@ export function consumePendingSessionMessage(): string | null {
   return message;
 }
 
+// A sibling company this tab is working in via a group-level power (see
+// Backend/src/middleware/auth.middleware.js's X-Acting-Company-Id). Per tab
+// (sessionStorage), never carried into a different login — clearTokens()
+// and a fresh login both drop it.
+const ACTING_COMPANY_KEY = 'hrms.actingCompanyId';
+
+export function getActingCompanyId(): string | null {
+  try {
+    return sessionStorage.getItem(ACTING_COMPANY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setActingCompanyId(companyId: string | null): void {
+  try {
+    if (companyId) sessionStorage.setItem(ACTING_COMPANY_KEY, companyId);
+    else sessionStorage.removeItem(ACTING_COMPANY_KEY);
+  } catch {
+    // Storage unavailable — the switch just won't survive a reload.
+  }
+}
+
 export function getTokens(): Tokens {
   return tokens;
 }
@@ -68,6 +91,7 @@ export function clearTokens(): void {
   tokens = { accessToken: null, refreshToken: null };
   sessionEpoch += 1;
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  setActingCompanyId(null);
 }
 
 export function registerAuthExpiredHandler(handler: () => void): void {

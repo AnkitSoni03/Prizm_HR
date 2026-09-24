@@ -181,6 +181,9 @@ export interface Employee {
   // keys are already assigned when the edit modal opens.
   customRoleId?: string | null;
   customRole?: { id: string; permissions: { code: string }[] } | null;
+  // { powerKey: 'brand' | 'company' | 'group' } — null for an employee whose
+  // powers predate per-power levels (see api/powers.ts::resolvePowerLevels).
+  customPowerLevels?: Record<string, 'brand' | 'company' | 'group'> | null;
   // Signed, short-lived download URL resolved fresh on every response — see
   // employee.service.js::withPhotoUrl. Null when no photo has been uploaded
   // (the common case; always optional).
