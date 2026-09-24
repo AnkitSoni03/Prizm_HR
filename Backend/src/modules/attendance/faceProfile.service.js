@@ -3,7 +3,7 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
-const { uploadBuffer, buildObjectPath } = require('../../utils/gcs');
+const { uploadBuffer, buildObjectPath, getSignedDownloadUrl } = require('../../utils/gcs');
 const { indexFace, deleteFace, searchFaceAcrossCompanies } = require('../../utils/rekognition');
 
 const MAX_PHOTO_SIZE_BYTES = 8 * 1024 * 1024; // 8MB — a single still frame, not a video
@@ -141,7 +141,19 @@ async function registerFaceProfile({ companyId, employeeId, imageBuffer }) {
     profile = await db.EmployeeFaceProfile.create(fields);
   }
 
-  return { registered: true, registeredAt: profile.registeredAt };
+  return { registered: true, registeredAt: profile.registeredAt, photoUrl: await signPhotoUrl(profile) };
+}
+
+// Short-lived signed URL for the employee's own registered photo (bucket is
+// private). Best-effort — a GCS hiccup must never hide the registered status.
+async function signPhotoUrl(profile) {
+  if (!profile.photoObjectPath) return null;
+  try {
+    return await getSignedDownloadUrl(profile.photoObjectPath);
+  } catch (err) {
+    console.error('[faceProfile] could not sign photo URL', err.message);
+    return null;
+  }
 }
 
 async function getMyFaceProfileStatus({ employeeId }) {
@@ -149,8 +161,13 @@ async function getMyFaceProfileStatus({ employeeId }) {
 
   const profile = await db.EmployeeFaceProfile.findOne({ where: { employeeId, status: 'active' } });
   return profile
-    ? { registered: true, registeredAt: profile.registeredAt, status: profile.status }
-    : { registered: false, registeredAt: null, status: null };
+    ? {
+        registered: true,
+        registeredAt: profile.registeredAt,
+        status: profile.status,
+        photoUrl: await signPhotoUrl(profile),
+      }
+    : { registered: false, registeredAt: null, status: null, photoUrl: null };
 }
 
 module.exports = { registerFaceProfile, getMyFaceProfileStatus };
