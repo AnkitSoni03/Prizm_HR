@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { ScanFace, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/Button';
+import { Modal } from './ui/Modal';
 import { getMyFaceProfileStatus, registerFaceProfile, type FaceProfileStatus } from '../api/ess/faceProfile';
 
 const CAPTURE_GUIDELINES = [
@@ -28,6 +29,7 @@ export function RegisterFaceCard() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPhoto, setShowPhoto] = useState(false);
 
   useEffect(() => {
     getMyFaceProfileStatus()
@@ -105,7 +107,12 @@ export function RegisterFaceCard() {
     try {
       const result = await registerFaceProfile(capturedPhoto);
       setSuccess(true);
-      setStatus({ registered: true, registeredAt: result.registeredAt, status: 'active' });
+      setStatus({
+        registered: true,
+        registeredAt: result.registeredAt,
+        status: 'active',
+        photoUrl: result.photoUrl,
+      });
       retake();
     } catch (err) {
       setError(extractError(err, 'Could not register your face. Please try again.'));
@@ -126,10 +133,26 @@ export function RegisterFaceCard() {
       </p>
 
       {status?.registered && (
-        <div className="mt-4 rounded-xl border border-success/20 bg-success/5 px-3 py-2.5 text-sm text-success">
-          Your face is registered
-          {status.registeredAt ? ` (${new Date(status.registeredAt).toLocaleDateString()})` : ''}. You can
-          re-register below to replace it.
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-success/20 bg-success/5 px-3 py-2.5 text-sm text-success">
+          {status.photoUrl && !cameraReady && !previewUrl && (
+            <button
+              type="button"
+              onClick={() => setShowPhoto(true)}
+              title="View registered photo"
+              className="shrink-0 cursor-zoom-in rounded-lg transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <img
+                src={status.photoUrl}
+                alt="Your registered face"
+                className="h-20 w-20 -scale-x-100 rounded-lg border border-success/30 object-cover"
+              />
+            </button>
+          )}
+          <span>
+            Your face is registered
+            {status.registeredAt ? ` (${new Date(status.registeredAt).toLocaleDateString()})` : ''}. You can
+            re-register below to replace it.
+          </span>
         </div>
       )}
       {error && (
@@ -188,6 +211,21 @@ export function RegisterFaceCard() {
             </Button>
           </div>
         </div>
+      )}
+
+      {showPhoto && status?.photoUrl && (
+        <Modal title="Registered Face ID Photo" onClose={() => setShowPhoto(false)} widthClassName="max-w-lg" compact>
+          <img
+            src={status.photoUrl}
+            alt="Your registered face"
+            className="w-full -scale-x-100 rounded-lg object-contain"
+          />
+          {status.registeredAt && (
+            <p className="mt-3 text-center text-sm text-ink-muted">
+              Registered on {new Date(status.registeredAt).toLocaleDateString()}
+            </p>
+          )}
+        </Modal>
       )}
     </div>
   );
