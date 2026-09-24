@@ -7,15 +7,21 @@ const { notifyUser } = require('../../utils/notifications');
 async function list(req, res, next) {
   try {
     const { limit, offset } = parsePagination(req.query);
-    // Own-scoped read (an employee viewing "My Leave Balance") — eagerly
-    // materialize any applicable-but-not-yet-created balance rows first, so
-    // a fresh Yearly Leave Policy shows its real quota immediately instead
-    // of a misleading "0 / 0 / Exhausted" until the employee's first leave
-    // application. Skipped for admin reads (req.leaveBalanceEmployeeScope
-    // null) — no reason to eagerly seed every employee's balance on a
-    // company-wide list view.
-    if (req.leaveBalanceEmployeeScope) {
-      await service.ensureBalancesForEmployee({ employeeId: req.leaveBalanceEmployeeScope, year: req.query.year });
+    // Single-employee read — either an employee viewing "My Leave Balance"
+    // or an admin opening one employee's Leaves tab — eagerly materializes
+    // any applicable-but-not-yet-created balance rows first, so a Roster's
+    // Leave Policy shows its real quota immediately. Without the admin half
+    // of this, an employee who had never opened their own page (e.g. still
+    // 'invited') showed "No leave balances yet" to admins despite having
+    // the same Roster as a colleague whose balances showed fine. Still
+    // skipped for the company-wide list (no employeeId) — no reason to seed
+    // every employee on every page load.
+    const seedEmployeeId = req.leaveBalanceEmployeeScope || req.query.employeeId;
+    if (req.query.employeeId !== undefined && !/^\d+$/.test(String(req.query.employeeId))) {
+      return res.status(400).json({ error: 'employeeId must be a number' });
+    }
+    if (seedEmployeeId) {
+      await service.ensureBalancesForEmployee({ employeeId: seedEmployeeId, year: req.query.year });
     }
     const { rows, count } = await service.listLeaveBalances({
       companyId: req.auth.companyId,
