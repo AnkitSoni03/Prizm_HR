@@ -10,6 +10,7 @@ const { sweepExpiredCompOff } = require('./jobs/compOffExpiry.job');
 const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanup.job');
 const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
 const { sendRosterExpiryReminders } = require('./jobs/rosterExpiryReminder.job');
+const { markMissedCheckouts } = require('./jobs/missedCheckout.job');
 const { verifyMailerConnection } = require('./utils/mailer');
 
 const PORT = process.env.PORT || 5000;
@@ -43,6 +44,10 @@ function startLeaveJobs() {
   });
   // Roster validity reminders (see roster_groups.validity_value/unit) —
   // advisory-only, checks every active employee once a day.
+  // Flag attendance rows left open past the 12h30m checkout window.
+  cron.schedule('5 * * * *', () => {
+    markMissedCheckouts().catch((err) => console.error('missed-checkout job failed:', err));
+  });
   cron.schedule('0 9 * * *', () => {
     sendRosterExpiryReminders().catch((err) => console.error('roster-expiry-reminder job failed:', err));
   });

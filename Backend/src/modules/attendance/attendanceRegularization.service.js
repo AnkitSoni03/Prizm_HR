@@ -8,6 +8,7 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 const { buildBusinessDateTime } = require('../../utils/dateRange');
+const { resolveCheckOutDateTime } = require('../../utils/shiftTime');
 
 async function listRegularizations({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
@@ -62,14 +63,19 @@ async function createRegularization({
     defaults: { employeeId, date, status: 'absent' },
   });
 
+  // A check-out time at or before the check-in (the requested one, else
+  // the recorded one) is the next morning of an overnight shift.
+  const requestedCheckIn = buildBusinessDateTime(date, checkInTime);
+  const requestedCheckOut = resolveCheckOutDateTime(date, checkOutTime, requestedCheckIn || attendance.checkIn);
+
   const regularization = await db.AttendanceRegularization.create({
     attendanceId: attendance.id,
     employeeId,
     requestedStatus,
     reason,
     status: 'pending',
-    requestedCheckIn: buildBusinessDateTime(date, checkInTime),
-    requestedCheckOut: buildBusinessDateTime(date, checkOutTime),
+    requestedCheckIn,
+    requestedCheckOut,
   });
 
   await notifyApprovers({
@@ -128,7 +134,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
     checkInTime !== undefined ? buildBusinessDateTime(attendanceDate, checkInTime) : regularization.requestedCheckIn;
   const finalCheckOut =
     checkOutTime !== undefined
-      ? buildBusinessDateTime(attendanceDate, checkOutTime)
+      ? resolveCheckOutDateTime(attendanceDate, checkOutTime, finalCheckIn || regularization.attendance.checkIn)
       : regularization.requestedCheckOut;
 
   await db.sequelize.transaction(async (t) => {
@@ -136,7 +142,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
       {
         status: regularization.requestedStatus,
         ...(finalCheckIn ? { checkIn: finalCheckIn } : {}),
-        ...(finalCheckOut ? { checkOut: finalCheckOut } : {}),
+        ...(finalCheckOut ? { checkOut: finalCheckOut, checkoutMissed: false } : {}),
       },
       { transaction: t }
     );

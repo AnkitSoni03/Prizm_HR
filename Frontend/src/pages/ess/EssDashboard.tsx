@@ -41,6 +41,7 @@ import { QuickActions, type QuickAction } from '../../components/QuickActions';
 import { MyLeaveBalanceChart, type LeaveBalanceEntry, type LeaveUsageEntry } from '../../components/charts/MyLeaveBalanceChart';
 import { MonthlyAttendanceCalendar } from '../../components/charts/MonthlyAttendanceCalendar';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+import { PunchTime } from '../../components/PunchTime';
 
 const NOW = new Date();
 
@@ -442,7 +443,15 @@ export function EssDashboard() {
       listMyRegularizations({ status: 'pending', limit: 1 }),
     ])
       .then(([attendance, balances, leaveRequests, odRequests, regularizations]) => {
-        const todayRecord = attendance.data.find((a) => a.date === today) ?? null;
+        // An overnight shift that started yesterday and is still open (not
+        // past its checkout window) is the "current" record until checked
+        // out — its date is yesterday's, not today's.
+        const todayOwn = attendance.data.find((a) => a.date === today) ?? null;
+        const openOvernight =
+          todayOwn?.checkIn
+            ? null
+            : attendance.data.find((a) => a.date < today && a.checkIn && !a.checkOut && !a.checkoutMissed) ?? null;
+        const todayRecord = openOvernight ?? todayOwn;
         // Same present/workingDays definition as MonthlyAttendanceCalendar
         // (holiday/weekoff excluded from the denominator) — kept in sync so
         // the header's "This Month" tile never disagrees with the calendar
@@ -711,7 +720,7 @@ export function EssDashboard() {
                 <span className="text-xs text-ink-muted sm:text-sm">Check-in</span>
               </span>
               <span className="text-xs font-semibold text-ink sm:text-sm">
-                {summary.checkIn ? new Date(summary.checkIn).toLocaleTimeString() : '—'}
+                <PunchTime value={summary.checkIn} />
               </span>
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">
@@ -722,7 +731,7 @@ export function EssDashboard() {
                 <span className="text-xs text-ink-muted sm:text-sm">Check-out</span>
               </span>
               <span className="text-xs font-semibold text-ink sm:text-sm">
-                {summary.checkOut ? new Date(summary.checkOut).toLocaleTimeString() : '—'}
+                <PunchTime value={summary.checkOut} />
               </span>
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">

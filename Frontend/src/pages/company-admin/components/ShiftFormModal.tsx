@@ -10,6 +10,7 @@ import { createShift, updateShift } from '../../../api/companyAdmin/attendance';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand, Shift } from '../../../api/tenancy';
+import { crossesMidnight } from '../../../utils/shiftTime';
 
 interface ShiftFormModalProps {
   shift?: Shift;
@@ -246,7 +247,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           name: row.name,
           startTime: row.startTime,
           endTime: row.endTime,
-          isNightShift: false,
+          isNightShift: crossesMidnight(row.startTime, row.endTime),
           weeklyOffDays: row.weeklyOffDays,
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
@@ -270,7 +271,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           name: row.name,
           startTime: row.startTime,
           endTime: row.endTime,
-          isNightShift: false,
+          isNightShift: crossesMidnight(row.startTime, row.endTime),
           weeklyOffDays: row.weeklyOffDays,
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
@@ -292,7 +293,7 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
           name: row.name,
           startTime: row.startTime,
           endTime: row.endTime,
-          isNightShift: false,
+          isNightShift: crossesMidnight(row.startTime, row.endTime),
           weeklyOffDays: row.weeklyOffDays,
           weekOffLeaveEnabled: row.weekOffLeaveEnabled,
           weekOffLeaveBasisDays: row.weekOffLeaveBasisDays,
@@ -395,6 +396,11 @@ export function ShiftFormModal({ shift, shifts, brands = [], defaultRosterGroupI
                   onChange={(event) => updateRow(row.id, { endTime: event.target.value })}
                 />
               </div>
+              {crossesMidnight(row.startTime, row.endTime) && (
+                <p className="-mt-2 text-xs text-ink-muted">
+                  Night shift — ends the next day. Attendance is marked on the check-in day.
+                </p>
+              )}
               <div>
                 <p className="mb-1.5 text-sm font-medium text-ink">Weekly Off Days</p>
                 <div className="flex flex-wrap gap-2">

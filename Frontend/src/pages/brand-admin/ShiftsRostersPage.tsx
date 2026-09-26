@@ -13,6 +13,7 @@ import { useToast } from '../../context/toast-context';
 import { deleteShift, listShifts } from '../../api/companyAdmin/attendance';
 import type { Shift } from '../../api/tenancy';
 import { ShiftFormModal } from '../company-admin/components/ShiftFormModal';
+import { isOvernightShift } from '../../utils/shiftTime';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -59,7 +60,8 @@ interface ShiftCardProps {
 }
 
 function ShiftCard({ shift, onEdit, onDelete }: ShiftCardProps) {
-  const Icon = shift.isNightShift ? Moon : Sun;
+  const isNight = isOvernightShift(shift);
+  const Icon = isNight ? Moon : Sun;
   const weeklyOff =
     shift.weeklyOffDays.length > 0 ? shift.weeklyOffDays.map((d) => WEEKDAY_LABELS[d]).join(', ') : '—';
 
@@ -70,7 +72,7 @@ function ShiftCard({ shift, onEdit, onDelete }: ShiftCardProps) {
           <Icon className="h-5 w-5" strokeWidth={1.75} />
         </div>
         <div className="min-w-0 flex-1">
-          <Badge tone={shift.isNightShift ? 'neutral' : 'warning'}>{shift.isNightShift ? 'Night' : 'Day'}</Badge>
+          <Badge tone={isNight ? 'neutral' : 'warning'}>{isNight ? 'Night' : 'Day'}</Badge>
           <p className="mt-1 truncate text-[15px] font-semibold text-ink">{shift.name}</p>
         </div>
       </div>
@@ -180,7 +182,7 @@ export function ShiftsRostersPage() {
       shifts.filter(
         (shift) =>
           (!search.trim() || shift.name.toLowerCase().includes(search.trim().toLowerCase())) &&
-          (typeFilter === '' || (typeFilter === 'night') === shift.isNightShift),
+          (typeFilter === '' || (typeFilter === 'night') === isOvernightShift(shift)),
       ),
     [shifts, search, typeFilter],
   );

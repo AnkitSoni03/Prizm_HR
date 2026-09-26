@@ -12,6 +12,7 @@ const {
   assertBrandWriteScope,
   assertBrandReassignAllowed,
 } = require('../../utils/brandScope');
+const { crossesMidnight } = require('../../utils/shiftTime');
 
 async function listShifts({ companyId, brandId, scopedBrandIds, limit, offset }) {
   // Shift's tenant-scope hook already filters by company_id for a scoped
@@ -151,7 +152,6 @@ async function createShift({
   name,
   startTime,
   endTime,
-  isNightShift,
   weeklyOffDays,
   weekOffLeaveEnabled,
   weekOffLeaveBasisDays,
@@ -176,7 +176,9 @@ async function createShift({
     name,
     startTime,
     endTime,
-    isNightShift: !!isNightShift,
+    // Derived from the hours, never trusted from the client — see
+    // utils/shiftTime.js::crossesMidnight.
+    isNightShift: crossesMidnight(startTime, endTime),
     weeklyOffDays: normalizedWeeklyOffDays,
     ...weekOffLeaveConfig,
   });
@@ -191,7 +193,6 @@ async function updateShift({ companyId, id, updates, scopedBrandIds }) {
     name,
     startTime,
     endTime,
-    isNightShift,
     weeklyOffDays,
     weekOffLeaveEnabled,
     weekOffLeaveBasisDays,
@@ -230,7 +231,9 @@ async function updateShift({ companyId, id, updates, scopedBrandIds }) {
     ...(name !== undefined && { name }),
     ...(startTime !== undefined && { startTime }),
     ...(endTime !== undefined && { endTime }),
-    ...(isNightShift !== undefined && { isNightShift }),
+    ...((startTime !== undefined || endTime !== undefined) && {
+      isNightShift: crossesMidnight(startTime ?? shift.startTime, endTime ?? shift.endTime),
+    }),
     ...(weeklyOffDays !== undefined && { weeklyOffDays }),
     ...(weekOffLeaveConfig ?? {}),
     ...(brandId !== undefined && { brandId: brandId || null }),

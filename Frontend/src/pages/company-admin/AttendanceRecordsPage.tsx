@@ -24,6 +24,7 @@ import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
 import { Avatar } from '../../components/ui/Avatar';
 import { DetailRow } from '../../components/ui/DetailRow';
+import { PunchTime } from '../../components/PunchTime';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useToast } from '../../context/toast-context';
@@ -69,12 +70,19 @@ function statusLabel(record: AttendanceRosterRow): string {
 function StatusBadge({ record }: { record: AttendanceRosterRow }) {
   const Icon = STATUS_ICON[record.status] ?? HelpCircle;
   return (
-    <Badge tone={STATUS_TONE[record.status] ?? 'neutral'}>
-      <span className="inline-flex items-center gap-1">
-        <Icon className="h-3 w-3 shrink-0" strokeWidth={1.75} />
-        {statusLabel(record)}
-      </span>
-    </Badge>
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <Badge tone={STATUS_TONE[record.status] ?? 'neutral'}>
+        <span className="inline-flex items-center gap-1">
+          <Icon className="h-3 w-3 shrink-0" strokeWidth={1.75} />
+          {statusLabel(record)}
+        </span>
+      </Badge>
+      {record.checkoutMissed && (
+        <Badge tone="danger" title="No check-out within 12h 30m of check-in — needs a regularization">
+          Missed Checkout
+        </Badge>
+      )}
+    </span>
   );
 }
 
@@ -99,11 +107,6 @@ function formatDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
-}
-
-function formatTime(value: string | null): string {
-  if (!value) return '—';
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 // Working hours for a single day — only meaningful once both punches exist.
@@ -184,8 +187,8 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
       </div>
 
       <div className="mt-3.5 space-y-2.5 border-t border-border pt-3.5">
-        <DetailRow icon={LogIn} label="Check In" value={formatTime(record.checkIn)} />
-        <DetailRow icon={LogOut} label="Check Out" value={formatTime(record.checkOut)} />
+        <DetailRow icon={LogIn} label="Check In" value={<PunchTime value={record.checkIn} />} />
+        <DetailRow icon={LogOut} label="Check Out" value={<PunchTime value={record.checkOut} />} />
         <DetailRow icon={TimerReset} label="Working Hrs" value={worked ?? '—'} />
         {record.kioskLocationName && <DetailRow icon={MapPin} label="Location" value={record.kioskLocationName} />}
       </div>
@@ -497,8 +500,8 @@ export function AttendanceRecordsPage() {
                     </div>
                   ),
                 },
-                { key: 'checkIn', header: 'Check In', render: (r) => formatTime(r.checkIn) },
-                { key: 'checkOut', header: 'Check Out', render: (r) => formatTime(r.checkOut) },
+                { key: 'checkIn', header: 'Check In', render: (r) => <PunchTime value={r.checkIn} /> },
+                { key: 'checkOut', header: 'Check Out', render: (r) => <PunchTime value={r.checkOut} /> },
                 {
                   key: 'workingHours',
                   header: 'Working Hrs',

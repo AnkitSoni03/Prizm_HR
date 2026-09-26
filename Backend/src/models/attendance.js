@@ -36,6 +36,10 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'absent',
       },
       overtimeMinutes: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      // Checked in but not checked out within the 12h30m window
+      // (utils/shiftTime.js). Status stays as-is; cleared once a
+      // regularization supplies the check-out.
+      checkoutMissed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     },
     {
       sequelize,

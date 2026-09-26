@@ -18,6 +18,8 @@ export interface AttendanceRosterRow {
   attendanceId: string | null;
   checkIn: string | null;
   checkOut: string | null;
+  // Checked in but never checked out within the 12h30m window.
+  checkoutMissed: boolean;
   status: AttendanceRosterStatus;
   source: 'qr' | 'od' | 'office_kiosk' | 'face' | null;
   // Which physical kiosk location the punch was taken at — only ever set

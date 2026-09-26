@@ -21,6 +21,7 @@ import {
 } from '../../api/ess/attendance';
 import { getMyProfile } from '../../api/ess/profile';
 import { formatDisplayDate, formatDisplayTime } from '../../utils/dateDisplay';
+import { PunchTime } from '../../components/PunchTime';
 
 type Tab = 'history' | 'requests';
 
@@ -67,11 +68,6 @@ function monthRange(month: string): { from: string; to: string } {
   const to = formatDate(new Date(year, mon - 1, lastDay));
   const today = formatDate(new Date());
   return { from, to: to > today ? today : to };
-}
-
-function formatTime(value: string | null): string {
-  if (!value) return '—';
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatRequestedTimes(r: AttendanceRegularization): string {
@@ -355,8 +351,8 @@ export function MyAttendancePage() {
           emptyMessage="No attendance records in this range."
           columns={[
             { key: 'date', header: 'Date', render: (r) => formatDisplayDate(r.date) },
-            { key: 'checkIn', header: 'Check In', render: (r) => formatTime(r.checkIn) },
-            { key: 'checkOut', header: 'Check Out', render: (r) => formatTime(r.checkOut) },
+            { key: 'checkIn', header: 'Check In', render: (r) => <PunchTime value={r.checkIn} /> },
+            { key: 'checkOut', header: 'Check Out', render: (r) => <PunchTime value={r.checkOut} /> },
             {
               key: 'workingHours',
               header: 'Working Hrs',
@@ -366,9 +362,16 @@ export function MyAttendancePage() {
               key: 'status',
               header: 'Status',
               render: (r) => (
-                <Badge tone={STATUS_TONE[r.status] ?? 'neutral'}>
-                  {r.status === 'leave' && r.leaveTypeName ? r.leaveTypeName : r.status.replace('_', ' ')}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-1">
+                  <Badge tone={STATUS_TONE[r.status] ?? 'neutral'}>
+                    {r.status === 'leave' && r.leaveTypeName ? r.leaveTypeName : r.status.replace('_', ' ')}
+                  </Badge>
+                  {r.checkoutMissed && (
+                    <Badge tone="danger" title="No check-out within 12h 30m of check-in — raise a regularization">
+                      Missed Checkout
+                    </Badge>
+                  )}
+                </div>
               ),
             },
             {

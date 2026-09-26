@@ -15,6 +15,12 @@ const { createLeaveRequest, approveLeaveRequest } = require('../leave/leaveReque
 // process's own ambient TZ — see utils/dateRange.js for why that distinction
 // matters (Render's containers default to UTC, unlike a dev machine's IST).
 const { dateOnly, addDays } = require('../../utils/dateRange');
+const {
+  isOvernightShift,
+  scheduledEndDateTime,
+  isCheckoutWindowOver,
+  isCheckoutMissed,
+} = require('../../utils/shiftTime');
 
 // Roster overrides the default employee_shift assignment for a specific
 // date (CLAUDE.md rule 7). Below that, an employee's Roster (if any)
@@ -46,16 +52,6 @@ async function resolveShiftForDate({ employeeId, dateStr }) {
   return null;
 }
 
-function scheduledEndDateTime(businessDate, shift) {
-  if (!shift || !shift.endTime) return null;
-  const [h, m, s] = shift.endTime.split(':').map(Number);
-  // A night shift's end_time is on the calendar day after its start.
-  const endDateStr = shift.isNightShift ? addDays(businessDate, 1) : businessDate;
-  const end = new Date(`${endDateStr}T00:00:00`);
-  end.setHours(h, m, s || 0, 0);
-  return end;
-}
-
 // Fallback when no shift resolves for the date at all (no roster, no
 // default employee_shift assigned) — a plain 8-hour day, the same baseline
 // assumption used when nothing more specific is configured.
@@ -67,10 +63,10 @@ function shiftDurationMinutes(shift) {
   const [eh, em, es] = shift.endTime.split(':').map(Number);
   const startMinutes = sh * 60 + sm + (ss || 0) / 60;
   let endMinutes = eh * 60 + em + (es || 0) / 60;
-  // A night shift's end time is numerically earlier than its start (it
-  // lands the next calendar day) — same crossing-midnight reasoning as
-  // scheduledEndDateTime above, just in plain minutes rather than a Date.
-  if (shift.isNightShift || endMinutes <= startMinutes) endMinutes += 24 * 60;
+  // An overnight shift's end time is numerically earlier than its start (it
+  // lands the next calendar day) — same reasoning as
+  // utils/shiftTime.js::scheduledEndDateTime, just in plain minutes.
+  if (isOvernightShift(shift) || endMinutes <= startMinutes) endMinutes += 24 * 60;
   return endMinutes - startMinutes;
 }
 
@@ -93,6 +89,21 @@ async function detectCompOffSafely({ employeeId, attendanceId, dateStr }) {
   }
 }
 
+// Which calendar day a check-in at `now` belongs to. Normally just today —
+// but a late arrival for an overnight shift (e.g. 00:30 for a 21:00–06:00
+// shift that started yesterday) still belongs to the day that shift
+// started, as long as that shift hasn't already ended.
+async function resolveCheckInBusinessDate({ employeeId, now }) {
+  const today = dateOnly(now);
+  const yesterday = addDays(today, -1);
+  const yesterdayShift = await resolveShiftForDate({ employeeId, dateStr: yesterday });
+  if (isOvernightShift(yesterdayShift)) {
+    const yesterdayShiftEnd = scheduledEndDateTime(yesterday, yesterdayShift);
+    if (yesterdayShiftEnd && now < yesterdayShiftEnd) return yesterday;
+  }
+  return today;
+}
+
 // The one function every check-in mechanism (old QR-terminal, old
 // office-kiosk WebAuthn, and now face recognition) shares — they diverge
 // only in how the punch gets authorized, not in what happens once it's
@@ -101,22 +112,26 @@ async function detectCompOffSafely({ employeeId, attendanceId, dateStr }) {
 // can't create two records.
 //
 // `action` ('checkin'/'checkout') is the button the employee actually
-// pressed, and is now enforced rather than inferred purely from the
-// attendance row's current state — previously this function ignored
-// `action` entirely and just auto-toggled (no checkIn yet -> check in, has
-// checkIn but no checkOut -> check out), which meant a second accidental
-// "Check In" tap after already being checked in silently checked the
-// employee *out* instead of rejecting the duplicate. Now: a checkin while
-// already checked in, or a checkout with no matching checkin, both reject
-// (409, with a machine-readable `code` the frontend can react to) rather
-// than silently reinterpreting the request.
+// pressed, and is enforced rather than inferred from the row's state: a
+// checkin while already checked in, or a checkout with no matching checkin,
+// both reject (409, with a machine-readable `code` the frontend can react
+// to) rather than silently reinterpreting the request.
+//
+// Day/night shift rules:
+// - The attendance row's date is the day of the check-in (see
+//   resolveCheckInBusinessDate for the late-overnight-arrival case), even
+//   when the checkout lands on the next calendar day.
+// - A checkout closes the employee's latest open check-in, whatever its
+//   date, as long as it's within CHECKOUT_WINDOW_MS (12h30m) of that
+//   check-in. Past that the checkout is refused (CHECKOUT_WINDOW_EXPIRED),
+//   the row is flagged `checkoutMissed`, and it can only be corrected via a
+//   regularization — the employee's next punch is a fresh check-in.
 //
 // `confirmIncompleteShift` is the kiosk's "check out anyway?" confirmation
-// — a checkout attempted before the resolved shift's duration (or an 8h
+// — a checkout attempted before the check-in day's shift duration (or an 8h
 // fallback if no shift resolves at all) has elapsed since check-in first
-// rejects with `code: 'SHIFT_INCOMPLETE'` and the worked/required minutes,
-// giving the frontend a chance to ask the employee to confirm; only a
-// second call with this flag set actually commits the checkout early.
+// rejects with `code: 'SHIFT_INCOMPLETE'` and the worked/required minutes;
+// only a second call with this flag set actually commits the checkout early.
 async function applyAttendancePunch({
   employeeId,
   now,
@@ -130,34 +145,46 @@ async function applyAttendancePunch({
     throw new HttpError(400, "action must be 'checkin' or 'checkout'");
   }
 
-  return db.sequelize.transaction(async (t) => {
+  // Errors that must still commit a write first (flagging a missed
+  // checkout) are returned out of the transaction and thrown after it —
+  // throwing inside would roll that write back.
+  const outcome = await db.sequelize.transaction(async (t) => {
     await db.sequelize.query('SELECT pg_advisory_xact_lock(:employeeId)', {
       replacements: { employeeId },
       transaction: t,
     });
 
-    const today = dateOnly(now);
-    const shift = await resolveShiftForDate({ employeeId, dateStr: today });
+    // The employee's most recent punch. A checkout window is at most
+    // 12h30m, so anything older than two days can't still be open.
+    const latest = await db.Attendance.findOne({
+      where: {
+        employeeId,
+        checkIn: { [Op.ne]: null, [Op.gte]: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000) },
+      },
+      order: [['checkIn', 'DESC']],
+      transaction: t,
+    });
+    const latestIsOpen = !!latest && !latest.checkOut;
+    const latestWindowOver = !!latest && isCheckoutWindowOver(latest.checkIn, now);
 
-    // Night shift: a scan shortly after midnight closing out yesterday's
-    // still-open session belongs to yesterday's attendance row, not today's.
-    let businessDate = today;
-    if (shift && shift.isNightShift) {
-      const yesterday = addDays(today, -1);
-      const openSession = await db.Attendance.findOne({
-        where: { employeeId, date: yesterday, checkIn: { [Op.ne]: null }, checkOut: null },
-        transaction: t,
-      });
-      if (openSession) businessDate = yesterday;
+    if (latestIsOpen && latestWindowOver && !latest.checkoutMissed) {
+      await latest.update({ checkoutMissed: true }, { transaction: t });
     }
 
-    let attendance = await db.Attendance.findOne({ where: { employeeId, date: businessDate }, transaction: t });
-
     if (action === 'checkin') {
+      if (latestIsOpen && !latestWindowOver) {
+        const err = new HttpError(409, 'You are already checked in. Please check out first.', 'ALREADY_CHECKED_IN');
+        err.checkInTime = latest.checkIn;
+        return { error: err };
+      }
+
+      const businessDate = await resolveCheckInBusinessDate({ employeeId, now });
+      let attendance = await db.Attendance.findOne({ where: { employeeId, date: businessDate }, transaction: t });
+
       if (attendance && attendance.checkIn) {
-        const err = new HttpError(409, 'You are already checked in today.', 'ALREADY_CHECKED_IN');
+        const err = new HttpError(409, `You are already checked in for ${businessDate}.`, 'ALREADY_CHECKED_IN');
         err.checkInTime = attendance.checkIn;
-        throw err;
+        return { error: err };
       }
 
       if (!attendance) {
@@ -167,24 +194,39 @@ async function applyAttendancePunch({
         );
       } else {
         await attendance.update(
-          { checkIn: now, source, kioskUserId, kioskLocationId, status: 'present' },
+          { checkIn: now, source, kioskUserId, kioskLocationId, status: 'present', checkoutMissed: false },
           { transaction: t }
         );
       }
       await detectCompOffSafely({ employeeId, attendanceId: attendance.id, dateStr: businessDate });
-      return { action: 'check_in', attendance };
+      return { result: { action: 'check_in', attendance } };
     }
 
     // action === 'checkout'
-    if (!attendance || !attendance.checkIn) {
-      throw new HttpError(409, 'You have not checked in yet today.', 'NOT_CHECKED_IN');
+    if (!latest || (latest.checkOut && latestWindowOver)) {
+      return { error: new HttpError(409, 'You have not checked in yet.', 'NOT_CHECKED_IN') };
     }
-    if (attendance.checkOut) {
-      const err = new HttpError(409, 'You are already checked out today.', 'ALREADY_CHECKED_OUT');
-      err.checkOutTime = attendance.checkOut;
-      throw err;
+    if (latest.checkOut) {
+      const err = new HttpError(409, 'You are already checked out.', 'ALREADY_CHECKED_OUT');
+      err.checkOutTime = latest.checkOut;
+      return { error: err };
+    }
+    if (latestWindowOver) {
+      const err = new HttpError(
+        409,
+        'Check-out window is over — check-out is allowed only within 12h 30m of check-in. ' +
+          `Please raise an attendance regularization for ${latest.date}.`,
+        'CHECKOUT_WINDOW_EXPIRED'
+      );
+      err.checkInTime = latest.checkIn;
+      err.attendanceDate = latest.date;
+      return { error: err };
     }
 
+    const attendance = latest;
+    // The shift of the day the employee checked in on — not today's — so
+    // an overnight checkout is measured against the shift it belongs to.
+    const shift = await resolveShiftForDate({ employeeId, dateStr: attendance.date });
     const requiredMinutes = shiftDurationMinutes(shift);
     const workedMinutes = (now - attendance.checkIn) / 60000;
 
@@ -197,17 +239,20 @@ async function applyAttendancePunch({
       err.checkInTime = attendance.checkIn;
       err.workedMinutes = Math.round(workedMinutes);
       err.requiredMinutes = Math.round(requiredMinutes);
-      throw err;
+      return { error: err };
     }
 
-    const scheduledEnd = scheduledEndDateTime(businessDate, shift);
+    const scheduledEnd = scheduledEndDateTime(attendance.date, shift);
     const overtimeMinutes = scheduledEnd && now > scheduledEnd
       ? Math.round((now - scheduledEnd) / 60000)
       : 0;
 
-    await attendance.update({ checkOut: now, overtimeMinutes }, { transaction: t });
-    return { action: 'check_out', attendance };
+    await attendance.update({ checkOut: now, overtimeMinutes, checkoutMissed: false }, { transaction: t });
+    return { result: { action: 'check_out', attendance } };
   });
+
+  if (outcome.error) throw outcome.error;
+  return outcome.result;
 }
 
 // A full career's worth of days (~30 years) — generous since the default
@@ -329,6 +374,7 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
     if (existing) {
       const plain = existing.get({ plain: true });
       if (plain.status === 'leave') plain.leaveTypeName = leaveTypeNameForDate(d);
+      plain.checkoutMissed = isCheckoutMissed(plain);
       rows.push(plain);
       continue;
     }
@@ -360,6 +406,7 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
       source: null,
       status,
       overtimeMinutes: 0,
+      checkoutMissed: false,
       leaveTypeName: status === 'leave' ? leaveTypeNameForDate(d) : null,
     });
   }
@@ -397,6 +444,7 @@ async function toRosterRow(employee, attendance, leaveTypeName) {
     attendanceId: attendance ? attendance.id : null,
     checkIn: attendance ? attendance.checkIn : null,
     checkOut: attendance ? attendance.checkOut : null,
+    checkoutMissed: isCheckoutMissed(attendance),
     status: attendance ? attendance.status : 'not_marked',
     source: attendance ? attendance.source : null,
     // Which physical kiosk location the punch was taken at — only ever set
@@ -698,6 +746,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
           category: existing.status,
           checkIn: existing.checkIn,
           checkOut: existing.checkOut,
+          checkoutMissed: isCheckoutMissed(existing),
         });
         summary[existing.status] = (summary[existing.status] ?? 0) + 1;
         if (existing.checkIn && existing.checkOut) {

@@ -296,7 +296,9 @@ export function KioskPage() {
       } else {
         setState({ phase: 'error', message: details.message });
       }
-      setTimeout(() => setState({ phase: 'ready' }), 3000);
+      // The expired-window message tells the employee what to do next, so
+      // give them time to read it.
+      setTimeout(() => setState({ phase: 'ready' }), details.code === 'CHECKOUT_WINDOW_EXPIRED' ? 7000 : 3000);
     }
   }, []);
 

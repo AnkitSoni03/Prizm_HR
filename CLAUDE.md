@@ -1192,6 +1192,20 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   Verified live (35 HTTP assertions, fixtures removed). Not live-tested: leave/OD cross-brand
   decision (needs a pending request in a second Brand). Notifications to approvers
   (`notifyApprovers`) don't yet include group-level holders of other companies.
+- ✅ Day/night shift attendance + 12h30m checkout window (2026-09-26): attendance date is
+  always the check-in day (a late overnight arrival — e.g. 00:30 for a 21:00–06:00 shift —
+  counts for the day that shift started, if its end hasn't passed). Checkout closes the
+  employee's latest open check-in regardless of date, within 12h30m of the actual check-in
+  (`utils/shiftTime.js`, all shifts); past that → 409 `CHECKOUT_WINDOW_EXPIRED`, row flagged
+  `attendance.checkout_missed` (status stays `present`, payroll unaffected), fix via
+  regularization; next punch is a fresh check-in. Early-checkout warning unchanged (worked
+  vs shift duration, measured against the check-in day's shift). Hourly
+  `jobs/missedCheckout.job.js` persists the flag; reads also compute it live.
+  `shifts.is_night_shift` is now derived from the hours (end ≤ start) server-side — the
+  shift form always sent `false` (every night shift showed "Day"); migration
+  `20260926090000` backfilled it. Regularization check-out times at/before check-in roll to
+  the next day. UI: check-in/out show the actual date under the time (`PunchTime.tsx`),
+  "Missed Checkout" badge. Tested offline with a mocked DB (19 scenarios) — not live.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

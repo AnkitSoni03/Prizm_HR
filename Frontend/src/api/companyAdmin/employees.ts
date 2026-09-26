@@ -11,6 +11,8 @@ export interface EmployeeListParams {
   departmentId?: string;
   rosterGroupId?: string;
   status?: string;
+  // Matches name or employee code (case-insensitive, partial).
+  search?: string;
   limit?: number;
   offset?: number;
 }

@@ -9,6 +9,9 @@ export interface Attendance {
   source: 'qr' | 'od' | 'office_kiosk' | 'face' | null;
   status: 'present' | 'absent' | 'half_day' | 'leave' | 'holiday' | 'weekoff' | 'on_duty';
   overtimeMinutes: number;
+  // Checked in but never checked out within the 12h30m window — the day
+  // still counts as present; fixed via an attendance regularization.
+  checkoutMissed?: boolean;
   // Only set (by the History endpoint) when status is 'leave' — the
   // specific leave type name (e.g. "Annual Leave") covering that date.
   leaveTypeName?: string | null;

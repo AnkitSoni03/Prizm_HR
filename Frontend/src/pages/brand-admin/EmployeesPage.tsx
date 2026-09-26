@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Briefcase, Building2, MoreVertical, Plus, ShieldCheck, Users } from 'lucide-react';
+import { Activity, Briefcase, Building2, MoreVertical, Plus, Search, ShieldCheck, Users } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
@@ -17,6 +17,7 @@ import { EmployeeDetailModal } from '../company-admin/components/EmployeeDetailM
 import { Avatar } from '../../components/ui/Avatar';
 
 const LIMIT = 20;
+const SEARCH_DEBOUNCE_MS = 1500;
 
 const STATUS_FILTER_OPTIONS = [
   { value: 'onboarding', label: 'Onboarding' },
@@ -54,6 +55,11 @@ export function EmployeesPage() {
   const [offset, setOffset] = useState(0);
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // What's typed vs. what's actually queried — the query only updates
+  // 1.5s after the last keystroke, so typing a name doesn't fire a request
+  // per character.
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -89,6 +95,7 @@ export function EmployeesPage() {
         brandId,
         departmentId: departmentFilter || undefined,
         status: statusFilter || undefined,
+        search: search || undefined,
         limit: LIMIT,
         offset,
       });
@@ -105,7 +112,17 @@ export function EmployeesPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brandId, departmentFilter, statusFilter, offset]);
+  }, [brandId, departmentFilter, statusFilter, search, offset]);
+
+  useEffect(() => {
+    const trimmed = searchInput.trim();
+    const timer = setTimeout(() => {
+      if (trimmed === search) return;
+      setOffset(0);
+      setSearch(trimmed);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
 
   function handleFilterChange(setter: (value: string) => void) {
     return (value: string) => {
@@ -118,6 +135,25 @@ export function EmployeesPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex w-full flex-wrap gap-3 min-w-0 sm:w-auto sm:flex-1">
+          <div className="w-full sm:w-auto sm:flex-1 sm:min-w-[200px]">
+            <label htmlFor="filter-search" className="mb-1.5 block text-sm font-medium text-ink">
+              Search
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted"
+                strokeWidth={1.75}
+              />
+              <input
+                id="filter-search"
+                type="search"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Name or employee code"
+                className="w-full rounded-xl border border-border bg-card py-2 pl-9 pr-3 text-base text-ink placeholder:text-ink-muted transition-all duration-150 hover:border-primary/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-sm"
+              />
+            </div>
+          </div>
           <div className="w-full sm:w-auto sm:flex-1 sm:min-w-[180px]">
             <Select
               id="filter-department"
