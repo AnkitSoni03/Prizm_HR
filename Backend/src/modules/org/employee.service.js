@@ -553,6 +553,22 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
       }
     }
 
+    // A login transfer still awaiting activation (auth.service.js::
+    // transferEmployeeLogin) would otherwise survive as an activatable login
+    // with no employee behind it.
+    const pendingTransfers = await db.User.findAll({
+      where: { employeeId: id, status: 'invited', ...(userId ? { id: { [Op.ne]: userId } } : {}) },
+      transaction: t,
+    });
+    for (const pending of pendingTransfers) {
+      await db.Invitation.update(
+        { expiresAt: new Date() },
+        { where: { email: pending.email, companyId: pending.companyId, acceptedAt: null }, transaction: t }
+      );
+      await pending.update({ isActive: false, employeeId: null }, { transaction: t });
+      await pending.destroy({ transaction: t });
+    }
+
     // The per-employee "Custom Powers" role (see assignEmployeePowers) is
     // exclusively this employee's — safe to remove outright rather than
     // leave it behind as dead, unassignable clutter.

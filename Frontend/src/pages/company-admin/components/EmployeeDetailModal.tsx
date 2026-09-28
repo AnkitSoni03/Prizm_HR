@@ -481,14 +481,12 @@ export function EmployeeDetailModal({
       const result = await transferEmployeeLogin(employee.id, transferLoginEmail);
       setTransferActivationToken(result.activationToken ?? null);
       setTransferInviteSent(true);
-      // The new User row defaults isActive: true — it just hasn't been
-      // activated (status stays 'invited' until the link is used).
-      setLinkedUser({ id: result.user.id, email: result.user.email, isActive: true, status: result.user.status });
+      // linkedUser stays the current login on purpose — it keeps working
+      // until the new email's activation link is used, which is when the
+      // backend switches over (auth.service.js::completeLoginTransfer).
     } catch (err) {
-      // Backend now only commits the transfer once the new activation email
-      // is confirmed sent (a failed send rolls back the whole transfer,
-      // including reactivating the old login), so this message is the real
-      // reason nothing changed — not just a generic catch-all.
+      // A failed email send rolls back the whole transfer, so this message
+      // is the real reason nothing changed.
       setTransferLoginError(extractError(err, 'Could not send the new activation email. Please try again.'));
     } finally {
       setIsTransferringLogin(false);
@@ -1267,8 +1265,8 @@ export function EmployeeDetailModal({
                   ) : (
                     <form onSubmit={handleTransferLogin} className="space-y-3">
                       <p className="text-sm text-ink-muted">
-                        Moving this employee to a new email deactivates the current login and sends a fresh
-                        activation link to the new address. Nothing else about this employee changes.
+                        An activation link is sent to the new address. The current login keeps working until
+                        that link is used — then the new email takes over and the old one is deactivated.
                       </p>
                       {transferLoginError && <p className="text-sm text-danger">{transferLoginError}</p>}
                       <Input
@@ -1296,8 +1294,9 @@ export function EmployeeDetailModal({
               {transferInviteSent && (
                 <div className="space-y-3">
                   <p className="text-sm text-success">
-                    This login was transferred to <span className="font-medium">{transferLoginEmail}</span>. A
-                    new activation email was sent.
+                    Activation email sent to <span className="font-medium">{transferLoginEmail}</span>. Once it's
+                    activated, that email takes over and{' '}
+                    <span className="font-medium">{linkedUser?.email ?? 'the old login'}</span> is deactivated.
                   </p>
                   {transferActivationUrl && (
                     <div className="w-full rounded-xl border border-border bg-page p-3 text-left">

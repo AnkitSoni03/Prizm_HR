@@ -272,18 +272,46 @@ async function inviteEmployeeUser({ companyId, employeeId, email, brandId, scope
   return { user, invitation, activationToken: rawToken };
 }
 
+// Case-insensitive exact email match. Emails are stored as typed (never
+// normalized historically), so a plain `email = ?` lookup misses
+// "Foo@x.com" vs "foo@x.com".
+function emailEquals(email) {
+  return db.sequelize.where(
+    db.sequelize.fn('lower', db.sequelize.col('email')),
+    String(email).trim().toLowerCase()
+  );
+}
+
+// True when `user` is a dead ESS login that can safely be re-invited for
+// another transfer (e.g. transferring an employee back to an email they used
+// before): deactivated, linked to no employee, and holding nothing beyond
+// the Employee role / custom power roles — never an admin account.
+async function isReusableEssLogin(user, transaction) {
+  if (user.deletedAt || user.isActive || user.employeeId) return false;
+  const linked = await db.Employee.count({ where: { userId: user.id }, paranoid: false, transaction });
+  if (linked > 0) return false;
+  const grants = await db.UserRole.findAll({
+    where: { userId: user.id },
+    include: [{ model: db.Role, as: 'role', attributes: ['name', 'isSystem'], paranoid: false }],
+    transaction,
+  });
+  return grants.every((g) => !g.role || !g.role.isSystem || g.role.name === 'Employee');
+}
+
 // Reassigns an existing ESS login to a new email — e.g. an employee wants to
 // switch which inbox they use, without losing their identity/history (leave
-// balances, approval history, notifications, etc. are all keyed off
-// employees.id, not the User row, so none of that is touched). The old User
-// row is never deleted (CLAUDE.md: soft deletes only, and audit trails like
-// approval_histories.approver_user_id / notifications.user_id may still
-// reference it) — just unlinked from this employee and deactivated so it can
-// no longer log in, mirroring setEmployeeActiveStatus's cascade. A fresh
-// invited User is then created for the new email, same invite+activate flow
-// as inviteEmployeeUser, so the employee still has to prove they control the
-// new inbox before they can log in with it.
-async function transferEmployeeLogin({ companyId, employeeId, newEmail, brandId, scopedBrandIds }) {
+// balances, approval history, etc. are keyed off employees.id). This call
+// only creates a *pending* login for the new email (status 'invited',
+// users.employee_id pointing at the employee) and emails its activation
+// link — the current login keeps working untouched. The actual switchover
+// (old login deactivated, its roles/notifications moved to the new one,
+// employees.user_id repointed) happens in activateAccount, once the employee
+// proves they control the new inbox. So a mistyped/unreachable new email can
+// never lock the employee out.
+async function transferEmployeeLogin({ companyId, employeeId, newEmail: rawNewEmail, brandId, scopedBrandIds }) {
+  const newEmail = String(rawNewEmail || '').trim().toLowerCase();
+  if (!newEmail) throw new HttpError(400, 'newEmail is required');
+
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
   if (brandId && String(employee.brandId) !== String(brandId)) {
@@ -302,56 +330,136 @@ async function transferEmployeeLogin({ companyId, employeeId, newEmail, brandId,
     throw new HttpError(400, 'This employee has no linked login to transfer — invite one first');
   }
 
-  const existing = await db.User.findOne({ where: { companyId, email: newEmail } });
-  if (existing) throw new HttpError(409, 'A user with this email already exists for this company');
-
   // Same tenant-scope-hook dodge as inviteEmployeeUser — see its comment.
-  const role = await runWithTenant({ companyId: null }, () =>
-    db.Role.findOne({ where: { name: 'Employee', isSystem: true } })
-  );
+  // Also used for the email lookups below: login() matches by email alone
+  // across every tenant, so the new email must be free platform-wide (not
+  // just in this company), and soft-deleted rows still hold the
+  // (company_id, email) unique index, so they're checked too.
+  const { role, currentUser, existing } = await runWithTenant({ companyId: null }, async () => ({
+    role: await db.Role.findOne({ where: { name: 'Employee', isSystem: true } }),
+    currentUser: await db.User.findByPk(employee.userId),
+    existing: await db.User.findAll({ where: emailEquals(newEmail), paranoid: false }),
+  }));
   if (!role) throw new HttpError(500, 'Employee role is not seeded');
 
-  const oldUserId = employee.userId;
+  if (currentUser && currentUser.email.trim().toLowerCase() === newEmail) {
+    throw new HttpError(400, 'This employee already logs in with that email');
+  }
+
+  // At most one existing row can be reused: a pending transfer for this
+  // same employee (re-sending), or a dead ESS login in this company
+  // (transferring back to an old email). Anything else is a real conflict.
+  let reuse = null;
+  for (const u of existing) {
+    // A deleted row elsewhere neither logs in nor collides with this
+    // company's (company_id, email) index.
+    if (u.deletedAt && String(u.companyId) !== String(companyId)) continue;
+    const samePending =
+      !u.deletedAt && String(u.companyId) === String(companyId) &&
+      String(u.employeeId) === String(employee.id) && u.status === 'invited';
+    const deadLogin =
+      String(u.companyId) === String(companyId) &&
+      (await runWithTenant({ companyId: null }, () => isReusableEssLogin(u)));
+    if ((samePending || deadLogin) && !reuse) reuse = u;
+    else throw new HttpError(409, 'This email is already used by another account');
+  }
+
   const rawToken = generateOpaqueToken();
 
-  const { user, invitation } = await db.sequelize.transaction(async (t) => {
-    const oldUser = await db.User.findByPk(oldUserId, { transaction: t });
-    if (oldUser) {
-      // The old inbox may have been compromised or simply abandoned —
-      // invalidate every outstanding refresh token on it (tokenVersion
-      // bump), same as resetPassword's "force logout everywhere" precedent.
-      // isActive: false also blocks login/refresh outright regardless.
-      await oldUser.update(
-        { employeeId: null, isActive: false, tokenVersion: oldUser.tokenVersion + 1 },
+  const { user, invitation } = await db.sequelize.transaction(async (t) =>
+    runWithTenant({ companyId: null }, async () => {
+      // Cancel any other still-pending transfer for this employee — only the
+      // newest target email may take over the login.
+      const stalePending = await db.User.findAll({
+        where: {
+          companyId,
+          employeeId: employee.id,
+          status: 'invited',
+          id: { [Op.notIn]: [employee.userId, reuse?.id].filter(Boolean) },
+        },
+        transaction: t,
+      });
+      for (const stale of stalePending) {
+        await db.Invitation.update(
+          { expiresAt: new Date() },
+          { where: { companyId, email: stale.email, acceptedAt: null }, transaction: t }
+        );
+        await stale.update({ employeeId: null, isActive: false }, { transaction: t });
+      }
+
+      let targetUser;
+      if (reuse) {
+        // Old grants on a dead login are dropped (hard-delete, same precedent
+        // as assignEmployeePowers' role_permissions) — the current login's
+        // grants are moved over at activation instead.
+        await db.UserRole.destroy({ where: { userId: reuse.id }, force: true, transaction: t });
+        await db.Invitation.update(
+          { expiresAt: new Date() },
+          { where: { companyId, email: reuse.email, acceptedAt: null }, transaction: t }
+        );
+        targetUser = await reuse.update(
+          {
+            employeeId: employee.id,
+            status: 'invited',
+            isActive: true,
+            passwordHash: null,
+            activatedAt: null,
+            invitedAt: new Date(),
+            tokenVersion: reuse.tokenVersion + 1,
+          },
+          { transaction: t }
+        );
+      } else {
+        targetUser = await db.User.create(
+          { companyId, email: newEmail, employeeId: employee.id, status: 'invited', invitedAt: new Date() },
+          { transaction: t }
+        );
+      }
+
+      const createdInvitation = await db.Invitation.create(
+        {
+          companyId,
+          email: targetUser.email,
+          roleId: role.id,
+          brandId: null,
+          tokenHash: hashToken(rawToken),
+          expiresAt: daysFromNow(INVITATION_TTL_DAYS),
+        },
         { transaction: t }
       );
-    }
 
-    const createdUser = await db.User.create(
-      { companyId, email: newEmail, employeeId: employee.id, status: 'invited', invitedAt: new Date() },
-      { transaction: t }
-    );
+      await sendActivationEmailOrThrow({ to: targetUser.email, activationToken: rawToken });
 
-    const createdInvitation = await db.Invitation.create(
-      {
-        companyId,
-        email: newEmail,
-        roleId: role.id,
-        brandId: null,
-        tokenHash: hashToken(rawToken),
-        expiresAt: daysFromNow(INVITATION_TTL_DAYS),
-      },
-      { transaction: t }
-    );
-
-    await employee.update({ userId: createdUser.id }, { transaction: t });
-
-    await sendActivationEmailOrThrow({ to: newEmail, activationToken: rawToken });
-
-    return { user: createdUser, invitation: createdInvitation };
-  });
+      return { user: targetUser, invitation: createdInvitation };
+    })
+  );
 
   return { user, invitation, activationToken: rawToken };
+}
+
+// Second half of transferEmployeeLogin: the new login has just been
+// activated, so it now takes over from the employee's current one — every
+// UserRole grant and notification moves across, the old login is
+// deactivated (tokenVersion bump kills its refresh tokens everywhere;
+// requireAuth's isActive check kills its access tokens), and
+// employees.user_id is repointed. Returns true when a switchover happened.
+async function completeLoginTransfer({ user, employee, transaction }) {
+  const oldUserId = employee.userId;
+  if (!oldUserId || String(oldUserId) === String(user.id)) return false;
+
+  const oldUser = await db.User.findByPk(oldUserId, { transaction });
+  if (oldUser) {
+    await db.UserRole.update({ userId: user.id }, { where: { userId: oldUserId }, transaction });
+    await db.Notification.update({ userId: user.id }, { where: { userId: oldUserId }, transaction });
+    await oldUser.update(
+      { employeeId: null, isActive: false, tokenVersion: oldUser.tokenVersion + 1 },
+      { transaction }
+    );
+  }
+  // Carry over an admin's deliberate deactivation of the employee.
+  if (employee.isActive === false) await user.update({ isActive: false }, { transaction });
+  await employee.update({ userId: user.id }, { transaction });
+  return true;
 }
 
 async function activateAccount({ token, password }) {
@@ -374,16 +482,32 @@ async function activateAccount({ token, password }) {
       { transaction: t }
     );
 
-    await db.UserRole.create(
-      {
-        userId: user.id,
-        roleId: invitation.roleId,
-        companyId: invitation.companyId,
-        groupId: invitation.groupId,
-        brandId: invitation.brandId,
-      },
-      { transaction: t }
+    // A pending login-transfer target (see transferEmployeeLogin) takes over
+    // the employee's current login here, grants included — so the
+    // invitation's own role is only added if that didn't already bring it.
+    let employee = null;
+    if (user.employeeId) {
+      employee = await runWithTenant({ companyId: null }, () =>
+        db.Employee.findByPk(user.employeeId, { transaction: t })
+      );
+      if (employee) {
+        await runWithTenant({ companyId: null }, () =>
+          completeLoginTransfer({ user, employee, transaction: t })
+        );
+      }
+    }
+
+    const grant = {
+      userId: user.id,
+      roleId: invitation.roleId,
+      companyId: invitation.companyId,
+      groupId: invitation.groupId,
+      brandId: invitation.brandId,
+    };
+    const alreadyGranted = await runWithTenant({ companyId: null }, () =>
+      db.UserRole.findOne({ where: grant, transaction: t })
     );
+    if (!alreadyGranted) await db.UserRole.create(grant, { transaction: t });
 
     // Flips the Employee lifecycle status (distinct from the User login
     // status just set above) from 'onboarding' to 'active' the moment they
@@ -393,11 +517,8 @@ async function activateAccount({ token, password }) {
     // never clobbers a deliberate later lifecycle change (e.g. an admin who
     // marked them 'on_notice'/'exited' before they got around to
     // activating their invite).
-    if (user.employeeId) {
-      const employee = await db.Employee.findByPk(user.employeeId, { transaction: t });
-      if (employee && employee.status === 'onboarding') {
-        await employee.update({ status: 'active' }, { transaction: t });
-      }
+    if (employee && employee.status === 'onboarding') {
+      await employee.update({ status: 'active' }, { transaction: t });
     }
 
     await invitation.update({ acceptedAt: new Date() }, { transaction: t });
@@ -427,7 +548,12 @@ async function login({ email, password }) {
   // No tenant context exists yet at login, so this intentionally looks up
   // by email alone (email is only guaranteed unique per company_id, not
   // globally — a real deployment should use distinct emails per tenant).
-  const user = await db.User.findOne({ where: { email } });
+  // Case-insensitive, and an active row wins over a deactivated one with the
+  // same address (e.g. a login transferred away and later transferred back).
+  const user = await db.User.findOne({
+    where: emailEquals(email),
+    order: [['isActive', 'DESC'], ['id', 'DESC']],
+  });
   if (!user || !user.passwordHash) throw new HttpError(401, 'Invalid email or password');
 
   // Company-level block takes priority over the user's own status — it's
