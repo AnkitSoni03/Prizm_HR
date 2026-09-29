@@ -38,6 +38,11 @@ async function sendActivationEmailOrThrow({ to, activationToken }) {
     await sendActivationEmail({ to, activationToken });
   } catch (err) {
     console.error('Activation email send failed:', err);
+    // SMTP auth/connection failures are a server config problem, not a bad
+    // recipient — don't send the admin off re-checking the email address.
+    if (['EAUTH', 'ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'EDNS'].includes(err.code)) {
+      throw new HttpError(502, 'Email service is not configured correctly on the server. Please contact support.');
+    }
     throw new HttpError(502, 'Failed to send the invitation email. Please check the email address and try again.');
   }
 }
