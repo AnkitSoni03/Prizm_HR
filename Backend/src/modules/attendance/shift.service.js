@@ -4,7 +4,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
-const { syncWeekOffLeaveForRosterGroup } = require('../leave/weekOffLeave.service');
+const { syncWeekOffLeaveForRosterGroup, syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 const {
   resolveCreateBrandId,
   assertBrandBelongsToCompany,
@@ -96,10 +96,17 @@ async function provisionWeekOffLeaveForRosterGroups(shift, rosterGroupIds) {
 // immediately here, rather than waiting for weekOffLeaveAccrual.job.js's
 // next monthly run.
 async function syncShiftRosterGroups(shift, rosterGroupIds) {
+  const previousLinks = await db.RosterGroupShift.findAll({ where: { shiftId: shift.id }, attributes: ['rosterGroupId'] });
   await db.RosterGroupShift.destroy({ where: { shiftId: shift.id } });
   if (rosterGroupIds && rosterGroupIds.length > 0) {
     await db.RosterGroupShift.bulkCreate(rosterGroupIds.map((rosterGroupId) => ({ shiftId: shift.id, rosterGroupId })));
     await provisionWeekOffLeaveForRosterGroups(shift, rosterGroupIds);
+  }
+  // Rosters just unlinked from this Shift are now shiftless — they switch to
+  // automatic Sunday-based Week Off Leaves.
+  const keptIds = new Set((rosterGroupIds || []).map(String));
+  for (const { rosterGroupId } of previousLinks) {
+    if (!keptIds.has(String(rosterGroupId))) await syncWeekOffLeaveIfShiftless({ rosterGroupId });
   }
 }
 

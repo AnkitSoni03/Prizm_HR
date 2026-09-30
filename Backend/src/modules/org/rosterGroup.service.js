@@ -10,6 +10,7 @@ const {
   assertBrandWriteScope,
   assertBrandReassignAllowed,
 } = require('../../utils/brandScope');
+const { syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 
 // validityValue/validityUnit come as a pair — undefined/undefined (field
 // omitted) means "not touched" on an update; explicit null/null clears the
@@ -97,7 +98,7 @@ async function createRosterGroup({
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
   const validity = normalizeValidity({ validityValue, validityUnit }) ?? { validityValue: null, validityUnit: null };
-  return db.RosterGroup.create({
+  const rosterGroup = await db.RosterGroup.create({
     companyId,
     brandId: resolvedBrandId,
     name,
@@ -105,6 +106,9 @@ async function createRosterGroup({
     ...validity,
     createdBy: createdBy || null,
   });
+  // A new Roster starts with no Shift — link its Week Off Leaves right away.
+  await syncWeekOffLeaveIfShiftless({ rosterGroupId: rosterGroup.id });
+  return rosterGroup;
 }
 
 async function updateRosterGroup({ companyId, id, updates, updatedBy, scopedBrandIds }) {
@@ -198,6 +202,7 @@ async function bulkAssignRosterGroup({ companyId, id, employeeIds, scopedBrandId
     });
     results.push({ employeeId, status: 'assigned' });
   }
+  if (results.some((r) => r.status === 'assigned')) await syncWeekOffLeaveIfShiftless({ rosterGroupId: id });
   return results;
 }
 

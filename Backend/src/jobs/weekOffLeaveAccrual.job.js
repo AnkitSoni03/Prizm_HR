@@ -2,7 +2,7 @@
 
 const db = require('../models');
 const { toBusinessLocal } = require('../utils/dateRange');
-const { syncWeekOffLeaveForRosterGroup } = require('../modules/leave/weekOffLeave.service');
+const { syncWeekOffLeaveForRosterGroup, weekOffConfigForShift } = require('../modules/leave/weekOffLeave.service');
 
 // Repeatable job, scheduled '0 0 1 * *' (same as leaveAccrual.job.js) — a
 // monthly catch-up sweep across every Roster Group, on top of the eager
@@ -25,13 +25,13 @@ async function runWeekOffLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
 
   let processed = 0;
   for (const group of rosterGroups) {
-    if (group.shifts.length !== 1) continue;
+    // Zero Shifts is eligible too — a shiftless Roster gets Sunday-based
+    // Week Off Leaves automatically (see weekOffConfigForShift).
+    if (group.shifts.length > 1) continue;
     const result = await syncWeekOffLeaveForRosterGroup({
       rosterGroupId: group.id,
       companyId: group.companyId,
-      weeklyOffDays: group.shifts[0].weeklyOffDays,
-      weekOffLeaveEnabled: group.shifts[0].weekOffLeaveEnabled,
-      weekOffLeaveBasisDays: group.shifts[0].weekOffLeaveBasisDays,
+      ...weekOffConfigForShift(group.shifts[0]),
       asOf,
     });
     processed += result.processed;

@@ -144,6 +144,44 @@ async function syncWeekOffLeaveForRosterGroup({
   return { processed };
 }
 
+// A Roster with no Shift at all has no weekly-off day of its own, so its
+// employees automatically get Week Off Leaves — Sunday-based, no admin opt-in
+// (there's no Shift to hold one). Once a Shift is linked, that Shift's own
+// Week Off Leave config takes over, same as any other Roster.
+const SHIFTLESS_WEEK_OFF_BASIS_DAYS = [0];
+
+// The effective Week Off Leave config for a Roster Group whose linked Shift
+// is `shift` (undefined/null = the Roster has no Shift).
+function weekOffConfigForShift(shift) {
+  if (!shift) {
+    return { weeklyOffDays: [], weekOffLeaveEnabled: true, weekOffLeaveBasisDays: SHIFTLESS_WEEK_OFF_BASIS_DAYS };
+  }
+  return {
+    weeklyOffDays: shift.weeklyOffDays,
+    weekOffLeaveEnabled: shift.weekOffLeaveEnabled,
+    weekOffLeaveBasisDays: shift.weekOffLeaveBasisDays,
+  };
+}
+
+// Eager provisioning for a Roster that has (or just lost) no Shift — called
+// when a Roster is created, when a Shift is unlinked from it, and when
+// employees are put on it, so they see their Sunday quota right away rather
+// than on the 1st of next month. A no-op if the Roster does have a Shift.
+// Best-effort, logged-not-thrown, same as provisionWeekOffLeaveForRosterGroups.
+async function syncWeekOffLeaveIfShiftless({ rosterGroupId }) {
+  if (!rosterGroupId) return;
+  try {
+    const group = await db.RosterGroup.findOne({
+      where: { id: rosterGroupId },
+      include: [{ model: db.Shift, as: 'shifts', through: { attributes: [] } }],
+    });
+    if (!group || group.shifts.length !== 0) return;
+    await syncWeekOffLeaveForRosterGroup({ rosterGroupId, companyId: group.companyId, ...weekOffConfigForShift(null) });
+  } catch (err) {
+    console.error('Week Off Leaves provisioning failed for shiftless roster group', rosterGroupId, err);
+  }
+}
+
 // Re-checks ONE employee's already-existing current-month Week Off Leaves
 // balance against their (possibly just-changed) dateOfJoining — called from
 // employee.service.js::updateEmployee whenever dateOfJoining is part of the
@@ -167,13 +205,13 @@ async function syncWeekOffLeaveForEmployee({ employeeId, asOf = toBusinessLocal(
     where: { id: employee.rosterGroupId },
     include: [{ model: db.Shift, as: 'shifts', through: { attributes: [] } }],
   });
-  if (!group || group.shifts.length !== 1) return;
-  const shift = group.shifts[0];
+  if (!group || group.shifts.length > 1) return;
+  const config = weekOffConfigForShift(group.shifts[0]);
   if (
-    shift.weeklyOffDays.length !== 0 ||
-    !shift.weekOffLeaveEnabled ||
-    !shift.weekOffLeaveBasisDays ||
-    shift.weekOffLeaveBasisDays.length === 0
+    config.weeklyOffDays.length !== 0 ||
+    !config.weekOffLeaveEnabled ||
+    !config.weekOffLeaveBasisDays ||
+    config.weekOffLeaveBasisDays.length === 0
   ) {
     return;
   }
@@ -188,7 +226,7 @@ async function syncWeekOffLeaveForEmployee({ employeeId, asOf = toBusinessLocal(
   });
   if (!balance) return;
 
-  const target = computeWeekOffQuota({ year, month, dateOfJoining: employee.dateOfJoining, basisDays: shift.weekOffLeaveBasisDays });
+  const target = computeWeekOffQuota({ year, month, dateOfJoining: employee.dateOfJoining, basisDays: config.weekOffLeaveBasisDays });
   if (Number(balance.allotted) !== target) {
     await balance.update({ allotted: target, balance: target - Number(balance.used) });
   }
@@ -199,6 +237,9 @@ module.exports = {
   ensureWeekOffLeavePolicy,
   syncWeekOffLeaveForRosterGroup,
   syncWeekOffLeaveForEmployee,
+  syncWeekOffLeaveIfShiftless,
+  weekOffConfigForShift,
+  SHIFTLESS_WEEK_OFF_BASIS_DAYS,
   WEEK_OFF_LEAVE_CODE,
   WEEK_OFF_LEAVE_NAME,
 };

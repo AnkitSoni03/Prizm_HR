@@ -12,7 +12,7 @@ const { deleteFace: deleteRekognitionFace } = require('../../utils/rekognition')
 const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
 const { getActiveEmployeeShift } = require('../attendance/employeeShift.service');
 const { dateOnly } = require('../../utils/dateRange');
-const { syncWeekOffLeaveForEmployee } = require('../leave/weekOffLeave.service');
+const { syncWeekOffLeaveForEmployee, syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 
 const GENDER_VALUES = ['male', 'female', 'other'];
 
@@ -341,6 +341,7 @@ async function createEmployee({
       workState: workState || null,
       status: 'onboarding',
     });
+    await syncWeekOffLeaveIfShiftless({ rosterGroupId: employee.rosterGroupId });
     return withPhotoUrl(employee);
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {

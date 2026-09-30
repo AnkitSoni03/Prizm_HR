@@ -5,6 +5,7 @@ const { HttpError } = require('../../utils/errors');
 const { getEmployeeForWrite } = require('./employee.service');
 const { computeAllottedForPolicy } = require('../leave/leaveBalance.service');
 const { resolveLeaveCycle } = require('../../utils/leaveCycle');
+const { syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 const { dateOnly, toBusinessLocal } = require('../../utils/dateRange');
 
 // employeeBrandId enforces Brand isolation on top of the company check — a
@@ -146,6 +147,11 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
   // a fresh cycle rather than skipping it as "already notified".
   const rosterAssignedAt = resolvedNewRosterGroupId ? dateOnly(toBusinessLocal()) : null;
 
+  // A shiftless new Roster must have its Week Off Leaves link in place BEFORE
+  // newMap is loaded below — otherwise that type looks unmapped and gets reset
+  // to 0. Run again after the move so this employee's own balance is seeded.
+  await syncWeekOffLeaveIfShiftless({ rosterGroupId: resolvedNewRosterGroupId });
+
   // First-ever assignment (no old Roster) — nothing to carry or reset.
   if (!oldRosterGroupId) {
     await employee.update({ rosterGroupId: resolvedNewRosterGroupId, rosterAssignedAt, rosterExpiryNotifiedThresholdDays: null });
@@ -158,6 +164,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
       actorUserId,
       details: [],
     });
+    await syncWeekOffLeaveIfShiftless({ rosterGroupId: resolvedNewRosterGroupId });
     return { employee, details: [], rosterTransferLogId: log.id };
   }
 
@@ -348,6 +355,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
     rosterTransferLogId = log.id;
   });
 
+  await syncWeekOffLeaveIfShiftless({ rosterGroupId: resolvedNewRosterGroupId });
   return { employee, details, rosterTransferLogId };
 }
 
