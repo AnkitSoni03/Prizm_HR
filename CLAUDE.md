@@ -1089,7 +1089,7 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   create/bulk-assign/publish (`shiftRoster.service.js`) and the check-in-time
   roster-over-default-shift resolution (`attendance.service.js::resolveShiftForDate`,
   CLAUDE.md rule 7) are completely untouched — an employee with no roster simply falls
-  through to their `employee_shifts` default (or the flat 8-hour fallback) until one is
+  through to their `employee_shifts` default (or the flat 9-hour fallback, raised from 8h on 2026-10-01) until one is
   assigned. Frontend needed no functional change (Super Admin's "Add Employee" button
   was never actually disabled by roster count — only by zero departments — the roster
   count only drove an informational badge); that badge's copy was softened from "Ready

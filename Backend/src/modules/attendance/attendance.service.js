@@ -53,9 +53,9 @@ async function resolveShiftForDate({ employeeId, dateStr }) {
 }
 
 // Fallback when no shift resolves for the date at all (no roster, no
-// default employee_shift assigned) — a plain 8-hour day, the same baseline
+// default employee_shift assigned) — a plain 9-hour day, the same baseline
 // assumption used when nothing more specific is configured.
-const DEFAULT_SHIFT_MINUTES = 8 * 60;
+const DEFAULT_SHIFT_MINUTES = 9 * 60;
 
 function shiftDurationMinutes(shift) {
   if (!shift || !shift.startTime || !shift.endTime) return DEFAULT_SHIFT_MINUTES;
@@ -128,7 +128,7 @@ async function resolveCheckInBusinessDate({ employeeId, now }) {
 //   regularization — the employee's next punch is a fresh check-in.
 //
 // `confirmIncompleteShift` is the kiosk's "check out anyway?" confirmation
-// — a checkout attempted before the check-in day's shift duration (or an 8h
+// — a checkout attempted before the check-in day's shift duration (or a 9h
 // fallback if no shift resolves at all) has elapsed since check-in first
 // rejects with `code: 'SHIFT_INCOMPLETE'` and the worked/required minutes;
 // only a second call with this flag set actually commits the checkout early.
