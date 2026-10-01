@@ -37,7 +37,10 @@ export function HolidayReminderModal() {
     if (!user || !hasPermission('holiday:read')) return;
 
     const tomorrow = tomorrowStr();
-    listHolidays({ from: tomorrow, to: tomorrow })
+    // Roster is the sole determinant of who a holiday applies to (same rule
+    // as the ESS Holidays page and holidayReminder.job.js) — no Roster, or a
+    // Roster the holiday isn't linked to, means no popup.
+    listHolidays({ from: tomorrow, to: tomorrow, rosterGroupId: user.rosterGroupId ?? 'none' })
       .then((result) => {
         const upcoming = result.data[0];
         if (upcoming && localStorage.getItem(dismissedKey(upcoming.id)) !== '1') {
@@ -50,7 +53,7 @@ export function HolidayReminderModal() {
     // Deliberately only re-checks when the signed-in user changes (fresh
     // login/app load), not on every navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, user?.rosterGroupId]);
 
   if (!holiday) return null;
 
