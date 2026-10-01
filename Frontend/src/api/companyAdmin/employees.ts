@@ -199,6 +199,16 @@ export async function inviteEmployeeUser(
   return data;
 }
 
+// Re-sends the activation email (fresh link, older ones expired) to an
+// employee whose ESS login was invited but never activated.
+export async function resendEmployeeInvite(employeeId: string, brandId?: string): Promise<InviteResult> {
+  const { data } = await apiClient.post<InviteResult>('/auth/resend-employee-invite', {
+    employeeId,
+    brandId,
+  });
+  return data;
+}
+
 // Reassigns an already-linked ESS login to a new email — the old login is
 // deactivated and unlinked (never deleted), and a fresh invite goes out for
 // the new email, same activation-link flow as inviteEmployeeUser. Used when

@@ -277,6 +277,66 @@ async function inviteEmployeeUser({ companyId, employeeId, email, brandId, scope
   return { user, invitation, activationToken: rawToken };
 }
 
+// Re-sends the activation email for an employee whose ESS login was invited
+// but never activated (e.g. the employee opened the email after the link
+// expired). Same email, same User row — every older unaccepted invitation for
+// it is expired first so only the newest link works.
+async function resendEmployeeInvite({ companyId, employeeId, brandId, scopedBrandIds }) {
+  const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
+  if (!employee) throw new HttpError(404, 'Employee not found');
+  if (brandId && String(employee.brandId) !== String(brandId)) {
+    throw new HttpError(403, "Employee does not belong to the caller's brand");
+  }
+  if (
+    scopedBrandIds &&
+    !scopedBrandIds.some((scopedBrandId) => String(scopedBrandId) === String(employee.brandId))
+  ) {
+    throw new HttpError(403, "Employee does not belong to the caller's brand");
+  }
+  if (!employee.userId) throw new HttpError(400, 'This employee has not been invited yet');
+
+  const user = await db.User.findOne({ where: { id: employee.userId, companyId } });
+  if (!user) throw new HttpError(404, 'Linked login not found');
+  if (user.status !== 'invited') {
+    throw new HttpError(409, 'This login is already activated — no invitation to resend');
+  }
+
+  // Same tenant-scope-hook dodge as inviteEmployeeUser — see its comment.
+  const role = await runWithTenant({ companyId: null }, () =>
+    db.Role.findOne({ where: { name: 'Employee', isSystem: true } })
+  );
+  if (!role) throw new HttpError(500, 'Employee role is not seeded');
+
+  const rawToken = generateOpaqueToken();
+
+  const invitation = await db.sequelize.transaction(async (t) => {
+    await db.Invitation.update(
+      { expiresAt: new Date() },
+      { where: { companyId, email: user.email, acceptedAt: null }, transaction: t }
+    );
+
+    const createdInvitation = await db.Invitation.create(
+      {
+        companyId,
+        email: user.email,
+        roleId: role.id,
+        brandId: null,
+        tokenHash: hashToken(rawToken),
+        expiresAt: daysFromNow(INVITATION_TTL_DAYS),
+      },
+      { transaction: t }
+    );
+
+    await user.update({ invitedAt: new Date() }, { transaction: t });
+
+    await sendActivationEmailOrThrow({ to: user.email, activationToken: rawToken });
+
+    return createdInvitation;
+  });
+
+  return { user, invitation, activationToken: rawToken };
+}
+
 // Case-insensitive exact email match. Emails are stored as typed (never
 // normalized historically), so a plain `email = ?` lookup misses
 // "Foo@x.com" vs "foo@x.com".
@@ -943,6 +1003,7 @@ module.exports = {
   inviteGroupAdmin,
   inviteBrandAdmin,
   inviteEmployeeUser,
+  resendEmployeeInvite,
   transferEmployeeLogin,
   activateAccount,
   login,

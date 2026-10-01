@@ -20,6 +20,7 @@ import {
   updateEmployee,
   transferEmployee,
   inviteEmployeeUser,
+  resendEmployeeInvite,
   transferEmployeeLogin,
   setEmployeeActive,
   deleteEmployee,
@@ -255,6 +256,13 @@ export function EmployeeDetailModal({
   const [transferActivationToken, setTransferActivationToken] = useState<string | null>(null);
   const [isTransferLinkCopied, setIsTransferLinkCopied] = useState(false);
 
+  const [isResendingInvite, setIsResendingInvite] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+  const [resendActivationToken, setResendActivationToken] = useState<string | null>(null);
+  const resendActivationUrl = resendActivationToken
+    ? `${window.location.origin}/activate?token=${encodeURIComponent(resendActivationToken)}`
+    : null;
+
   const transferActivationUrl = transferActivationToken
     ? `${window.location.origin}/activate?token=${encodeURIComponent(transferActivationToken)}`
     : null;
@@ -473,6 +481,21 @@ export function EmployeeDetailModal({
 
   // Doesn't call onUpdated() — same reasoning as handleInviteEss below, so
   // the success message/activation link stays visible instead of vanishing.
+  async function handleResendInvite() {
+    setResendError(null);
+    setResendActivationToken(null);
+    setIsResendingInvite(true);
+    try {
+      const result = await resendEmployeeInvite(employee.id);
+      setResendActivationToken(result.activationToken ?? null);
+      showToast(`Invitation re-sent to ${linkedUser?.email ?? 'the employee'}.`);
+    } catch (err) {
+      setResendError(extractError(err, 'Could not resend the invitation email. Please try again.'));
+    } finally {
+      setIsResendingInvite(false);
+    }
+  }
+
   async function handleTransferLogin(event: FormEvent) {
     event.preventDefault();
     setTransferLoginError(null);
@@ -1251,12 +1274,38 @@ export function EmployeeDetailModal({
                         {linkedUser === undefined ? 'Loading…' : (linkedUser?.email ?? '—')}
                       </p>
                     </div>
-                    {linkedUser && (
-                      <Badge tone={linkedUser.isActive ? 'success' : 'danger'}>
-                        {linkedUser.isActive ? 'Login Active' : 'Login Inactive'}
-                      </Badge>
-                    )}
+                    {linkedUser &&
+                      (linkedUser.status === 'invited' ? (
+                        <Badge tone="warning">Invite Pending</Badge>
+                      ) : (
+                        <Badge tone={linkedUser.isActive ? 'success' : 'danger'}>
+                          {linkedUser.isActive ? 'Login Active' : 'Login Inactive'}
+                        </Badge>
+                      ))}
                   </div>
+
+                  {linkedUser?.status === 'invited' && (
+                    <div className="space-y-2 rounded-xl border border-border bg-page p-3">
+                      <p className="text-sm text-ink-muted">
+                        This employee hasn't activated their login yet. If their link expired, send a fresh one to
+                        the same email — older links stop working.
+                      </p>
+                      {resendError && <p className="text-sm text-danger">{resendError}</p>}
+                      <Button type="button" variant="secondary" isLoading={isResendingInvite} onClick={handleResendInvite}>
+                        Resend invitation
+                      </Button>
+                      {resendActivationUrl && (
+                        <a
+                          href={resendActivationUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block break-all text-xs text-primary hover:underline"
+                        >
+                          {resendActivationUrl}
+                        </a>
+                      )}
+                    </div>
+                  )}
 
                   {!isTransferFormOpen ? (
                     <Button type="button" variant="secondary" onClick={() => setIsTransferFormOpen(true)}>
