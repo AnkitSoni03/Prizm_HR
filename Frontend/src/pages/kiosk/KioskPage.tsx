@@ -366,25 +366,12 @@ export function KioskPage() {
     return <KioskSignIn location={location} onReady={setLocation} onSignOut={signOutKiosk} />;
   }
 
-  const canLogout = state.phase === 'ready' || state.phase === 'error' || state.phase === 'success';
-
   return (
     <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-[10vh] text-center sm:px-4">
       <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1.5 text-xs font-medium text-white/70 sm:left-4 sm:top-4">
         <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
         {location.name}
       </div>
-
-      <button
-        type="button"
-        onClick={() => canLogout && signOutKiosk()}
-        disabled={!canLogout}
-        title="Sign out this kiosk"
-        className="absolute right-2 top-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/50 hover:bg-white/10 hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-30 sm:right-4 sm:top-4"
-      >
-        <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
-        <span className="hidden sm:inline">Sign out kiosk</span>
-      </button>
 
       <div className="flex w-full max-w-xl flex-1 flex-col items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4 shadow-2xl sm:max-w-2xl sm:gap-5 sm:p-8 lg:max-w-3xl">
         <div className="flex shrink-0 flex-col items-center gap-1">
