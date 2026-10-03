@@ -1,6 +1,8 @@
 'use strict';
 
 const service = require('./employee.service');
+const db = require('../../models');
+const { HttpError } = require('../../utils/errors');
 const rosterTransferService = require('./rosterTransfer.service');
 const { getManagersForEmployee } = require('../../utils/managerScope');
 const { parsePagination } = require('../../utils/pagination');
@@ -45,6 +47,13 @@ async function list(req, res, next) {
 async function get(req, res, next) {
   try {
     const employee = await service.getEmployeeForRead(req.params.id);
+    // Group Admin is company-less, so the tenant-scope hook is dormant for
+    // them — confine them to their own Group's employees explicitly (same
+    // 404-not-403 convention as getEmployeeForWrite's groupId check).
+    if (!req.auth.companyId && req.auth.groupId) {
+      const inGroup = await db.Company.count({ where: { id: employee.companyId, groupId: req.auth.groupId } });
+      if (!inGroup) throw new HttpError(404, 'Employee not found');
+    }
     res.json({ data: employee });
   } catch (err) {
     next(err);

@@ -126,9 +126,21 @@ function writeLegend(sheet, leaveLegend) {
 function buildAttendanceSheet(workbook, board) {
   const sheet = workbook.addWorksheet(`${MONTH_LABELS[board.month - 1]} ${board.year}`);
 
-  sheet.columns = [
+  // Company/Brand columns only when the board actually spans more than one
+  // (a Group Admin's group-wide export, or a multi-brand company) — a
+  // single-company, brand-less export keeps its original layout.
+  const showCompany = new Set(board.rows.map((r) => r.companyId)).size > 1;
+  const showBrand = board.rows.some((r) => r.brandName);
+  const identityColumns = [
     { header: 'Employee Code', key: 'employeeCode', width: 16 },
     { header: 'Name', key: 'name', width: 22 },
+    ...(showCompany ? [{ header: 'Company', key: 'companyName', width: 22 }] : []),
+    ...(showBrand ? [{ header: 'Brand', key: 'brandName', width: 18 }] : []),
+  ];
+  const detailCol = identityColumns.length + 1;
+
+  sheet.columns = [
+    ...identityColumns,
     { header: 'Detail', key: 'rowType', width: 20 },
     ...Array.from({ length: board.daysInMonth }, (_, i) => ({
       header: String(i + 1),
@@ -139,7 +151,7 @@ function buildAttendanceSheet(workbook, board) {
     { header: 'Total Hours', key: 'totalHours', width: 13 },
   ];
   sheet.getRow(1).font = { bold: true };
-  sheet.views = [{ state: 'frozen', xSplit: 3, ySplit: 1 }];
+  sheet.views = [{ state: 'frozen', xSplit: detailCol, ySplit: 1 }];
 
   // Vertical column lines start at the header row too, so they run
   // unbroken down into the data instead of only appearing partway down.
@@ -147,10 +159,41 @@ function buildAttendanceSheet(workbook, board) {
     sheet.getRow(1).getCell(c).border = { left: VERTICAL_BORDER, right: VERTICAL_BORDER, bottom: GROUP_SEPARATOR_BORDER };
   }
 
-  const firstDayCol = 4; // 1: code, 2: name, 3: row label, 4+: days
+  const firstDayCol = detailCol + 1; // identity columns, row label, then days
+
+  // Company > Brand sections: rows arrive sorted company > brand > name
+  // (attendance.service.js ORG_ORDER). When the export spans more than one
+  // section (a Group Admin's group-wide download, or a multi-brand
+  // company), each new section gets a blank spacer row plus a bold
+  // "Company › Brand" heading row, so different companies/brands never run
+  // into each other. A single-section export keeps its original layout.
+  const sectionKey = (r) => `${r.companyId}:${r.brandId ?? ''}`;
+  const sectioned = new Set(board.rows.map(sectionKey)).size > 1;
+  let currentSection = null;
 
   for (const row of board.rows) {
-    const statusRecord = { employeeCode: row.employeeCode, name: row.name ?? '', rowType: 'Status' };
+    if (sectioned && sectionKey(row) !== currentSection) {
+      if (currentSection !== null) sheet.addRow([]);
+      currentSection = sectionKey(row);
+      const sectionEmployees = board.rows.filter((r) => sectionKey(r) === currentSection).length;
+      const label = [row.companyName, row.brandName].filter(Boolean).join(' › ');
+      const headingRow = sheet.addRow([`${label || '—'}  (${sectionEmployees} employee${sectionEmployees === 1 ? '' : 's'})`]);
+      sheet.mergeCells(headingRow.number, 1, headingRow.number, sheet.columnCount);
+      const headingCell = headingRow.getCell(1);
+      headingCell.font = { bold: true, size: 12, color: { argb: 'FF1E3A8A' } };
+      headingCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } };
+      headingCell.alignment = { vertical: 'middle', horizontal: 'left' };
+      headingCell.border = { bottom: GROUP_SEPARATOR_BORDER };
+      headingRow.height = 20;
+    }
+
+    const statusRecord = {
+      employeeCode: row.employeeCode,
+      name: row.name ?? '',
+      companyName: row.companyName ?? '',
+      brandName: row.brandName ?? '',
+      rowType: 'Status',
+    };
     const timeRecord = { rowType: 'Check-In / Check-Out' };
     const hoursRecord = { rowType: 'Hours Worked' };
 
@@ -172,15 +215,14 @@ function buildAttendanceSheet(workbook, board) {
     const timeRow = sheet.addRow(timeRecord);
     const hoursRow = sheet.addRow(hoursRecord);
 
-    sheet.mergeCells(startRowNumber, 1, startRowNumber + ROWS_PER_EMPLOYEE - 1, 1);
-    sheet.mergeCells(startRowNumber, 2, startRowNumber + ROWS_PER_EMPLOYEE - 1, 2);
-    sheet.getCell(startRowNumber, 1).alignment = { vertical: 'middle', horizontal: 'left' };
-    sheet.getCell(startRowNumber, 2).alignment = { vertical: 'middle', horizontal: 'left' };
-    sheet.getCell(startRowNumber, 1).font = { bold: true };
-    sheet.getCell(startRowNumber, 2).font = { bold: true };
+    for (let c = 1; c < detailCol; c++) {
+      sheet.mergeCells(startRowNumber, c, startRowNumber + ROWS_PER_EMPLOYEE - 1, c);
+      sheet.getCell(startRowNumber, c).alignment = { vertical: 'middle', horizontal: 'left' };
+      sheet.getCell(startRowNumber, c).font = { bold: c <= 2 };
+    }
 
     [statusRow, timeRow, hoursRow].forEach((r) => {
-      r.getCell(3).font = { italic: true, size: 10, color: { argb: 'FF6B7280' } };
+      r.getCell(detailCol).font = { italic: true, size: 10, color: { argb: 'FF6B7280' } };
     });
 
     row.days.forEach((day, idx) => {

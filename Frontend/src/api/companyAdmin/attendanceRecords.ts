@@ -13,7 +13,10 @@ export interface AttendanceRosterRow {
   employeeId: string;
   employeeCode: string;
   name: string | null;
+  companyId: string;
+  companyName: string | null;
   brandId: string | null;
+  brandName: string | null;
   photoDownloadUrl: string | null;
   attendanceId: string | null;
   checkIn: string | null;
@@ -38,6 +41,9 @@ interface ListResult<T> {
 export async function listAttendanceRoster(params: {
   date: string;
   search?: string;
+  // Group Admin only: one of their Group's companies. Omitted = every
+  // company in the Group. Ignored server-side for company-scoped callers.
+  companyId?: string;
   brandId?: string;
   // 'leave' + leaveTypeId filters to one specific leave type; 'leave'
   // alone (no leaveTypeId) is accepted server-side but unused by this UI.
@@ -65,7 +71,10 @@ export interface AttendanceBoardRow {
   employeeId: string;
   employeeCode: string;
   name: string | null;
+  companyId: string;
+  companyName: string | null;
   brandId: string | null;
+  brandName: string | null;
   days: AttendanceBoardDay[];
 }
 
@@ -93,10 +102,11 @@ export interface AttendanceBoardResult {
 export async function getAttendanceBoard(
   year: number,
   month: number,
-  brandId?: string
+  brandId?: string,
+  companyId?: string
 ): Promise<AttendanceBoardResult> {
   const { data } = await apiClient.get<{ data: AttendanceBoardResult }>('/attendance/board', {
-    params: { year, month, brandId },
+    params: { year, month, brandId, companyId },
   });
   return data.data;
 }
@@ -105,9 +115,14 @@ export async function getAttendanceBoard(
 // the on-screen board (CSV can't carry cell colors). Always the full
 // employee list for the month, independent of whatever the page's own
 // search box currently narrows the on-screen table to.
-export async function getAttendanceBoardXlsx(year: number, month: number, brandId?: string): Promise<Blob> {
+export async function getAttendanceBoardXlsx(
+  year: number,
+  month: number,
+  brandId?: string,
+  companyId?: string
+): Promise<Blob> {
   const response = await apiClient.get('/attendance/board/export', {
-    params: { year, month, brandId },
+    params: { year, month, brandId, companyId },
     responseType: 'blob',
   });
   return response.data as Blob;
@@ -146,9 +161,13 @@ export async function bulkUpdateAttendanceStatus(input: {
 // Signed URL is minted fresh on every call (~15 min TTL, same convention as
 // company policy attachments) — never cached beyond the click that asked
 // for it.
-export async function getAttendanceVideoUrl(id: string, type: 'checkin' | 'checkout'): Promise<string> {
+export async function getAttendanceVideoUrl(
+  id: string,
+  type: 'checkin' | 'checkout',
+  companyId?: string
+): Promise<string> {
   const { data } = await apiClient.get<{ data: { url: string } }>(`/attendance/${id}/video-url`, {
-    params: { type },
+    params: { type, companyId },
   });
   return data.data.url;
 }

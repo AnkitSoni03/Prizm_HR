@@ -3,6 +3,32 @@
 const service = require('./attendance.service');
 const { parsePagination } = require('../../utils/pagination');
 const { writeAttendanceBoardXlsx } = require('../../utils/attendanceBoardExport');
+const db = require('../../models');
+const { HttpError } = require('../../utils/errors');
+const { assertCompanyInCallerGroup } = require('../../utils/resolveCompanyScope');
+
+// Which company (or companies) an admin attendance view covers. A
+// company-scoped caller is always pinned to their own company (any
+// ?companyId= is ignored). Group Admin is company-less: ?companyId= drills
+// into one of their Group's companies (verified to be in the Group), and
+// omitting it means "every company in my Group" — the group-wide
+// one-dashboard view. Super Admin must name a company. Returns either a
+// single id or an array; the service passes it straight into a Sequelize
+// `companyId` where, which treats an array as IN (...).
+async function resolveAttendanceCompanyScope(req) {
+  if (req.auth.companyId) return req.auth.companyId;
+  const requested = req.query.companyId || null;
+  if (req.auth.groupId) {
+    if (requested) {
+      await assertCompanyInCallerGroup({ groupId: req.auth.groupId, companyId: requested });
+      return requested;
+    }
+    const companies = await db.Company.findAll({ where: { groupId: req.auth.groupId }, attributes: ['id'] });
+    return companies.map((c) => c.id);
+  }
+  if (!requested) throw new HttpError(400, 'companyId is required');
+  return requested;
+}
 
 async function list(req, res, next) {
   try {
@@ -47,7 +73,7 @@ async function roster(req, res, next) {
     const requestedBrandId = req.query.brandId || null;
     const brandIds = req.auth.scopedBrandIds ?? (requestedBrandId ? [requestedBrandId] : null);
     const { rows, count } = await service.listAttendanceRoster({
-      companyId: req.auth.companyId,
+      companyId: await resolveAttendanceCompanyScope(req),
       brandIds,
       date: req.query.date,
       search: req.query.search,
@@ -74,7 +100,7 @@ function resolveBoardBrandIds(req) {
 async function board(req, res, next) {
   try {
     const result = await service.listAttendanceBoard({
-      companyId: req.auth.companyId,
+      companyId: await resolveAttendanceCompanyScope(req),
       brandIds: resolveBoardBrandIds(req),
       year: req.query.year,
       month: req.query.month,
@@ -88,7 +114,7 @@ async function board(req, res, next) {
 async function exportBoard(req, res, next) {
   try {
     const result = await service.listAttendanceBoard({
-      companyId: req.auth.companyId,
+      companyId: await resolveAttendanceCompanyScope(req),
       brandIds: resolveBoardBrandIds(req),
       year: req.query.year,
       month: req.query.month,
@@ -132,7 +158,7 @@ async function get(req, res, next) {
 async function videoUrl(req, res, next) {
   try {
     const result = await service.getAttendanceVideoUrl({
-      companyId: req.auth.companyId,
+      companyId: await resolveAttendanceCompanyScope(req),
       id: req.params.id,
       scopedEmployeeId: req.attendanceEmployeeScope,
       type: req.query.type,

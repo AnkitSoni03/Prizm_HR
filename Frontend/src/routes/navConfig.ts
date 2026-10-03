@@ -74,6 +74,8 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
 export const GROUP_ADMIN_NAV: NavItem[] = [
   { label: 'Dashboard', path: '/group-admin', icon: LayoutDashboard },
   { label: 'Companies', path: '/group-admin/companies', icon: Building2 },
+  { label: 'Attendance Records', path: '/group-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
+  { label: 'Attendance Board', path: '/group-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Settings', path: '/group-admin/settings', icon: Settings },
 ];
 

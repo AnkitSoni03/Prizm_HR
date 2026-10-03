@@ -1,4 +1,8 @@
+import { useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
+import { Tabs } from '../../../components/ui/Tabs';
+import { EmployeePowersEditor } from '../../../components/EmployeePowersEditor';
+import { useAuth } from '../../../context/auth-context';
 import { Badge } from '../../../components/ui/Badge';
 import { Avatar } from '../../../components/ui/Avatar';
 import type { Employee } from '../../../api/tenancy';
@@ -31,12 +35,44 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Read-only — Super Admin can view an employee's basic details from the
-// Users directory, but not edit them. Department/designation/shift/roster
-// assignment and any other management is Company Admin's job.
+// Details are read-only — Super Admin (Users directory) and Group Admin
+// (Company Detail drill-in) can view an employee's basic details, but
+// Department/designation/shift/roster assignment is Company Admin's job.
+// The one thing both CAN manage here is the employee's Powers: they're the
+// only callers allowed to grant Group level (Backend
+// employee.routes.js::requirePowerAssignAccess / utils/powerAuthority.js).
 export function EmployeeDetailModal({ employee, groupName, companyName, brandName, onClose }: EmployeeDetailModalProps) {
+  const { user } = useAuth();
+  const canManagePowers = !!user?.roles.some((role) => role.name === 'Group Admin' || role.name === 'Super Admin');
+  const [activeTab, setActiveTab] = useState<'details' | 'powers'>('details');
+
   return (
-    <Modal title={employee.name ?? employee.employeeCode} onClose={onClose}>
+    <Modal
+      title={employee.name ?? employee.employeeCode}
+      onClose={onClose}
+      widthClassName={canManagePowers ? 'max-w-2xl' : undefined}
+      tabs={
+        canManagePowers ? (
+          <Tabs
+            items={[
+              { key: 'details', label: 'Details' },
+              { key: 'powers', label: 'Powers' },
+            ]}
+            active={activeTab}
+            onChange={(key) => setActiveTab(key as 'details' | 'powers')}
+          />
+        ) : undefined
+      }
+    >
+      {activeTab === 'powers' && canManagePowers ? (
+        <div className="space-y-4">
+          <p className="text-sm text-ink-muted">
+            Hand-pick extra capabilities for this employee, independent of their role, and choose how far each one
+            reaches — their own Brand, the whole company, or every company in the Group.
+          </p>
+          <EmployeePowersEditor employeeId={employee.id} employeeHasBrand={!!employee.brandId} />
+        </div>
+      ) : (
       <div className="space-y-5">
         <div className="flex items-center gap-3">
           <Avatar src={employee.photoDownloadUrl} size="lg" />
@@ -67,6 +103,7 @@ export function EmployeeDetailModal({ employee, groupName, companyName, brandNam
           managed by the company's own admin.
         </p>
       </div>
+      )}
     </Modal>
   );
 }

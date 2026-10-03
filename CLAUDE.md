@@ -1206,6 +1206,30 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   `20260926090000` backfilled it. Regularization check-out times at/before check-in roll to
   the next day. UI: check-in/out show the actual date under the time (`PunchTime.tsx`),
   "Missed Checkout" badge. Tested offline with a mocked DB (19 scenarios) — not live.
+- ✅ Group Admin attendance (2026-10-03): new `/group-admin/attendance-records` and
+  `/group-admin/attendance-board` reuse Company Admin's pages with a `groupMode` prop
+  (Company filter, "All Companies" = whole Group on one page/one .xlsx export; rows
+  labeled company · brand). Backend: `attendance.controller.js::resolveAttendanceCompanyScope`
+  — company-scoped callers unchanged; Group Admin's `?companyId=` checked via
+  `assertCompanyInCallerGroup`, omitted = every company in the Group (array → `IN`);
+  applied to roster/board/export/video-url. Roster/board rows gained
+  `companyId/companyName/brandName`; board holiday match now also checks the employee's
+  own company; export adds Company/Brand columns only when the data spans >1.
+  Bulk "Change Status" now hidden without `attendance:update` (Group Admin is read-only).
+  Group view is sectioned "Company › Brand · N employees" (rows sorted company > brand
+  NULLS FIRST > name server-side, `ORG_ORDER`; frontend groups contiguous runs via
+  `components/groupRowsByOrg.ts` + `OrgGroupHeading.tsx`); Records uses 100/page in group mode.
+  The .xlsx export does the same when it spans >1 section: a blank spacer row + a bold
+  merged "Company › Brand (N employees)" heading row before each new section.
+  tsc/eslint/vite build clean; **not live-tested** (.env points at prod).
+- ✅ Group Admin can assign powers from the UI (2026-10-03): the backend already allowed it
+  (`requirePowerAssignAccess`, `powerAuthority.js`) but Group Admin's employee popup
+  (`super-admin/components/EmployeeDetailModal.tsx`, shared with Super Admin's Users
+  directory) was read-only. It now has a Details/Powers tab pair for Group Admin/Super Admin,
+  backed by a new self-contained `components/EmployeePowersEditor.tsx`. Company/Brand Admin
+  were already covered by `company-admin/components/EmployeeDetailModal.tsx`'s Powers tab.
+  Also fixed: `GET /employees/:id` was unscoped for Group Admin (company-less, tenant hook
+  dormant) — `employee.controller.js::get` now 404s an employee outside their Group.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

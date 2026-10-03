@@ -15,7 +15,7 @@ import {
   Video,
   XCircle,
 } from 'lucide-react';
-import { Table } from '../../components/ui/Table';
+import { Table, type Column } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -35,11 +35,14 @@ import {
   type AttendanceRosterRow,
 } from '../../api/companyAdmin/attendanceRecords';
 import { listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
-import { listBrands } from '../../api/companyAdmin/org';
-import type { Brand } from '../../api/tenancy';
+import { useAuth } from '../../context/auth-context';
+import { useAttendanceOrgFilters } from './components/useAttendanceOrgFilters';
+import { groupRowsByOrg } from './components/groupRowsByOrg';
+import { OrgGroupHeading } from './components/OrgGroupHeading';
 import { formatDisplayDate } from '../../utils/dateDisplay';
 
 const LIMIT = 20;
+const GROUP_LIMIT = 100;
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
   present: 'success',
@@ -154,7 +157,8 @@ function AttendanceCardSkeleton() {
 interface AttendanceCardProps {
   record: AttendanceRosterRow;
   selected: boolean;
-  onToggleSelect: () => void;
+  // Null when the caller can't change status (e.g. Group Admin, read-only).
+  onToggleSelect: (() => void) | null;
   onOpenVideo: (type: 'checkin' | 'checkout') => void;
 }
 
@@ -169,12 +173,14 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
     >
       <div className="flex items-start justify-between gap-3">
         <label className="flex min-w-0 items-center gap-3">
-          <input
-            type="checkbox"
-            className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-            checked={selected}
-            onChange={onToggleSelect}
-          />
+          {onToggleSelect && (
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+              checked={selected}
+              onChange={onToggleSelect}
+            />
+          )}
           <Avatar src={record.photoDownloadUrl} size="lg" />
           <div className="min-w-0">
             <p className="truncate text-[15px] font-semibold text-ink">{record.name || record.employeeCode || '—'}</p>
@@ -226,22 +232,25 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
 // Reused as-is by Brand Admin (attendance:read/attendance:update and now
 // leave_type:read are all brand-scoped or granted server-side) — no
 // portal-specific branching, same convention as ScannerAccountsPage.
-export function AttendanceRecordsPage() {
+//
+// groupMode (Group Admin): adds a Company filter ("All Companies" = every
+// company in the Group on one list) and labels each row with its company/
+// brand. The bulk "Change Status" controls are gated on attendance:update
+// for every portal — Group Admin only holds attendance:read, so it's
+// read-only for them.
+export function AttendanceRecordsPage({ groupMode = false }: { groupMode?: boolean }) {
   const showToast = useToast();
+  const { hasPermission } = useAuth();
+  const canUpdate = hasPermission('attendance:update');
   const today = formatDate(new Date());
   const [date, setDate] = useState(today);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [brandFilter, setBrandFilter] = useState('');
+  const org = useAttendanceOrgFilters(groupMode);
+  const { brands, brandFilter, setBrandFilter, companyId, brandId } = org;
   const [offset, setOffset] = useState(0);
 
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
-  // Reused as-is by Brand Admin (see the module comment above) — a Brand
-  // Admin's own listBrands() call now correctly returns only their own
-  // Brand (brand.service.js::listBrands), so this always resolves to
-  // exactly 1 for them and the filter stays hidden; a multi-brand company
-  // viewed by Company Admin gets the real list.
-  const [brands, setBrands] = useState<Brand[]>([]);
 
   const [records, setRecords] = useState<AttendanceRosterRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -260,16 +269,16 @@ export function AttendanceRecordsPage() {
     ...leaveTypes.map((lt) => ({ value: `leave:${lt.id}`, label: lt.name })),
   ];
 
+  // Leave types are per company, so a group-wide view filters on "any
+  // leave" instead (the backend accepts status=leave with no leaveTypeId).
+  const filterStatusOptions = groupMode ? [...BASE_STATUS_OPTIONS, { value: 'leave', label: 'On Leave' }] : statusOptions;
+
   useEffect(() => {
+    if (groupMode) return;
     listLeaveTypes()
       .then(setLeaveTypes)
       .catch(() => setLeaveTypes([]));
-    listBrands()
-      .then(setBrands)
-      .catch(() => {
-        /* non-critical — the Brand filter just stays hidden */
-      });
-  }, []);
+  }, [groupMode]);
 
   async function load() {
     setIsLoading(true);
@@ -281,8 +290,9 @@ export function AttendanceRecordsPage() {
         search: search.trim() || undefined,
         status,
         leaveTypeId,
-        brandId: brands.length > 1 ? brandFilter || undefined : undefined,
-        limit: LIMIT,
+        brandId,
+        companyId,
+        limit: groupMode ? GROUP_LIMIT : LIMIT,
         offset,
       });
       setRecords(result.data);
@@ -298,7 +308,7 @@ export function AttendanceRecordsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, search, statusFilter, brandFilter, offset]);
+  }, [date, search, statusFilter, brandId, companyId, offset]);
 
   // Marking is per-date — a selection made for one date has no meaning on
   // another, so switching dates starts fresh.
@@ -307,10 +317,11 @@ export function AttendanceRecordsPage() {
     setSelectedIds(new Set());
   }, [date]);
 
-  async function openVideo(id: string, type: 'checkin' | 'checkout') {
+  async function openVideo(record: AttendanceRosterRow, type: 'checkin' | 'checkout') {
+    if (!record.attendanceId) return;
     setVideoError(null);
     try {
-      const url = await getAttendanceVideoUrl(id, type);
+      const url = await getAttendanceVideoUrl(record.attendanceId, type, groupMode ? record.companyId : undefined);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch {
       setVideoError('Could not open this video. It may have expired or been cleaned up.');
@@ -376,6 +387,103 @@ export function AttendanceRecordsPage() {
     }
   }
 
+  // Group Admin view: one section per Company > Brand instead of a single
+  // mixed list (rows already arrive sorted company > brand > name).
+  const orgGroups = groupRowsByOrg(records);
+
+  const columns: Column<AttendanceRosterRow>[] = [
+    ...(canUpdate ? [{
+      key: 'select',
+      header: '',
+      className: 'w-10',
+      render: (r: AttendanceRosterRow) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-border accent-primary"
+          checked={selectedIds.has(r.employeeId)}
+          onChange={() => toggleSelected(r.employeeId)}
+        />
+      ),
+    }] : []),
+    {
+      key: 'employee',
+      header: 'Employee',
+      render: (r) => (
+        <div className="flex items-center gap-2.5">
+          <Avatar src={r.photoDownloadUrl} size="sm" />
+          <span>{r.name || r.employeeCode || '—'}</span>
+        </div>
+      ),
+    },
+    { key: 'checkIn', header: 'Check In', render: (r) => <PunchTime value={r.checkIn} /> },
+    { key: 'checkOut', header: 'Check Out', render: (r) => <PunchTime value={r.checkOut} /> },
+    {
+      key: 'workingHours',
+      header: 'Working Hrs',
+      render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (r) =>
+        r.kioskLocationName ? (
+          <span className="inline-flex items-center gap-1 text-ink-muted">
+            <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {r.kioskLocationName}
+          </span>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (r) => <StatusBadge record={r} />,
+    },
+    {
+      key: 'video',
+      header: 'Video',
+      className: 'w-28',
+      // One slot per leg, independently — a check-in video button
+      // only when the employee actually checked in, a check-out
+      // one only when they actually checked out, a plain dash for
+      // whichever leg hasn't happened yet.
+      render: (r) => {
+        const attendanceId = r.attendanceId;
+        return (
+          <div className="flex items-center gap-1">
+            {attendanceId && r.checkIn ? (
+              <button
+                type="button"
+                onClick={() => openVideo(r, 'checkin')}
+                aria-label="View check-in video"
+                title="Check-in video"
+                className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
+              >
+                <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            ) : (
+              <span className="w-7 text-center text-ink-muted">—</span>
+            )}
+            {attendanceId && r.checkOut ? (
+              <button
+                type="button"
+                onClick={() => openVideo(r, 'checkout')}
+                aria-label="View check-out video"
+                title="Check-out video"
+                className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
+              >
+                <Video className="h-3.5 w-3.5 rotate-180" strokeWidth={1.75} />
+              </button>
+            ) : (
+              <span className="w-7 text-center text-ink-muted">—</span>
+            )}
+          </div>
+        );
+      },
+    },
+];
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-end gap-3">
@@ -420,9 +528,26 @@ export function AttendanceRecordsPage() {
               setOffset(0);
               setStatusFilter(event.target.value);
             }}
-            options={[{ value: '', label: 'All Status' }, ...statusOptions]}
+            options={[{ value: '', label: 'All Status' }, ...filterStatusOptions]}
           />
         </div>
+        {groupMode && (
+          <div className="w-full sm:w-48">
+            <Select
+              id="attendance-records-company"
+              label="Company"
+              value={org.companyFilter}
+              onChange={(event) => {
+                setOffset(0);
+                org.setCompanyFilter(event.target.value);
+              }}
+              options={[
+                { value: '', label: 'All Companies' },
+                ...org.companies.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
+          </div>
+        )}
         {brands.length > 1 && (
           <div className="w-full sm:w-48">
             <Select
@@ -439,6 +564,7 @@ export function AttendanceRecordsPage() {
         )}
       </div>
 
+      {canUpdate && (
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-xs">
         <label className="flex items-center gap-2 text-sm font-medium text-ink">
           <input
@@ -457,6 +583,7 @@ export function AttendanceRecordsPage() {
           </Button>
         </div>
       </div>
+      )}
 
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
       {videoError && <p className="mb-3 text-sm text-danger">{videoError}</p>}
@@ -472,120 +599,52 @@ export function AttendanceRecordsPage() {
       {(isLoading || records.length > 0) && (
         <>
           <div className="hidden md:block">
-            <Table
-              isLoading={isLoading}
-              rows={records}
-              rowKey={(r) => r.employeeId}
-              columns={[
-                {
-                  key: 'select',
-                  header: '',
-                  className: 'w-10',
-                  render: (r) => (
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-border accent-primary"
-                      checked={selectedIds.has(r.employeeId)}
-                      onChange={() => toggleSelected(r.employeeId)}
-                    />
-                  ),
-                },
-                {
-                  key: 'employee',
-                  header: 'Employee',
-                  render: (r) => (
-                    <div className="flex items-center gap-2.5">
-                      <Avatar src={r.photoDownloadUrl} size="sm" />
-                      <span>{r.name || r.employeeCode || '—'}</span>
+            {groupMode && !isLoading ? (
+              <div className="space-y-5">
+                {orgGroups.map((group) => (
+                  <section key={group.key}>
+                    <div className="mb-2">
+                      <OrgGroupHeading companyName={group.companyName} brandName={group.brandName} count={group.rows.length} />
                     </div>
-                  ),
-                },
-                { key: 'checkIn', header: 'Check In', render: (r) => <PunchTime value={r.checkIn} /> },
-                { key: 'checkOut', header: 'Check Out', render: (r) => <PunchTime value={r.checkOut} /> },
-                {
-                  key: 'workingHours',
-                  header: 'Working Hrs',
-                  render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
-                },
-                {
-                  key: 'location',
-                  header: 'Location',
-                  render: (r) =>
-                    r.kioskLocationName ? (
-                      <span className="inline-flex items-center gap-1 text-ink-muted">
-                        <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} />
-                        {r.kioskLocationName}
-                      </span>
-                    ) : (
-                      '—'
-                    ),
-                },
-                {
-                  key: 'status',
-                  header: 'Status',
-                  render: (r) => <StatusBadge record={r} />,
-                },
-                {
-                  key: 'video',
-                  header: 'Video',
-                  className: 'w-28',
-                  // One slot per leg, independently — a check-in video button
-                  // only when the employee actually checked in, a check-out
-                  // one only when they actually checked out, a plain dash for
-                  // whichever leg hasn't happened yet.
-                  render: (r) => {
-                    const attendanceId = r.attendanceId;
-                    return (
-                      <div className="flex items-center gap-1">
-                        {attendanceId && r.checkIn ? (
-                          <button
-                            type="button"
-                            onClick={() => openVideo(attendanceId, 'checkin')}
-                            aria-label="View check-in video"
-                            title="Check-in video"
-                            className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
-                          >
-                            <Video className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          </button>
-                        ) : (
-                          <span className="w-7 text-center text-ink-muted">—</span>
-                        )}
-                        {attendanceId && r.checkOut ? (
-                          <button
-                            type="button"
-                            onClick={() => openVideo(attendanceId, 'checkout')}
-                            aria-label="View check-out video"
-                            title="Check-out video"
-                            className="rounded-md p-1.5 text-ink-muted hover:bg-page hover:text-primary"
-                          >
-                            <Video className="h-3.5 w-3.5 rotate-180" strokeWidth={1.75} />
-                          </button>
-                        ) : (
-                          <span className="w-7 text-center text-ink-muted">—</span>
-                        )}
-                      </div>
-                    );
-                  },
-                },
-              ]}
-            />
+                    <Table rows={group.rows} rowKey={(r) => r.employeeId} columns={columns} />
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <Table isLoading={isLoading} rows={records} rowKey={(r) => r.employeeId} columns={columns} />
+            )}
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden lg:grid-cols-3">
-            {isLoading && <AttendanceCardSkeleton />}
+          <div className="space-y-5 md:hidden">
+            {isLoading && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <AttendanceCardSkeleton />
+              </div>
+            )}
             {!isLoading &&
-              records.map((r) => (
-                <AttendanceCard
-                  key={r.employeeId}
-                  record={r}
-                  selected={selectedIds.has(r.employeeId)}
-                  onToggleSelect={() => toggleSelected(r.employeeId)}
-                  onOpenVideo={(type) => r.attendanceId && openVideo(r.attendanceId, type)}
-                />
+              (groupMode ? orgGroups : [{ key: 'all', companyName: null, brandName: null, rows: records }]).map((group) => (
+                <section key={group.key}>
+                  {groupMode && (
+                    <div className="mb-2">
+                      <OrgGroupHeading companyName={group.companyName} brandName={group.brandName} count={group.rows.length} />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {group.rows.map((r) => (
+                      <AttendanceCard
+                        key={r.employeeId}
+                        record={r}
+                        selected={selectedIds.has(r.employeeId)}
+                        onToggleSelect={canUpdate ? () => toggleSelected(r.employeeId) : null}
+                        onOpenVideo={(type) => openVideo(r, type)}
+                      />
+                    ))}
+                  </div>
+                </section>
               ))}
           </div>
 
-          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
+          <Pagination total={total} limit={groupMode ? GROUP_LIMIT : LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
 

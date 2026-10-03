@@ -12,8 +12,9 @@ import {
   type AttendanceBoardRow,
   type AttendanceRosterStatus,
 } from '../../api/companyAdmin/attendanceRecords';
-import { listBrands } from '../../api/companyAdmin/org';
-import type { Brand } from '../../api/tenancy';
+import { useAttendanceOrgFilters } from './components/useAttendanceOrgFilters';
+import { groupRowsByOrg } from './components/groupRowsByOrg';
+import { OrgGroupHeading } from './components/OrgGroupHeading';
 
 const MONTH_LABELS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -79,12 +80,17 @@ function downloadBlob(filename: string, blob: Blob) {
 // compact status code. Reuses the same server-side gap-fill synthesis the
 // ESS "My Attendance" calendar already relies on (GET /attendance/board),
 // just batched across the whole company/brand instead of one employee.
-export function AttendanceBoardPage() {
+//
+// groupMode (Group Admin): adds a Company filter — "All Companies" shows
+// every employee of every company in the Group on one board (and one
+// export), each row labeled with its company/brand.
+export function AttendanceBoardPage({ groupMode = false }: { groupMode?: boolean }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
   const [search, setSearch] = useState('');
-  const [brandFilter, setBrandFilter] = useState('');
+  const org = useAttendanceOrgFilters(groupMode);
+  const { brands, brandFilter, setBrandFilter, companyId, brandId } = org;
 
   const [rows, setRows] = useState<AttendanceBoardRow[]>([]);
   const [daysInMonth, setDaysInMonth] = useState(31);
@@ -92,27 +98,12 @@ export function AttendanceBoardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  // Reused as-is by Brand Admin (see the module comment above) — a Brand
-  // Admin's own listBrands() call now correctly returns only their own
-  // Brand (brand.service.js::listBrands), so this always resolves to
-  // exactly 1 for them and the filter stays hidden; a multi-brand company
-  // viewed by Company Admin gets the real list.
-  const [brands, setBrands] = useState<Brand[]>([]);
-
-  useEffect(() => {
-    listBrands()
-      .then(setBrands)
-      .catch(() => {
-        /* non-critical — the Brand filter just stays hidden */
-      });
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
-    getAttendanceBoard(year, month, brands.length > 1 ? brandFilter || undefined : undefined)
+    getAttendanceBoard(year, month, brandId, companyId)
       .then((result) => {
         if (cancelled) return;
         setRows(result.rows);
@@ -128,7 +119,7 @@ export function AttendanceBoardPage() {
     return () => {
       cancelled = true;
     };
-  }, [year, month, brandFilter, brands.length]);
+  }, [year, month, brandId, companyId]);
 
   function shiftMonth(delta: number) {
     let m = month + delta;
@@ -148,7 +139,10 @@ export function AttendanceBoardPage() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter(
-      (r) => (r.name ?? '').toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q)
+      (r) =>
+        (r.name ?? '').toLowerCase().includes(q) ||
+        r.employeeCode.toLowerCase().includes(q) ||
+        (r.companyName ?? '').toLowerCase().includes(q)
     );
   }, [rows, search]);
 
@@ -156,8 +150,11 @@ export function AttendanceBoardPage() {
     setIsExporting(true);
     setError(null);
     try {
-      const blob = await getAttendanceBoardXlsx(year, month, brands.length > 1 ? brandFilter || undefined : undefined);
-      downloadBlob(`attendance-board-${year}-${String(month).padStart(2, '0')}.xlsx`, blob);
+      const blob = await getAttendanceBoardXlsx(year, month, brandId, companyId);
+      const scopeLabel = groupMode
+        ? (org.companies.find((c) => c.id === companyId)?.name ?? 'all-companies').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+        : null;
+      downloadBlob(`attendance-board-${scopeLabel ? `${scopeLabel}-` : ''}${year}-${String(month).padStart(2, '0')}.xlsx`, blob);
     } catch {
       setError('Could not export the attendance board.');
     } finally {
@@ -165,12 +162,18 @@ export function AttendanceBoardPage() {
     }
   }
 
+  // Group Admin: one Company > Brand section per run of rows (already
+  // sorted that way server-side); everyone else gets a single flat section.
+  const sections = groupMode
+    ? groupRowsByOrg(filteredRows)
+    : [{ key: 'all', companyName: null, brandName: null, rows: filteredRows }];
+
   const dayNumbers = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <button
             type="button"
             aria-label="Previous month"
@@ -205,6 +208,20 @@ export function AttendanceBoardPage() {
           >
             <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
           </button>
+          {groupMode && (
+            <div className="w-48">
+              <Select
+                id="attendance-board-company"
+                label="Company"
+                value={org.companyFilter}
+                onChange={(event) => org.setCompanyFilter(event.target.value)}
+                options={[
+                  { value: '', label: 'All Companies' },
+                  ...org.companies.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
+            </div>
+          )}
           {brands.length > 1 && (
             <div className="w-40">
               <Select
@@ -307,7 +324,21 @@ export function AttendanceBoardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredRows.map((row) => (
+              {sections.map((section) => [
+                groupMode && (
+                  <tr key={`${section.key}-heading`} className="bg-primary-light/40">
+                    <td colSpan={daysInMonth + 1} className="px-4 py-2.5">
+                      <div className="sticky left-4 inline-block">
+                        <OrgGroupHeading
+                          companyName={section.companyName}
+                          brandName={section.brandName}
+                          count={section.rows.length}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ),
+                ...section.rows.map((row) => (
                 <tr key={row.employeeId}>
                   <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-4 py-2 align-middle">
                     <div className="font-medium text-ink">{row.name ?? '—'}</div>
@@ -323,7 +354,8 @@ export function AttendanceBoardPage() {
                     </td>
                   ))}
                 </tr>
-              ))}
+                )),
+              ])}
             </tbody>
           </table>
         </div>

@@ -434,12 +434,33 @@ async function leaveTypeNamesForDate({ employeeIds, date }) {
   return new Map(requests.map((r) => [String(r.employeeId), r.leaveType?.name ?? null]));
 }
 
+// Company/Brand display names on every admin roster/board row — a Group
+// Admin's group-wide view mixes employees from several companies, so the
+// row has to say which one each belongs to (Group Admin can't resolve names
+// client-side across companies the way a single-company admin can).
+const EMPLOYEE_ORG_INCLUDES = [
+  { model: db.Company, as: 'company', attributes: ['id', 'name'] },
+  { model: db.Brand, as: 'brand', attributes: ['id', 'name'] },
+];
+
+// Company > Brand > employee name, so a Group Admin's view arrives as
+// contiguous Company > Brand sections (the frontend groups by runs).
+// Company-level (brand-less) employees come first within their company.
+const ORG_ORDER = [
+  [{ model: db.Company, as: 'company' }, 'name', 'ASC'],
+  [{ model: db.Brand, as: 'brand' }, 'name', 'ASC NULLS FIRST'],
+  ['name', 'ASC'],
+];
+
 async function toRosterRow(employee, attendance, leaveTypeName) {
   return {
     employeeId: employee.id,
     employeeCode: employee.employeeCode,
     name: employee.name,
+    companyId: employee.companyId,
+    companyName: employee.company ? employee.company.name : null,
     brandId: employee.brandId,
+    brandName: employee.brand ? employee.brand.name : null,
     photoDownloadUrl: await photoDownloadUrlFor(employee),
     attendanceId: attendance ? attendance.id : null,
     checkIn: attendance ? attendance.checkIn : null,
@@ -508,11 +529,12 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
           model: db.Employee,
           as: 'employee',
           where: employeeWhere,
-          attributes: ['id', 'employeeCode', 'name', 'brandId', 'photoUrl'],
+          attributes: ['id', 'employeeCode', 'name', 'companyId', 'brandId', 'photoUrl'],
+          include: EMPLOYEE_ORG_INCLUDES,
         },
         { model: db.KioskLocation, as: 'kioskLocation', attributes: ['id', 'name'] },
       ],
-      order: [[{ model: db.Employee, as: 'employee' }, 'name', 'ASC']],
+      order: ORG_ORDER.map((o) => [{ model: db.Employee, as: 'employee' }, ...o]),
     });
 
     return { rows: await Promise.all(attendanceRows.map((a) => toRosterRow(a.employee, a, leaveTypeName))), count };
@@ -522,8 +544,9 @@ async function listAttendanceRoster({ companyId, brandIds, date, search, status,
     where: employeeWhere,
     limit,
     offset,
-    order: [['name', 'ASC']],
-    attributes: ['id', 'employeeCode', 'name', 'brandId', 'photoUrl'],
+    order: ORG_ORDER,
+    attributes: ['id', 'employeeCode', 'name', 'companyId', 'brandId', 'photoUrl'],
+    include: EMPLOYEE_ORG_INCLUDES,
   });
 
   const employeeIds = employees.map((e) => e.id);
@@ -613,8 +636,11 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
 
   const employees = await db.Employee.findAll({
     where: employeeWhere,
-    attributes: ['id', 'employeeCode', 'name', 'brandId', 'dateOfJoining', 'rosterGroupId'],
-    order: [['name', 'ASC']],
+    attributes: ['id', 'employeeCode', 'name', 'companyId', 'brandId', 'dateOfJoining', 'rosterGroupId'],
+    include: EMPLOYEE_ORG_INCLUDES,
+    // Company first so a Group Admin's group-wide board reads as one
+    // block per company; a no-op ordering for a single-company caller.
+    order: ORG_ORDER,
   });
   const employeeIds = employees.map((e) => e.id);
   if (employeeIds.length === 0) return { year: y, month: m, daysInMonth, rows: [], leaveLegend: [] };
@@ -633,7 +659,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
     // below.
     db.Holiday.findAll({
       where: { companyId, date: { [Op.lte]: monthEnd }, endDate: { [Op.gte]: monthStart } },
-      attributes: ['date', 'endDate', 'brandId'],
+      attributes: ['date', 'endDate', 'brandId', 'companyId'],
       include: [{ model: db.RosterGroup, as: 'rosterGroups', through: { attributes: [] }, attributes: ['id'] }],
     }),
     db.LeaveRequest.findAll({
@@ -770,6 +796,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
           (h) =>
             h.date <= d &&
             h.endDate >= d &&
+            String(h.companyId) === String(employee.companyId) &&
             (h.brandId === null || h.brandId === employee.brandId) &&
             h.rosterGroups.some((rg) => String(rg.id) === String(employee.rosterGroupId))
         );
@@ -789,7 +816,10 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
       employeeId: employee.id,
       employeeCode: employee.employeeCode,
       name: employee.name,
+      companyId: employee.companyId,
+      companyName: employee.company ? employee.company.name : null,
       brandId: employee.brandId,
+      brandName: employee.brand ? employee.brand.name : null,
       days,
       summary: { ...summary, workedMinutes: Math.round(summary.workedMinutes) },
     };

@@ -382,6 +382,28 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/group-admin/attendance-records"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Attendance Records">
+              <CompanyAdminAttendanceRecordsPage groupMode />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-admin/attendance-board"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Attendance Board">
+              <CompanyAdminAttendanceBoardPage groupMode />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/group-admin/settings"
         element={
           <ProtectedRoute>
