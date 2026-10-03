@@ -6,7 +6,13 @@ export interface KioskLocation {
   isActive: boolean;
   /** A live device is currently signed in as this location. */
   inUse: boolean;
+  /** Signed in, but the device hasn't checked in for 3+ minutes (asleep/offline/tab in background). */
+  idle: boolean;
   heldByThisDevice: boolean;
+  /** When the device currently signed in here claimed it (null when free). */
+  sessionClaimedAt: string | null;
+  /** That device's last heartbeat (null when free). */
+  sessionLastSeenAt: string | null;
 }
 
 export interface KioskAccount {
@@ -73,6 +79,21 @@ export async function getKioskAccountPassword(id: string, groupId: string): Prom
     { params: { groupId } }
   );
   return data.data.password;
+}
+
+// Signs out the device running as one location, or — with no locationId —
+// every device on this account (which also invalidates their saved logins,
+// so each must sign in again with the password). The device notices within
+// a minute (its next heartbeat) and drops to the sign-in screen.
+export async function signOutKioskLocations(
+  id: string,
+  input: { groupId: string; locationId?: string }
+): Promise<{ signedOut: number }> {
+  const { data } = await apiClient.post<{ data: { signedOut: number } }>(
+    `/attendance/scanner-accounts/${id}/sign-out`,
+    input
+  );
+  return data.data;
 }
 
 export async function deleteKioskAccount(id: string, groupId: string): Promise<void> {

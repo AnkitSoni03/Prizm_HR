@@ -6,7 +6,7 @@ const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
 const { uploadBuffer, buildObjectPath } = require('../../utils/gcs');
 const { encryptKioskPassword, decryptKioskPassword } = require('../../utils/kioskCredentials');
-const { listLocationsForAccount } = require('./kioskLocation.service');
+const { listLocationsForAccount, forceSignOutLocations } = require('./kioskLocation.service');
 
 const BCRYPT_ROUNDS = 12;
 
@@ -282,6 +282,28 @@ async function getKioskAccountPassword({ groupId, userId }) {
   return { password: decryptKioskPassword(user.kioskPasswordEncrypted) };
 }
 
+// Super Admin "Sign out" on a kiosk account: one location (the device
+// currently running as it), or every location at once. Signing out all of
+// them also bumps the account's tokenVersion, so no device can silently
+// renew its login with an old refresh token — each one has to sign in
+// again with the password (a single location leaves the other locations'
+// devices signed in, so it only evicts that one device's location session).
+async function signOutKioskLocations({ groupId, userId, locationId = null }) {
+  const grant = await findKioskGrant({ groupId, userId });
+  if (!grant) throw new HttpError(404, 'Kiosk account not found');
+
+  if (locationId) {
+    const location = await db.KioskLocation.findOne({ where: { id: locationId, kioskUserId: userId } });
+    if (!location) throw new HttpError(404, 'Location not found for this kiosk account');
+  }
+
+  const result = await forceSignOutLocations({ kioskUserId: userId, locationId });
+  if (!locationId) {
+    await db.User.increment('tokenVersion', { where: { id: userId } });
+  }
+  return result;
+}
+
 // Soft-deletes the account and its grant, and releases every location it
 // held. Locations are soft-deleted too, for the same "a historical punch
 // must keep naming where it happened" reason as above.
@@ -303,6 +325,7 @@ async function deleteKioskAccount({ groupId, userId }) {
 }
 
 module.exports = {
+  signOutKioskLocations,
   resolveKioskScope,
   uploadFaceCapture,
   createKioskAccount,

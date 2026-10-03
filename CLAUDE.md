@@ -1230,6 +1230,18 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   were already covered by `company-admin/components/EmployeeDetailModal.tsx`'s Powers tab.
   Also fixed: `GET /employees/:id` was unscoped for Group Admin (company-less, tenant hook
   dormant) — `employee.controller.js::get` now 404s an employee outside their Group.
+- ✅ Super Admin remote kiosk sign-out (2026-10-03): Group detail → Attendance Kiosks →
+  "Signed-in Devices" (LogOut icon) lists each location with live status/since/last-active
+  and signs out one location's device or all devices (`POST /attendance/scanner-accounts/:id/
+  sign-out`, `requireSuperAdmin`, body `{ groupId, locationId? }`). No migration: the claim's
+  `active_session_id` becomes a `revoked:<old id>` tombstone with null heartbeat, so the location
+  is immediately claimable again while the evicted device's next heartbeat/punch gets 409
+  `KIOSK_SIGNED_OUT` (`kioskLocation.service.js::throwIfSignedOut`) and `KioskPage.tsx` fully
+  logs out. "Sign out all" also bumps the kiosk User's `tokenVersion` (no silent refresh).
+  Tombstone is overwritten once another device claims the location — the old device then just
+  gets LOCATION_LOST (picker) on a stale tab, acceptable since it already dropped its tokens.
+  UI shows only two states: "Signed in" (claim held, live or idle — `idle` flag from the API)
+  with a Sign Out button, or "Not signed in" (no button). Mock-tested offline.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

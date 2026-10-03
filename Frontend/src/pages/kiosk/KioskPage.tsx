@@ -90,6 +90,12 @@ function extractErrorDetails(err: unknown, fallback: string): FaceCheckInErrorDe
   return { message: fallback };
 }
 
+// Super Admin signed this device out remotely (Kiosk Accounts → Signed-in
+// Devices) — the device must log out entirely, not just re-pick a location.
+function isSignedOutByAdmin(err: unknown): boolean {
+  return extractErrorDetails(err, '').code === 'KIOSK_SIGNED_OUT';
+}
+
 function extractMessage(err: unknown, fallback: string): string {
   return extractErrorDetails(err, fallback).message;
 }
@@ -161,8 +167,10 @@ export function KioskPage() {
       .then((restored) => {
         if (!cancelled) setLocation(restored);
       })
-      .catch(() => {
-        if (!cancelled) setLocation(null);
+      .catch((err) => {
+        if (cancelled) return;
+        if (isSignedOutByAdmin(err)) signOutKiosk();
+        else setLocation(null);
       })
       .finally(() => {
         if (!cancelled) setIsRestoring(false);
@@ -170,6 +178,7 @@ export function KioskPage() {
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- signOutKiosk only wraps release + logout; a stale closure is harmless
   }, [isAuthenticated]);
 
   // Keeps the claim alive. A failure here means the claim is gone (another
@@ -178,9 +187,13 @@ export function KioskPage() {
   useEffect(() => {
     if (!location) return;
     const timer = window.setInterval(() => {
-      heartbeatKioskLocation().catch(() => setLocation(null));
+      heartbeatKioskLocation().catch((err) => {
+        if (isSignedOutByAdmin(err)) signOutKiosk();
+        else setLocation(null);
+      });
     }, HEARTBEAT_INTERVAL_MS);
     return () => window.clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- signOutKiosk only wraps release + logout; a stale closure is harmless
   }, [location]);
 
   function clearLivenessTimeout() {
@@ -284,6 +297,10 @@ export function KioskPage() {
       // This device's location was taken over or removed while it sat idle —
       // send it back to the picker instead of showing a generic failure the
       // employee can do nothing about.
+      if (details.code === 'KIOSK_SIGNED_OUT') {
+        signOutKiosk();
+        return;
+      }
       if (details.code === 'LOCATION_LOST' || details.code === 'LOCATION_REQUIRED') {
         setLocation(null);
         setState({ phase: 'ready' });
@@ -300,6 +317,7 @@ export function KioskPage() {
       // give them time to read it.
       setTimeout(() => setState({ phase: 'ready' }), details.code === 'CHECKOUT_WINDOW_EXPIRED' ? 7000 : 3000);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- signOutKiosk only wraps release + logout; a stale closure is harmless
   }, []);
 
   const handleLivenessError = useCallback(async () => {

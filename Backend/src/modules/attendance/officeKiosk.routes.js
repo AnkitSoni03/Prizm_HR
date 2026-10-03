@@ -56,6 +56,7 @@ router.get('/scanner-accounts', requireSuperAdmin, controller.listKioskAccounts)
 router.patch('/scanner-accounts/:id/locations', requireSuperAdmin, controller.updateKioskAccountLocations);
 router.patch('/scanner-accounts/:id/password', requireSuperAdmin, controller.resetKioskAccountPassword);
 router.get('/scanner-accounts/:id/password', requireSuperAdmin, controller.getKioskAccountPassword);
+router.post('/scanner-accounts/:id/sign-out', requireSuperAdmin, controller.signOutKioskLocations);
 router.delete('/scanner-accounts/:id', requireSuperAdmin, controller.deleteKioskAccount);
 
 module.exports = router;

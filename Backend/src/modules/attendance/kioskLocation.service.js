@@ -25,6 +25,31 @@ function isClaimLive(location) {
   return new Date(location.sessionLastSeenAt) > staleCutoff();
 }
 
+// Super Admin "sign out this location" leaves a tombstone in
+// active_session_id instead of just clearing it: `revoked:<old session>`.
+// No heartbeat timestamp goes with it, so isClaimLive() treats the location
+// as free (any device may claim it straight away — claimLocation's
+// sessionLastSeenAt-null branch), while the evicted device's next heartbeat
+// or punch can still recognise that it was signed out on purpose
+// (KIOSK_SIGNED_OUT → it logs itself out) rather than merely having lost the
+// location (LOCATION_LOST → back to the picker). No schema change needed.
+const REVOKED_PREFIX = 'revoked:';
+
+async function throwIfSignedOut({ kioskUserId, sessionId }) {
+  const revoked = await db.KioskLocation.count({
+    where: { kioskUserId, activeSessionId: `${REVOKED_PREFIX}${sessionId}` },
+  });
+  if (revoked > 0) {
+    throw new HttpError(409, 'This kiosk was signed out by an administrator.', 'KIOSK_SIGNED_OUT');
+  }
+}
+
+// A device's claim is on the row at all (live or idle) — i.e. a real session
+// id, not empty and not a Super Admin sign-out tombstone.
+function isClaimHeld(location) {
+  return !!location.activeSessionId && !location.activeSessionId.startsWith(REVOKED_PREFIX);
+}
+
 function newSessionId() {
   return crypto.randomBytes(24).toString('hex');
 }
@@ -35,6 +60,16 @@ function toPublic(location, { sessionId } = {}) {
     name: location.name,
     isActive: location.isActive,
     inUse: isClaimLive(location),
+    // A device holds this location but hasn't sent a heartbeat within
+    // STALE_SESSION_MS (asleep, screen off, tab frozen in the background,
+    // offline). It's still signed in — its next heartbeat or punch picks
+    // the claim straight back up — but another device may now take the
+    // location over. Super Admin's list shows it as "Idle", not "Not
+    // signed in", which is what it used to look like.
+    idle: isClaimHeld(location) && !isClaimLive(location),
+    // When the device signed in here / last checked in — Super Admin's list.
+    sessionClaimedAt: isClaimHeld(location) ? location.sessionClaimedAt : null,
+    sessionLastSeenAt: isClaimHeld(location) ? location.sessionLastSeenAt : null,
     // True when *this very device* is the one holding it — lets the kiosk
     // re-select its own location after a page reload instead of being told
     // it's occupied by itself.
@@ -118,6 +153,7 @@ async function heartbeatLocation({ kioskUserId, sessionId }) {
     { where: { kioskUserId, activeSessionId: sessionId } }
   );
   if (affected === 0) {
+    await throwIfSignedOut({ kioskUserId, sessionId });
     throw new HttpError(409, 'This kiosk location session is no longer active.', 'LOCATION_LOST');
   }
 
@@ -144,14 +180,40 @@ async function requireClaimedLocation({ kioskUserId, sessionId }) {
   }
   const location = await db.KioskLocation.findOne({ where: { kioskUserId, activeSessionId: sessionId } });
   if (!location || !location.isActive) {
+    if (!location) await throwIfSignedOut({ kioskUserId, sessionId });
     throw new HttpError(409, 'This kiosk location session is no longer active.', 'LOCATION_LOST');
   }
   await location.update({ sessionLastSeenAt: new Date() });
   return location;
 }
 
+// Super Admin: sign out whichever device is running as this location (or,
+// with no locationId, every location of the account). Leaves the
+// `revoked:` tombstone described at REVOKED_PREFIX so the device logs
+// itself out on its next heartbeat (≤ 60s) or punch attempt. Returns how
+// many live device sessions were actually ended.
+async function forceSignOutLocations({ kioskUserId, locationId = null }) {
+  const where = { kioskUserId, activeSessionId: { [Op.ne]: null } };
+  if (locationId) where.id = locationId;
+  const rows = await db.KioskLocation.findAll({ where });
+
+  let signedOut = 0;
+  for (const row of rows) {
+    if (!isClaimHeld(row)) continue;
+    signedOut += 1;
+    // eslint-disable-next-line no-await-in-loop
+    await row.update({
+      activeSessionId: `${REVOKED_PREFIX}${row.activeSessionId}`,
+      sessionClaimedAt: null,
+      sessionLastSeenAt: null,
+    });
+  }
+  return { signedOut };
+}
+
 module.exports = {
   STALE_SESSION_MS,
+  forceSignOutLocations,
   newSessionId,
   listLocationsForAccount,
   listSelectableLocations,

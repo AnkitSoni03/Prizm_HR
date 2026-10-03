@@ -155,6 +155,20 @@ async function getKioskAccountPassword(req, res, next) {
   }
 }
 
+// No locationId → every location of the account (and every device's login).
+async function signOutKioskLocations(req, res, next) {
+  try {
+    const result = await service.signOutKioskLocations({
+      groupId: req.body.groupId,
+      userId: req.params.id,
+      locationId: req.body.locationId || null,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function deleteKioskAccount(req, res, next) {
   try {
     const result = await service.deleteKioskAccount({ groupId: req.query.groupId, userId: req.params.id });
@@ -175,5 +189,6 @@ module.exports = {
   updateKioskAccountLocations,
   resetKioskAccountPassword,
   getKioskAccountPassword,
+  signOutKioskLocations,
   deleteKioskAccount,
 };

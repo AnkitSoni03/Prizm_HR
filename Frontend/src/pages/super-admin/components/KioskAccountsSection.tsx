@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Eye, EyeOff, KeyRound, Loader2, Lock, MapPin, MonitorSmartphone, Plus, Trash2, X } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Loader2, Lock, LogOut, MapPin, MonitorSmartphone, Plus, Trash2, X } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { EmptyStateCard } from '../../../components/EmptyStateCard';
@@ -16,12 +16,21 @@ import {
   getKioskAccountPassword,
   listKioskAccounts,
   resetKioskAccountPassword,
+  signOutKioskLocations,
   updateKioskAccountLocations,
   type KioskAccount,
+  type KioskLocation,
 } from '../../../api/superAdmin/kioskAccounts';
-import { formatDisplayDate } from '../../../utils/dateDisplay';
+import { formatDisplayDate, formatDisplayDateTime } from '../../../utils/dateDisplay';
 
 const MASKED_PASSWORD = '••••••••';
+
+// Just two states for Super Admin: a device holds this location (whether it
+// pinged a moment ago or has gone quiet — asleep/background tab; it stays
+// logged in either way) → "Signed in" + Sign Out; otherwise "Not signed in".
+function isSignedIn(location: KioskLocation): boolean {
+  return location.inUse || location.idle;
+}
 
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
@@ -106,6 +115,7 @@ export function KioskAccountsSection({ groupId }: { groupId: string }) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<KioskAccount | null>(null);
   const [locationsTarget, setLocationsTarget] = useState<KioskAccount | null>(null);
+  const [sessionsTarget, setSessionsTarget] = useState<KioskAccount | null>(null);
   // Bumped for one account id whenever its password is reset — part of that
   // row's PasswordCell `key`, forcing a fresh mount (and so a fresh
   // unfetched state) instead of going on showing a now-stale plaintext.
@@ -197,8 +207,8 @@ export function KioskAccountsSection({ groupId }: { groupId: string }) {
                   {a.locations.map((location) => (
                     <Badge
                       key={location.id}
-                      tone={location.inUse ? 'success' : 'neutral'}
-                      title={location.inUse ? 'A device is signed in here right now' : 'Free'}
+                      tone={isSignedIn(location) ? 'success' : 'neutral'}
+                      title={isSignedIn(location) ? 'A device is signed in here' : 'Free'}
                     >
                       {location.name}
                     </Badge>
@@ -214,9 +224,21 @@ export function KioskAccountsSection({ groupId }: { groupId: string }) {
             {
               key: 'actions',
               header: '',
-              className: 'w-28 text-right',
+              className: 'w-36 text-right',
               render: (a) => (
                 <div className="flex justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSessionsTarget(a)}
+                    aria-label={`Signed-in devices for ${a.email}`}
+                    title="Signed-in Devices / Sign Out"
+                    className="relative rounded-md p-1.5 text-ink-muted hover:bg-danger/10 hover:text-danger"
+                  >
+                    <LogOut className="h-4 w-4" strokeWidth={1.75} />
+                    {a.locations.some(isSignedIn) && (
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-success" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setLocationsTarget(a)}
@@ -272,6 +294,17 @@ export function KioskAccountsSection({ groupId }: { groupId: string }) {
         />
       )}
 
+      {sessionsTarget && (
+        <KioskSessionsModal
+          accountId={sessionsTarget.id}
+          groupId={groupId}
+          onClose={() => {
+            setSessionsTarget(null);
+            load();
+          }}
+        />
+      )}
+
       {locationsTarget && (
         <EditLocationsModal
           account={locationsTarget}
@@ -283,6 +316,129 @@ export function KioskAccountsSection({ groupId }: { groupId: string }) {
         />
       )}
     </div>
+  );
+}
+
+// Super Admin's remote sign-out for a kiosk account. Lists every location
+// with whether a device is signed in there right now, and signs out one
+// location's device — or every device on the account at once. Re-fetches
+// the account itself (not the parent's possibly-stale copy) so the list
+// reflects the moment the modal is opened and after each action.
+function KioskSessionsModal({ accountId, groupId, onClose }: { accountId: string; groupId: string; onClose: () => void }) {
+  const confirm = useConfirm();
+  const showToast = useToast();
+  const [account, setAccount] = useState<KioskAccount | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  async function refresh() {
+    try {
+      const accounts = await listKioskAccounts(groupId);
+      setAccount(accounts.find((a) => a.id === accountId) ?? null);
+    } catch {
+      setError('Could not load signed-in devices.');
+    }
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, groupId]);
+
+  async function signOut(locationId?: string, locationName?: string) {
+    const confirmed = await confirm({
+      title: locationId ? 'Sign out this location' : 'Sign out all devices',
+      message: locationId
+        ? `Sign out the device running as "${locationName}"? It returns to the sign-in screen within a minute; other locations stay signed in.`
+        : `Sign out every device using ${account?.email}? Each one returns to the sign-in screen within a minute and must sign in again with the password.`,
+      confirmLabel: 'Sign Out',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    setBusyKey(locationId ?? 'all');
+    setError(null);
+    try {
+      const { signedOut } = await signOutKioskLocations(accountId, { groupId, locationId });
+      showToast(
+        locationId
+          ? `${locationName} signed out.`
+          : `Signed out ${signedOut} device${signedOut === 1 ? '' : 's'}.`,
+        'success'
+      );
+      await refresh();
+    } catch (err) {
+      setError(extractError(err, 'Could not sign out.'));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const liveCount = account?.locations.filter(isSignedIn).length ?? 0;
+
+  return (
+    <Modal title={`Signed-in Devices${account ? ` — ${account.email}` : ''}`} onClose={onClose} widthClassName="max-w-xl">
+      <div className="space-y-4">
+        <p className="text-sm text-ink-muted">
+          Each device signs in as one location. Sign out a single location, or every device on this account at once.
+        </p>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        {!account && !error && <p className="text-sm text-ink-muted">Loading…</p>}
+        {account && (
+          <div className="divide-y divide-border rounded-xl border border-border">
+            {account.locations.map((location) => (
+              <div key={location.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                    <MapPin className="h-3.5 w-3.5 text-ink-muted" strokeWidth={1.75} />
+                    {location.name}
+                    <Badge tone={isSignedIn(location) ? 'success' : 'neutral'}>
+                      {isSignedIn(location) ? 'Signed in' : 'Not signed in'}
+                    </Badge>
+                  </p>
+                  {isSignedIn(location) && (
+                    <p className="mt-0.5 text-xs text-ink-muted">
+                      Since {location.sessionClaimedAt ? formatDisplayDateTime(location.sessionClaimedAt) : '—'}
+                      {location.sessionLastSeenAt && ` · last active ${formatDisplayDateTime(location.sessionLastSeenAt)}`}
+                    </p>
+                  )}
+                </div>
+                {isSignedIn(location) && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => signOut(location.id, location.name)}
+                    isLoading={busyKey === location.id}
+                    disabled={busyKey !== null}
+                  >
+                    <LogOut className="h-4 w-4" strokeWidth={1.75} />
+                    Sign Out
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-ink-muted">
+            {liveCount} of {account?.locations.length ?? 0} location{account?.locations.length === 1 ? '' : 's'} signed in
+          </span>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>
+              Close
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => signOut()}
+              isLoading={busyKey === 'all'}
+              disabled={!account || busyKey !== null}
+            >
+              Sign Out All Devices
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
