@@ -37,7 +37,7 @@ export interface AuthUser {
   photoUrl: string | null;
   // Companies this user can switch into via a group-level power (their own
   // included, flagged isHome) — empty for everyone without one.
-  groupPowerCompanies: { id: string; name: string; isHome: boolean }[];
+  groupPowerCompanies: { id: string; name: string; isHome: boolean; brands?: { id: string; name: string }[] }[];
   // Set while this tab is working in a sibling company (X-Acting-Company-Id);
   // null in their own company.
   actingCompanyId: string | null;

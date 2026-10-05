@@ -1,7 +1,7 @@
 'use strict';
 
 const { verifyAccessToken } = require('../utils/tokens');
-const { runWithTenant } = require('../config/tenant-context');
+const { runWithTenant, runAsCompany } = require('../config/tenant-context');
 const { isCompanyInactive } = require('../utils/companyStatus');
 const { resolveEscalationContact } = require('../utils/accountEscalation');
 const db = require('../models');
@@ -32,11 +32,20 @@ async function authenticate(token, req, res, next) {
   // token's ~15-minute TTL. Looked up outside runWithTenant below — no
   // tenant context is active yet, so User's tenant-scope hook is a no-op
   // and this always finds the row regardless of company_id.
+  //
+  // Nested routers (e.g. /leave → /holidays) each run requireAuth again, so
+  // this can run INSIDE an earlier pass's tenant context — which, while
+  // acting in a sibling company, is that company, not the user's own. User
+  // and UserRole are tenant-scoped, so these lookups must switch the hook
+  // off explicitly; otherwise the user "disappears", gets a false
+  // ACCOUNT_DEACTIVATED and is logged out.
   let user;
   try {
-    user = await db.User.findByPk(req.auth.userId, {
-      attributes: ['id', 'isActive', 'status'],
-    });
+    user = await runAsCompany(null, () =>
+      db.User.findByPk(req.auth.userId, {
+        attributes: ['id', 'isActive', 'status'],
+      })
+    );
   } catch (err) {
     return next(err);
   }
@@ -101,10 +110,12 @@ async function authenticate(token, req, res, next) {
         if (isCompanyInactive(target.status)) {
           return res.status(403).json({ error: 'That company has been deactivated.', code: 'COMPANY_DEACTIVATED' });
         }
-        const groupGrant = await db.UserRole.findOne({
-          where: { userId: req.auth.userId, companyId: home.id, groupId: home.groupId },
-          attributes: ['id'],
-        });
+        const groupGrant = await runAsCompany(null, () =>
+          db.UserRole.findOne({
+            where: { userId: req.auth.userId, companyId: home.id, groupId: home.groupId },
+            attributes: ['id'],
+          })
+        );
         if (!groupGrant) return denied();
 
         req.auth.homeCompanyId = home.id;

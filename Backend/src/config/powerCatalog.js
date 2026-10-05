@@ -31,24 +31,32 @@ const POWER_CATALOG = [
     // covers the "+ Add Leave Type" shortcut on the Add Leave Policy form
     // (LeavePolicyFormModal.tsx) — creating the leave policies a Roster
     // needs shouldn't be blocked on a leave type that doesn't exist yet.
+    // The *:read codes below (holiday, company_policy, leave_type, brand) are
+    // already on the Employee base role in the holder's OWN company, but at
+    // Group level — working in a sibling company — ONLY the power's own codes
+    // count (rbac.middleware.js::grantWhere), so every page this power opens
+    // must be fully covered here or it shows "Access restricted" / fails to
+    // load there.
     permissionCodes: [
       'roster_group:create', 'roster_group:read', 'roster_group:update', 'roster_group:delete',
       'shift:read', 'shift:create', 'shift:update', 'shift:delete',
       'holiday:create', 'holiday:update', 'holiday:delete',
       'company_policy:create', 'company_policy:update', 'company_policy:delete',
       'leave_policy:read', 'leave_policy:create', 'leave_policy:update',
-      'leave_type:create', 'leave_type:update', 'leave_type:delete',
-      'employee:read',
+      'leave_type:read', 'leave_type:create', 'leave_type:update', 'leave_type:delete',
+      'holiday:read', 'company_policy:read',
+      'employee:read', 'brand:read',
     ],
   },
   {
     key: 'approve_requests',
     levels: ['brand', 'company', 'group'],
-    label: 'Approve Leave / OD Requests',
-    description: "Approve or reject employees' leave and on-duty requests.",
+    label: 'Approve Leave / OD / Comp-Off',
+    description: "Approve or reject employees' leave and on-duty requests, and their comp-off credits.",
     permissionCodes: [
       'leave_request:read', 'leave_request:approve', 'leave_request:reject',
       'od_request:read', 'od_request:approve', 'od_request:reject',
+      'comp_off:read', 'comp_off:approve', 'comp_off:reject',
     ],
   },
   {
@@ -64,7 +72,7 @@ const POWER_CATALOG = [
     // powers — see the run_payroll bundle below for the same shape).
     permissionCodes: [
       'employee_document:read', 'employee_document:verify',
-      'employee:read', 'department:read', 'brand:read',
+      'employee:read', 'department:read', 'brand:read', 'designation:read',
     ],
   },
   {
@@ -111,7 +119,7 @@ const POWER_CATALOG = [
       'salary_structure:create', 'salary_structure:read', 'salary_structure:update',
       'payroll_adjustment:create', 'payroll_adjustment:read', 'payroll_adjustment:update', 'payroll_adjustment:delete',
       'payroll_run:create', 'payroll_run:read', 'payroll_run:process', 'payroll_run:pay', 'payroll_run:cancel',
-      'payslip:read', 'employee:read',
+      'payslip:read', 'employee:read', 'brand:read',
     ],
   },
 ];

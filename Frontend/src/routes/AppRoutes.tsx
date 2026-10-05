@@ -626,7 +626,9 @@ export function AppRoutes() {
       <Route
         path="/ess/team-approvals"
         element={
-          <ProtectedRoute permission="leave_request:read_reports">
+          <ProtectedRoute
+            anyPermission={['leave_request:read_reports', 'leave_request:read', 'od_request:read', 'comp_off:read']}
+          >
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Team Approvals">
               <TeamApprovalsPage />
             </Layout>
@@ -662,6 +664,18 @@ export function AppRoutes() {
           <ProtectedRoute permission="payslip:read_own">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Payslips">
               <MyPayslipsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* "Manage & Run Payroll" power — the same page Company Admin uses. */}
+      <Route
+        path="/ess/payroll"
+        element={
+          <ProtectedRoute permission="payroll_settings:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Payroll">
+              <PayrollPage />
             </Layout>
           </ProtectedRoute>
         }

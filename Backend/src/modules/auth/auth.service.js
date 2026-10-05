@@ -747,9 +747,24 @@ async function loadCurrentUser({ userId, companyId, homeCompanyId }) {
         attributes: ['id', 'name', 'status'],
         order: [['name', 'ASC']],
       });
-      groupPowerCompanies = companies
-        .filter((c) => String(c.id) === String(ownCompanyId) || !isCompanyInactive(c.status))
-        .map((c) => ({ id: c.id, name: c.name, isHome: String(c.id) === String(ownCompanyId) }));
+      const visible = companies.filter((c) => String(c.id) === String(ownCompanyId) || !isCompanyInactive(c.status));
+      // Each company's active Brands, so the switcher can show "One Global ›
+      // Game Luxe". Brand is tenant-scoped — read with the hook off.
+      const brands = await runWithTenant({ companyId: null }, () =>
+        db.Brand.findAll({
+          where: { companyId: { [Op.in]: visible.map((c) => c.id) }, isActive: true },
+          attributes: ['id', 'name', 'companyId'],
+          order: [['name', 'ASC']],
+        })
+      );
+      groupPowerCompanies = visible.map((c) => ({
+        id: c.id,
+        name: c.name,
+        isHome: String(c.id) === String(ownCompanyId),
+        brands: brands
+          .filter((b) => String(b.companyId) === String(c.id))
+          .map((b) => ({ id: b.id, name: b.name })),
+      }));
     }
   }
 

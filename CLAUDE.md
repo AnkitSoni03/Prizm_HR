@@ -1263,6 +1263,16 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   field. Also fixed on the way: comp-off approve/reject ignored brand scope. tsc/eslint/vite
   build clean; access rules + vote logic tested offline with mocks — **not live-tested,
   migrations + seeder not applied** (.env points at prod).
+- 🐛 Power review fixes (2026-10-06): at Group level only a power's OWN codes count in a sibling
+  company, so bundles missing reads their pages need broke there. `powerCatalog.js`: roster +
+  `leave_type:read`/`holiday:read`/`company_policy:read`/`brand:read`; approve_requests (now
+  "Approve Leave / OD / Comp-Off") + `comp_off:read/approve/reject`; document_verification +
+  `designation:read` (its page failed to load at every level without it); run_payroll +
+  `brand:read`. Seeder `20261006090000` re-applies current power levels onto existing custom
+  Roles (additive) and gives HR Manager `brand:read` (else powerAuthority blocks it granting
+  those bundles). Frontend: Team Approvals route now `anyPermission` (was `*_read_reports`
+  only → "Access restricted" while acting); new `/ess/payroll` (run_payroll had no ESS page at
+  all). Rule for new powers: every code any page of the power calls must be IN the bundle.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 
