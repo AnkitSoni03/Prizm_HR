@@ -669,6 +669,43 @@ export function AppRoutes() {
         }
       />
 
+      {/* "Manage Employees" / "Assign Leaves" powers — Company Admin's
+          Employees page; what each holder can do inside it (add, edit,
+          Leaves tab) is gated by their own permissions. */}
+      <Route
+        path="/ess/employees"
+        element={
+          <ProtectedRoute anyPermission={['employee:create', 'employee:update', 'leave_balance:adjust']}>
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Employees">
+              <EmployeesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* "Attendance Records & Board" power. */}
+      <Route
+        path="/ess/attendance-records"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Attendance Records">
+              <CompanyAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/attendance-board"
+        element={
+          <ProtectedRoute permission="attendance:read">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Attendance Board">
+              <CompanyAdminAttendanceBoardPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
       {/* "Manage & Run Payroll" power — the same page Company Admin uses. */}
       <Route
         path="/ess/payroll"

@@ -55,6 +55,11 @@ async function get(req, res, next) {
       const inGroup = await db.Company.count({ where: { id: employee.companyId, groupId: req.auth.groupId } });
       if (!inGroup) throw new HttpError(404, 'Employee not found');
     }
+    const brandIds = req.auth.scopedBrandIds;
+    const isSelf = req.auth.employeeId != null && String(req.auth.employeeId) === String(employee.id);
+    if (brandIds && !isSelf && !brandIds.some((brandId) => String(brandId) === String(employee.brandId))) {
+      throw new HttpError(404, 'Employee not found');
+    }
     res.json({ data: employee });
   } catch (err) {
     next(err);

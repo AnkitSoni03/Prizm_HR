@@ -33,6 +33,20 @@ async function requireReadAccess(req, res, next) {
       return res.status(403).json({ error: 'Forbidden', permission: 'comp_off:read_reports' });
     }
 
+    // Own credits by default for an Employee (My Comp-Off), even if a power
+    // also gives them company-wide comp_off:read — the broader view is an
+    // explicit ?scope=company (Team Approvals). Admins never hold
+    // comp_off:read_own, so their plain list call is unaffected.
+    if (
+      req.query.scope !== 'company' &&
+      req.query.employeeId === undefined &&
+      req.auth.employeeId != null &&
+      (await userHasPermission(req.auth, 'comp_off:read_own'))
+    ) {
+      req.compOffEmployeeScope = req.auth.employeeId;
+      return next();
+    }
+
     const scope = await getBrandScope(req.auth, 'comp_off:read');
     if (scope.allowed) {
       const requestedBrandId = req.query.brandId || null;

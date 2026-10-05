@@ -1,9 +1,13 @@
 'use strict';
 
 const { Router } = require('express');
+const { Op } = require('sequelize');
 const controller = require('./employee.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
-const { requirePermission, userHasPermission } = require('../../middleware/rbac.middleware');
+const { requirePermission, userHasPermission, getBrandScope, grantWhere } = require('../../middleware/rbac.middleware');
+const db = require('../../models');
+const { runAsCompany } = require('../../config/tenant-context');
+const { CUSTOM_POWER_ROLE_PREFIX } = require('../../utils/customPowerSync');
 const { upload } = require('../../middleware/upload.middleware');
 const employeeDocumentRoutes = require('./employeeDocument.routes');
 const documentUploadRequestRoutes = require('./documentUploadRequest.routes');
@@ -15,7 +19,14 @@ router.use(requireAuth);
 // own linked employee record (req.auth.employeeId, set from the JWT).
 async function requireEmployeeReadAccess(req, res, next) {
   try {
-    if (await userHasPermission(req.auth, 'employee:read')) return next();
+    // Brand-scoped readers (Brand Admin, a Brand-level power) get
+    // req.auth.scopedBrandIds so controller.get can 404 another Brand's
+    // employee — they could previously open any employee in the company by id.
+    const scope = await getBrandScope(req.auth, 'employee:read');
+    if (scope.allowed) {
+      req.auth.scopedBrandIds = scope.companyWide ? null : scope.brandIds;
+      return next();
+    }
 
     const canReadOwn = await userHasPermission(req.auth, 'employee:read_own');
     if (canReadOwn && req.auth.employeeId != null && String(req.auth.employeeId) === String(req.params.id)) {
@@ -72,8 +83,36 @@ router.get('/:id/roster-transfer-history', requirePermission('employee:update'),
 // they're the only callers allowed to grant Group-level powers, and Group
 // Admin holds no employee:update of its own. Group Admin is still confined
 // to its own Group's employees by getEmployeeForWrite's groupId check.
-function requirePowerAssignAccess(req, res, next) {
+//
+// employee:update must come from a real admin role, not from a per-employee
+// power ("Manage Employees" grants employee:update too) — otherwise one
+// power holder could hand out powers, including their own, to anyone.
+async function holdsOutsidePowers(auth, code) {
+  const grant = await runAsCompany(null, () =>
+    db.UserRole.findOne({
+      where: grantWhere(auth),
+      include: [
+        {
+          model: db.Role,
+          as: 'role',
+          required: true,
+          where: { name: { [Op.notLike]: `${CUSTOM_POWER_ROLE_PREFIX}%` } },
+          include: [{ model: db.Permission, as: 'permissions', where: { code }, required: true }],
+        },
+      ],
+    })
+  );
+  return !!grant;
+}
+async function requirePowerAssignAccess(req, res, next) {
   if (!req.auth.companyId) return next();
+  try {
+    if (!(await holdsOutsidePowers(req.auth, 'employee:update'))) {
+      return res.status(403).json({ error: 'Only an admin can assign powers', permission: 'employee:update' });
+    }
+  } catch (err) {
+    return next(err);
+  }
   return requirePermission('employee:update')(req, res, next);
 }
 router.put('/:id/powers', requirePowerAssignAccess, controller.assignPowers);

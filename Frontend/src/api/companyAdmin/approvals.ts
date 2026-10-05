@@ -161,7 +161,7 @@ interface ListParams {
   // caller manages (primary or additional, any company of the Group),
   // 'company' for an employee holding the company-wide "Approve Leave/OD
   // Requests" power — see leaveRequest.routes.js/odRequest.routes.js/
-  // compOff.routes.js's requireReadAccess. Comp-off supports 'reports' only.
+  // compOff.routes.js's requireReadAccess.
   scope?: 'reports' | 'company';
   // Comp-off only — a company/brand-wide `comp_off:read` holder (Company
   // Admin/HR Manager/Brand Admin) can filter to one specific employee's own

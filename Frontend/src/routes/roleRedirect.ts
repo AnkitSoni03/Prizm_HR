@@ -29,3 +29,10 @@ export function getDefaultRoute(roles: AuthRole[]): string {
   if (roles.some((role) => role.name.startsWith(CUSTOM_POWER_ROLE_PREFIX))) return '/ess';
   return DEFAULT_PORTAL;
 }
+
+// True when the caller holds some role other than the plain Employee role
+// and their own per-employee power roles — i.e. a real admin/HR role. Used
+// to keep power holders (e.g. "Manage Employees") from assigning powers.
+export function hasAdminRole(roles: AuthRole[] | undefined): boolean {
+  return !!roles?.some((role) => role.name !== 'Employee' && !role.name.startsWith(CUSTOM_POWER_ROLE_PREFIX));
+}

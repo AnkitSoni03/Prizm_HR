@@ -159,13 +159,12 @@ export function TeamApprovalsPage() {
         setOdRequests(result.data);
         setTotal(result.pagination.total);
       } else {
-        // Comp-off's company/brand-wide view is its plain (no scope) list.
         // Its status filter uses 'pending_approval' for pending.
         const status = statusFilter === 'pending' ? 'pending_approval' : base.status;
         const result = await listCompOffCredits({
           ...base,
           status,
-          scope: scope === 'reports' ? 'reports' : undefined,
+          scope,
         });
         setCompOffCredits(result.data);
         setTotal(result.pagination.total);

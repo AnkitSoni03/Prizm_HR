@@ -13,6 +13,7 @@ import {
 } from '../../../api/companyAdmin/employees';
 import { GroupManagerPicker } from '../../../components/ui/GroupManagerPicker';
 import { createDepartment, createDesignation } from '../../../api/companyAdmin/org';
+import { hasAdminRole } from '../../../routes/roleRedirect';
 import { useAuth } from '../../../context/auth-context';
 import { useToast } from '../../../context/toast-context';
 import { PowerAssignment } from '../../../components/PowerAssignment';
@@ -67,7 +68,8 @@ export function EmployeeFormModal({
   // Assigning powers is gated on employee:update (same permission the edit
   // modal's own Powers tab uses) — anyone who can already edit an employee
   // can also hand-pick their optional extra capabilities.
-  const canAssignPowers = hasPermission('employee:update');
+  // Same rule as EmployeeDetailModal's Powers tab — see hasAdminRole.
+  const canAssignPowers = hasPermission('employee:update') && hasAdminRole(user?.roles);
 
   const [name, setName] = useState('');
   const [employeeCode, setEmployeeCode] = useState('');

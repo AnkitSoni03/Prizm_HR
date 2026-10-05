@@ -10,6 +10,21 @@ router.use(requireAuth);
 
 async function requireReadAccess(req, res, next) {
   try {
+    // An Employee who ALSO holds the company-wide code through a power
+    // (e.g. "Assign Leaves" / "Attendance Records & Board") must still see
+    // only their OWN data on their ESS pages, which call this without an
+    // employeeId — so own-scope wins unless a specific employee is asked
+    // for. Admin pages always pass employeeId (or use other endpoints), and
+    // admins never hold *_read_own, so they're unaffected.
+    if (
+      !req.params.id &&
+      req.query.employeeId === undefined &&
+      req.auth.employeeId != null &&
+      (await userHasPermission(req.auth, 'attendance:read_own'))
+    ) {
+      req.attendanceEmployeeScope = req.auth.employeeId;
+      return next();
+    }
     if (await userHasPermission(req.auth, 'attendance:read')) {
       req.attendanceEmployeeScope = null;
       return next();

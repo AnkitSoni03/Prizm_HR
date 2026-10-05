@@ -28,6 +28,10 @@ export interface NavItem {
   // "Document Verification" Power (see powerCatalog.js), so it shouldn't
   // clutter every employee's sidebar.
   permission?: string;
+  // Like `permission`, but shown when the caller holds ANY of these — for a
+  // page several different powers lead to (e.g. Employees: Manage Employees
+  // or Assign Leaves).
+  anyPermission?: string[];
   // Only consulted while working in another company via a group-level power
   // (user.actingCompanyId set): there, personal pages (My Leave, Payslips…)
   // don't apply, so an item without `permission` is hidden unless the caller
@@ -42,6 +46,7 @@ export function isNavItemVisible(
   isActing: boolean
 ): boolean {
   if (item.permission) return hasPermission(item.permission);
+  if (item.anyPermission) return item.anyPermission.some((code) => hasPermission(code));
   if (!isActing) return true;
   return !!item.actingPermissions?.some((code) => hasPermission(code));
 }
@@ -111,6 +116,16 @@ export const ESS_NAV: NavItem[] = [
   { label: 'My OD', path: '/ess/od', icon: Send },
   { label: 'My Comp-Off', path: '/ess/comp-off', icon: RefreshCw },
   { label: 'Comp Off Setting', path: '/ess/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
+  // Power pages — same pages Company Admin uses, shown only to holders of
+  // "Manage Employees" / "Assign Leaves" / "Attendance Records & Board".
+  {
+    label: 'Employees',
+    path: '/ess/employees',
+    icon: Users,
+    anyPermission: ['employee:create', 'employee:update', 'leave_balance:adjust'],
+  },
+  { label: 'Attendance Records', path: '/ess/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
+  { label: 'Attendance Board', path: '/ess/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'My Payslips', path: '/ess/payslips', icon: Wallet },
   { label: 'Payroll', path: '/ess/payroll', icon: Wallet, permission: 'payroll_settings:read' },
   { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock, actingPermissions: ['holiday:create'] },

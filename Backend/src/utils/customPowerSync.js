@@ -17,6 +17,7 @@ const { runWithTenant } = require('../config/tenant-context');
 // employee.service.js::assignEmployeePowers is the only writer of these
 // Roles' role_permissions; this file only keeps the UserRole grants in step.
 const POWER_LEVELS = ['brand', 'company', 'group'];
+const CUSTOM_POWER_ROLE_PREFIX = 'Custom Powers';
 
 function customPowerRoleName(employeeId, level) {
   return level === 'company' ? `Custom Powers – ${employeeId}` : `Custom Powers – ${employeeId} (${level})`;
@@ -95,4 +96,4 @@ async function ensureCustomRoleGrant({ employeeId, transaction }) {
   });
 }
 
-module.exports = { ensureCustomRoleGrant, findCustomPowerRoles, customPowerRoleName, POWER_LEVELS };
+module.exports = { ensureCustomRoleGrant, findCustomPowerRoles, customPowerRoleName, POWER_LEVELS, CUSTOM_POWER_ROLE_PREFIX };

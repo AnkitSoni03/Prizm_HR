@@ -10,6 +10,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { Tabs } from '../../../components/ui/Tabs';
 import { RejectReasonModal } from '../../../components/RejectReasonModal';
 import { ChangeRosterModal } from '../../../components/ChangeRosterModal';
+import { hasAdminRole } from '../../../routes/roleRedirect';
 import { useAuth } from '../../../context/auth-context';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
@@ -142,8 +143,12 @@ export function EmployeeDetailModal({
   // Group Admin / Super Admin assign powers without holding employee:update
   // themselves — they're the only ones who can grant Group level (see
   // Backend/src/modules/org/employee.routes.js's requirePowerAssignAccess).
+  // employee:update held only through a per-employee power ("Manage
+  // Employees") doesn't let the holder assign powers — the backend rejects
+  // it (employee.routes.js::requirePowerAssignAccess), so hide the tab.
   const canManagePowers =
-    canUpdate || !!user?.roles.some((role) => role.name === 'Group Admin' || role.name === 'Super Admin');
+    (canUpdate && hasAdminRole(user?.roles)) ||
+    !!user?.roles.some((role) => role.name === 'Group Admin' || role.name === 'Super Admin');
   const canTransfer = hasPermission('employee:transfer');
   const canDelete = hasPermission('employee:delete');
   const canReadDocs = hasPermission('employee_document:read');

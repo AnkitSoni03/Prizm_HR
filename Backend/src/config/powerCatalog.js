@@ -104,6 +104,47 @@ const POWER_CATALOG = [
     ],
   },
   {
+    key: 'attendance',
+    levels: ['brand', 'company', 'group'],
+    label: 'Attendance Records & Board',
+    description: "View and export every employee's attendance (Records + Board), and correct day statuses.",
+    // attendance:update is the Records page's bulk "Change Status" (brand-
+    // scoped server-side, attendance.service.js::bulkSetAttendanceStatus);
+    // leave_type:read feeds its "Leave" status option. The rest let the
+    // pages' Brand/Department filters load — see the roster bundle above
+    // for why reads are listed explicitly.
+    permissionCodes: [
+      'attendance:read', 'attendance:update',
+      'leave_type:read', 'employee:read', 'brand:read', 'department:read',
+    ],
+  },
+  {
+    key: 'manage_employees',
+    levels: ['brand', 'company', 'group'],
+    label: 'Manage Employees',
+    description:
+      'Add employees, edit their details and managers, change Department/Roster, and send their ESS login invite.',
+    // No employee:delete (a permanent hard delete — admins only). Holding
+    // employee:update through THIS power does not let the holder assign
+    // powers to anyone (employee.routes.js::requirePowerAssignAccess), so a
+    // power can never be used to hand out more powers.
+    permissionCodes: [
+      'employee:read', 'employee:create', 'employee:update', 'employee:transfer',
+      'user:invite',
+      'brand:read', 'department:read', 'designation:read', 'roster_group:read',
+    ],
+  },
+  {
+    key: 'assign_leaves',
+    levels: ['brand', 'company', 'group'],
+    label: 'Assign Leaves',
+    description: "View and adjust employees' leave balances (from the Employees page → Leaves tab).",
+    permissionCodes: [
+      'leave_balance:read', 'leave_balance:adjust',
+      'leave_type:read', 'employee:read', 'brand:read', 'department:read', 'designation:read',
+    ],
+  },
+  {
     key: 'run_payroll',
     label: 'Manage & Run Payroll',
     // Payroll runs are company-wide (no brand dimension), so a Brand-level

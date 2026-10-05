@@ -1273,6 +1273,16 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   those bundles). Frontend: Team Approvals route now `anyPermission` (was `*_read_reports`
   only → "Access restricted" while acting); new `/ess/payroll` (run_payroll had no ESS page at
   all). Rule for new powers: every code any page of the power calls must be IN the bundle.
+- ✅ Three more delegable powers (2026-10-06), all Brand/Company/Group level: **Attendance Records
+  & Board** (`attendance:read/update` + filter reads), **Manage Employees** (`employee:read/create/
+  update/transfer`, `user:invite` + org reads — no `employee:delete`), **Assign Leaves**
+  (`leave_balance:read/adjust` + reads; done via Employees → Leaves tab). ESS gained
+  `/ess/employees`, `/ess/attendance-records`, `/ess/attendance-board` reusing the Company Admin
+  pages (`NavItem.anyPermission` / `ProtectedRoute anyPermission`). Power assignment
+  (`PUT /employees/:id/powers`) now requires `employee:update` from a NON-power role
+  (`employee.routes.js::holdsOutsidePowers`) so a power can't hand out powers; frontend mirrors it
+  via `roleRedirect.ts::hasAdminRole`. Also: `GET /employees/:id` now 404s another Brand's employee
+  for a brand-scoped reader. Not live-tested with a holder of the new powers.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 
