@@ -38,6 +38,24 @@ router.delete('/me/photo', controller.removeMyPhoto);
 // shape as the photo self-service routes above), used by the ESS Dashboard.
 router.get('/me/managers', controller.getMyManagers);
 
+// Manager picker — anyone who can create or edit an employee (and so set
+// their managers). Before '/:id' so the path isn't read as an id.
+async function requireManagerPickerAccess(req, res, next) {
+  try {
+    if (
+      (await userHasPermission(req.auth, 'employee:update')) ||
+      (await userHasPermission(req.auth, 'employee:create'))
+    ) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden', permission: 'employee:update' });
+  } catch (err) {
+    next(err);
+  }
+}
+router.get('/manager-options/companies', requireManagerPickerAccess, controller.getManagerCompanies);
+router.get('/manager-options/employees', requireManagerPickerAccess, controller.getManagerEmployees);
+
 router.get('/', requirePermission('employee:read'), controller.list);
 router.get('/:id', requireEmployeeReadAccess, controller.get);
 router.post('/', requirePermission('employee:create'), controller.create);

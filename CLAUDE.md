@@ -1242,6 +1242,27 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   gets LOCATION_LOST (picker) on a stale tab, acceptable since it already dropped its tokens.
   UI shows only two states: "Signed in" (claim held, live or idle — `idle` flag from the API)
   with a Sign Out button, or "Not signed in" (no button). Mock-tested offline.
+- ✅ Cross-company managers + all-managers approval for leave/OD/comp-off (2026-10-05): an
+  employee's managers (primary `manager_id` + `employee_managers`) may now be in ANY Company/
+  Brand of the employee's Group — never outside it (`utils/managerScope.js::assertManagersInGroup`
+  at assignment, `getManagedEmployeeIds` re-bounds every read by the Group). Manager picker is
+  now two-step (`components/ui/GroupManagerPicker.tsx`: Company/Brand first, then its
+  employees; `GET /employees/manager-options/companies|employees`, `managerOptions.service.js`);
+  `ManagerCombobox.tsx` deleted. OD and comp-off got leave's AND-gate: new
+  `od_request_approvals` / `comp_off_credit_approvals` snapshot tables + `decision_mode`
+  (migrations `20261005090000`–`090200`), shared vote/bypass helpers in
+  `utils/managerApprovals.js`; comp-off snapshots at auto-detection (manual grants stay
+  approved-at-creation). New `comp_off:read_reports/approve_reports/reject_reports` (Employee
+  role, seeder `20261005090000`). Decide/history access is shared by all three in
+  `middleware/approvalAccess.js` (admin = own company + brand scope; manager = snapshotted +
+  `_reports` + same Group; anything else 404). A manager's decision and history read run under
+  the ITEM's company via `config/tenant-context.js::runAsCompany` (Holiday/Shift/LeaveType/
+  ApprovalHistory are tenant-scoped); `?scope=reports` lists skip the company filter (ids bound
+  it). Manager notifications are written with the manager's own `companyId`. Team Approvals
+  gained comp-off approve/reject, a My team / All employees switch, and a Company › Brand
+  field. Also fixed on the way: comp-off approve/reject ignored brand scope. tsc/eslint/vite
+  build clean; access rules + vote logic tested offline with mocks — **not live-tested,
+  migrations + seeder not applied** (.env points at prod).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

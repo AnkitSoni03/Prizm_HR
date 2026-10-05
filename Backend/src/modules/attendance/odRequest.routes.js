@@ -5,7 +5,8 @@ const controller = require('./odRequest.controller');
 const service = require('./odRequest.service');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission, getBrandScope } = require('../../middleware/rbac.middleware');
-const { getDirectReportEmployeeIds } = require('../../utils/managerScope');
+const { getManagedEmployeeIds } = require('../../utils/managerScope');
+const { requireApprovalDecisionAccess } = require('../../middleware/approvalAccess');
 
 const router = Router();
 router.use(requireAuth);
@@ -33,10 +34,14 @@ async function requireReadAccess(req, res, next) {
 
     if (requestedScope === 'reports') {
       if (await userHasPermission(req.auth, 'od_request:read_reports') && req.auth.employeeId != null) {
-        req.odRequestEmployeeScope = await getDirectReportEmployeeIds({
+        // Every employee who has the caller as primary OR additional
+        // manager, in any company of the caller's Group — so the list itself
+        // is not pinned to the caller's company (odRequestCrossCompany).
+        req.odRequestEmployeeScope = await getManagedEmployeeIds({
           companyId: req.auth.companyId,
           managerEmployeeId: req.auth.employeeId,
         });
+        req.odRequestCrossCompany = true;
         return next();
       }
       return res.status(403).json({ error: 'Forbidden', permission: 'od_request:read_reports' });
@@ -72,42 +77,16 @@ async function requireReadAccess(req, res, next) {
   }
 }
 
-// Same shape as leaveRequest.routes.js's requireDecisionAccess: a manager
-// (any Employee referenced by another employee's managerId) may approve/
-// reject their own direct report's OD request without holding the company/
-// brand-wide od_request:approve or :reject grant. The target request's own
-// employee.managerId is the source of truth, loaded fresh here — never
-// trusted from the client.
+// Admin (company/brand-wide od_request:approve|reject — finalizes at once)
+// or one of THIS request's snapshotted managers (od_request:*_reports — one
+// vote; every manager must approve). See middleware/approvalAccess.js.
 function requireDecisionAccess(action) {
-  return async function (req, res, next) {
-    try {
-      // Brand-scoped holders only decide requests from their own Brand(s) —
-      // see leaveRequest.routes.js's requireDecisionAccess.
-      const scope = await getBrandScope(req.auth, `od_request:${action}`);
-      if (scope.allowed) {
-        if (scope.companyWide) return next();
-        const request = await service.getOdRequestForDecision({ companyId: req.auth.companyId, id: req.params.id });
-        if (scope.brandIds.some((brandId) => String(brandId) === String(request.employee.brandId))) return next();
-      }
-
-      if (
-        (await userHasPermission(req.auth, `od_request:${action}_reports`)) &&
-        req.auth.employeeId != null
-      ) {
-        const request = await service.getOdRequestForDecision({
-          companyId: req.auth.companyId,
-          id: req.params.id,
-        });
-        if (String(request.employee.managerId) === String(req.auth.employeeId)) {
-          return next();
-        }
-      }
-
-      return res.status(403).json({ error: 'Forbidden', permission: `od_request:${action}` });
-    } catch (err) {
-      next(err);
-    }
-  };
+  return requireApprovalDecisionAccess({
+    resource: 'od_request',
+    action,
+    loadAnyCompany: (id) => service.getOdRequestForDecision({ companyId: null, id }),
+    notFoundMessage: 'OD request not found',
+  });
 }
 
 router.get('/', requireReadAccess, controller.list);

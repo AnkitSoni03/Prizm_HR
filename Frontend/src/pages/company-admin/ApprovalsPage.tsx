@@ -369,6 +369,16 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                     { icon: FileText, label: 'Purpose', value: r.purpose },
                     { icon: MapPin, label: 'Location', value: r.location ?? '—' },
                     { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                    {
+                      icon: User,
+                      label: 'Managers',
+                      value:
+                        r.status === 'cancelled' ? (
+                          '—'
+                        ) : (
+                          <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+                        ),
+                    },
                   ]}
                   canApprove={r.status === 'pending' && hasPermission('od_request:approve')}
                   canReject={r.status === 'pending' && hasPermission('od_request:reject')}
@@ -444,6 +454,15 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                     { icon: CalendarRange, label: 'Earned Date', value: formatDisplayDate(r.earnedDate) },
                     { icon: CalendarX, label: 'Expiry Date', value: r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never' },
                     { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                    ...((r.managerApprovals?.length ?? 0) > 0
+                      ? [
+                          {
+                            icon: User,
+                            label: 'Managers',
+                            value: <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />,
+                          },
+                        ]
+                      : []),
                   ]}
                   canApprove={r.status === 'pending_approval' && hasPermission('comp_off:approve')}
                   canReject={r.status === 'pending_approval' && hasPermission('comp_off:reject')}

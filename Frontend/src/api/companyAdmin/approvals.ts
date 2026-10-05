@@ -5,6 +5,12 @@ export interface RequestEmployee {
   employeeCode: string;
   name?: string | null;
   photoDownloadUrl?: string | null;
+  // Present on leave/OD/comp-off lists — a manager's reports may sit in
+  // another company/brand of the Group, so Team Approvals labels them.
+  companyId?: string;
+  brandId?: string | null;
+  company?: { id: string; name: string } | null;
+  brand?: { id: string; name: string } | null;
 }
 
 // The reliable "who decided this" identity — a User always exists for any
@@ -31,8 +37,9 @@ export interface LeaveType {
 
 // One row per manager snapshotted at submission time — see
 // leave_request_approvals' header comment (Backend migration
-// 20260905090100). 'bypassed' means an admin decided the whole request
-// before this manager got to.
+// 20260905090100); OD requests and comp-off credits use the same shape
+// (od_request_approvals / comp_off_credit_approvals). 'bypassed' means an
+// admin decided the whole item before this manager got to.
 export interface LeaveRequestManagerApproval {
   id: string;
   managerEmployeeId: string;
@@ -80,6 +87,9 @@ export interface OdRequest {
   approverUser?: ApproverUser | null;
   rejectionReason: string | null;
   employee?: RequestEmployee;
+  // Same multi-manager AND-gate as leave — see odRequest.service.js.
+  decisionMode?: 'manager_consensus' | 'admin_override' | null;
+  managerApprovals?: LeaveRequestManagerApproval[];
 }
 
 export interface AttendanceRegularization {
@@ -116,6 +126,10 @@ export interface CompOffCredit {
   // expires".
   expiryDate: string | null;
   employee?: RequestEmployee;
+  // Same multi-manager AND-gate as leave — see compOff.service.js. Empty for
+  // a manually granted credit (approved at creation).
+  decisionMode?: 'manager_consensus' | 'admin_override' | null;
+  managerApprovals?: LeaveRequestManagerApproval[];
 }
 
 export interface ApprovalHistoryEntry {
@@ -143,11 +157,11 @@ interface ListParams {
   // leaveRequest.controller.js/odRequest.controller.js/etc.'s list handlers.
   companyId?: string;
   brandId?: string;
-  // Set by the ESS "Team Approvals" page: 'reports' for a manager's direct
-  // reports, 'company' for an employee holding the company-wide "Approve
-  // Leave/OD Requests" power — see leaveRequest.routes.js/
-  // odRequest.routes.js's requireReadAccess. Only leave/OD requests support
-  // this today.
+  // Set by the ESS "Team Approvals" page: 'reports' for every employee the
+  // caller manages (primary or additional, any company of the Group),
+  // 'company' for an employee holding the company-wide "Approve Leave/OD
+  // Requests" power — see leaveRequest.routes.js/odRequest.routes.js/
+  // compOff.routes.js's requireReadAccess. Comp-off supports 'reports' only.
   scope?: 'reports' | 'company';
   // Comp-off only — a company/brand-wide `comp_off:read` holder (Company
   // Admin/HR Manager/Brand Admin) can filter to one specific employee's own

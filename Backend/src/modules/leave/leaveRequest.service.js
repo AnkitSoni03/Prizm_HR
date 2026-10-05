@@ -10,13 +10,17 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 const { getManagersForEmployee } = require('../../utils/managerScope');
+const { notifyManagers } = require('../../utils/managerApprovals');
 
 const MANAGER_APPROVAL_INCLUDE = {
   model: db.LeaveRequestApproval,
   as: 'managerApprovals',
-  include: [{ model: db.Employee, as: 'manager', attributes: ['id', 'name', 'employeeCode', 'userId'] }],
+  include: [{ model: db.Employee, as: 'manager', attributes: ['id', 'name', 'employeeCode', 'userId', 'companyId'] }],
 };
 
+// companyId null is only ever passed for a manager's ?scope=reports list,
+// where `employeeId` is already the exact (Group-bounded) set of their
+// reports — possibly spread across several companies.
 async function listLeaveRequests({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
   // Array form is how a manager's "my team's requests" scope is expressed
@@ -30,7 +34,7 @@ async function listLeaveRequests({ companyId, brandId, employeeId, status, limit
   }
   if (status) where.status = status;
 
-  const employeeWhere = { companyId };
+  const employeeWhere = companyId ? { companyId } : {};
   if (Array.isArray(brandId)) {
     if (brandId.length > 0) employeeWhere.brandId = { [Op.in]: brandId };
   } else if (brandId) {
@@ -38,12 +42,22 @@ async function listLeaveRequests({ companyId, brandId, employeeId, status, limit
   }
 
   const { rows, count } = await db.LeaveRequest.findAndCountAll({
+    distinct: true,
     where,
     limit,
     offset,
     order: [['id', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'photoUrl'] },
+      {
+        model: db.Employee,
+        as: 'employee',
+        where: employeeWhere,
+        attributes: ['id', 'employeeCode', 'name', 'photoUrl', 'companyId', 'brandId'],
+        include: [
+          { model: db.Company, as: 'company', attributes: ['id', 'name'] },
+          { model: db.Brand, as: 'brand', attributes: ['id', 'name'] },
+        ],
+      },
       { model: db.LeaveType, as: 'leaveType' },
       {
         model: db.User,
@@ -61,6 +75,9 @@ async function listLeaveRequests({ companyId, brandId, employeeId, status, limit
   return { rows: await withEmployeePhoto(rows), count };
 }
 
+// companyId null looks the request up in ANY company — only for a
+// cross-company manager, whose access is then proven against the request's
+// own snapshotted managerApprovals (middleware/approvalAccess.js).
 async function getLeaveRequestForDecision({ companyId, id }) {
   const request = await db.LeaveRequest.findOne({
     where: { id },
@@ -68,8 +85,9 @@ async function getLeaveRequestForDecision({ companyId, id }) {
       {
         model: db.Employee,
         as: 'employee',
-        where: { companyId },
-        attributes: ['id', 'brandId', 'managerId', 'userId', 'rosterGroupId'],
+        where: companyId ? { companyId } : undefined,
+        required: true,
+        attributes: ['id', 'companyId', 'brandId', 'managerId', 'userId', 'rosterGroupId'],
       },
       { model: db.LeaveType, as: 'leaveType' },
       MANAGER_APPROVAL_INCLUDE,
@@ -248,19 +266,15 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
   if (notify) {
     const employeeLabel = employee.name || employee.employeeCode;
     const managerCountNote = managers.length > 1 ? ` (needs all ${managers.length} of your managers)` : '';
-    await Promise.all(
-      managers.map((manager) =>
-        notifyUser({
-          companyId,
-          userId: manager.userId,
-          type: 'approval_pending',
-          requestType: 'leave_request',
-          requestId: request.id,
-          title: `New leave request from ${employeeLabel}`,
-          body: `${fromDate} → ${toDate}${managerCountNote}`,
-        })
-      )
-    );
+    // In each manager's OWN company — a cross-company manager reads
+    // notifications under their own tenant.
+    await notifyManagers(managers, {
+      type: 'approval_pending',
+      requestType: 'leave_request',
+      requestId: request.id,
+      title: `New leave request from ${employeeLabel}`,
+      body: `${fromDate} → ${toDate}${managerCountNote}`,
+    });
     await notifyApprovers({
       companyId,
       brandId: employee.brandId,
@@ -399,7 +413,7 @@ async function approveLeaveRequest({ companyId, id, approverId, approverUserId, 
     await Promise.all(
       bypassedManagers.map((approval) =>
         notifyUser({
-          companyId,
+          companyId: approval.manager?.companyId || companyId,
           userId: approval.manager?.userId,
           type: 'approval_decision',
           requestType: 'leave_request',
@@ -459,7 +473,7 @@ async function rejectLeaveRequest({ companyId, id, approverId, approverUserId, r
   await Promise.all(
     bypassedManagers.map((approval) =>
       notifyUser({
-        companyId,
+        companyId: approval.manager?.companyId || companyId,
         userId: approval.manager?.userId,
         type: 'approval_decision',
         requestType: 'leave_request',
@@ -502,8 +516,10 @@ async function decideLeaveRequestAsManager({ companyId, id, managerEmployeeId, a
     throw new HttpError(409, 'You already decided this request');
   }
 
-  const manager = await db.Employee.findByPk(managerEmployeeId, { attributes: ['id', 'name', 'employeeCode'] });
-  const managerLabel = manager?.name || manager?.employeeCode || 'A manager';
+  // From the snapshot row's include, not a fresh Employee lookup — this runs
+  // under the REQUEST's company tenant, which would hide a manager from a
+  // sibling company of the Group.
+  const managerLabel = myApproval.manager?.name || myApproval.manager?.employeeCode || 'A manager';
 
   let outcome; // 'rejected' | 'approved' | 'pending' (approved but not yet final)
   let approvedCount = 0;
@@ -615,19 +631,13 @@ async function cancelLeaveRequest({ companyId, employeeId, id }) {
   });
   const employeeLabel = employee?.name || employee?.employeeCode || 'An employee';
   const managers = await getManagersForEmployee({ companyId, employeeId });
-  await Promise.all(
-    managers.map((manager) =>
-      notifyUser({
-        companyId,
-        userId: manager.userId,
-        type: 'request_cancelled',
-        requestType: 'leave_request',
-        requestId: request.id,
-        title: `${employeeLabel} cancelled their leave request`,
-        body: `${request.fromDate} → ${request.toDate}`,
-      })
-    )
-  );
+  await notifyManagers(managers, {
+    type: 'request_cancelled',
+    requestType: 'leave_request',
+    requestId: request.id,
+    title: `${employeeLabel} cancelled their leave request`,
+    body: `${request.fromDate} → ${request.toDate}`,
+  });
   await notifyApprovers({
     companyId,
     brandId: employee?.brandId,

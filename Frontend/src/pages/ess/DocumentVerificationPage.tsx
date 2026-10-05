@@ -164,7 +164,6 @@ export function DocumentVerificationPage() {
           brands={brands}
           departments={departments}
           designations={designations}
-          employees={employees}
           initialTab="documents"
           onClose={() => setSelectedEmployee(null)}
           onUpdated={() => {

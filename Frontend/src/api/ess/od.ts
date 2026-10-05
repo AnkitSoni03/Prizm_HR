@@ -1,4 +1,5 @@
 import { apiClient } from '../client';
+import type { ManagerApprovalRow } from '../../utils/managerApproval';
 
 export interface OdRequest {
   id: string;
@@ -9,6 +10,10 @@ export interface OdRequest {
   location: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   approverId: string | null;
+  // Every one of the employee's managers must approve — see
+  // utils/managerApproval.ts / components/ManagerApprovalStatus.tsx.
+  decisionMode?: 'manager_consensus' | 'admin_override' | null;
+  managerApprovals?: ManagerApprovalRow[];
 }
 
 interface ListResult<T> {

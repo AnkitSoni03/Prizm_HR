@@ -3,6 +3,7 @@ import axios from 'axios';
 import { RefreshCw } from 'lucide-react';
 import { RequestCard, RequestCardGrid, RequestCardRow } from '../../components/ui/RequestCard';
 import { Badge } from '../../components/ui/Badge';
+import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -163,6 +164,13 @@ export function MyCompOffPage() {
               {expiringSoon && (
                 <div className="flex justify-end">
                   <Badge tone="warning">{daysLeft === 0 ? 'Expires today' : `${daysLeft}d left`}</Badge>
+                </div>
+              )}
+              {/* Only an auto-detected credit goes through manager approval —
+                  a manually granted one has no approval rows. */}
+              {(c.managerApprovals?.length ?? 0) > 0 && (
+                <div className="border-t border-border pt-2">
+                  <ManagerApprovalStatus approvals={c.managerApprovals} decisionMode={c.decisionMode} variant="list" />
                 </div>
               )}
             </RequestCard>

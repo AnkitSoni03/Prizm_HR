@@ -1,4 +1,5 @@
 import { apiClient } from '../client';
+import type { ManagerApprovalRow } from '../../utils/managerApproval';
 
 export interface CompOffCredit {
   id: string;
@@ -10,6 +11,10 @@ export interface CompOffCredit {
   // Null means "earned under a carry-forward Comp-Off Policy — never
   // expires" (see Backend's compOff.service.js).
   expiryDate: string | null;
+  // Every one of the employee's managers must approve — see
+  // utils/managerApproval.ts / components/ManagerApprovalStatus.tsx.
+  decisionMode?: 'manager_consensus' | 'admin_override' | null;
+  managerApprovals?: ManagerApprovalRow[];
 }
 
 interface ListResult<T> {

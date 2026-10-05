@@ -6,6 +6,7 @@ const service = require('./leaveRequest.service');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission, getBrandScope } = require('../../middleware/rbac.middleware');
 const { getManagedEmployeeIds } = require('../../utils/managerScope');
+const { requireApprovalDecisionAccess } = require('../../middleware/approvalAccess');
 
 const router = Router();
 router.use(requireAuth);
@@ -40,6 +41,8 @@ async function requireReadAccess(req, res, next) {
           companyId: req.auth.companyId,
           managerEmployeeId: req.auth.employeeId,
         });
+        // Reports may sit in any company of the Group — the id list bounds it.
+        req.leaveRequestCrossCompany = true;
         return next();
       }
       return res.status(403).json({ error: 'Forbidden', permission: 'leave_request:read_reports' });
@@ -75,65 +78,21 @@ async function requireReadAccess(req, res, next) {
   }
 }
 
-// Two independent ways to decide a leave request:
+// Two independent ways to decide a leave request (middleware/approvalAccess.js):
 //   1. Company/brand-wide leave_request:approve|reject (Company Admin, HR
-//      Manager, Brand Admin, or an Employee holding the "Approve Leave/OD
-//      Requests" power) — sets req.leaveDecisionMode = 'admin', which
-//      routes the controller to the ADMIN-BYPASS service functions
-//      (finalizes immediately, overriding whichever managers haven't
-//      decided yet — the explicit "admin approval bypasses everyone"
-//      requirement).
-//   2. leave_request:approve_reports|reject_reports (granted broadly to the
-//      Employee role — see the manager-based-approval seeder) PLUS actually
-//      being one of THIS SPECIFIC request's snapshotted managers. Checked
-//      against the request's own leave_request_approvals rows (the
-//      snapshot taken at submission time — see createLeaveRequest), not a
-//      live re-derivation of "who are this employee's managers right now",
-//      so who's deciding an in-flight request never shifts underneath it.
-//      Sets req.leaveDecisionMode = 'manager', which routes the controller
-//      to decideLeaveRequestAsManager — one vote in the multi-manager
-//      AND-gate, not an automatic finalize.
+//      Manager, Brand Admin, or the "Approve Leave/OD Requests" power) —
+//      the ADMIN-BYPASS service functions (finalizes immediately).
+//   2. leave_request:approve_reports|reject_reports PLUS being one of THIS
+//      request's snapshotted managers (leave_request_approvals) — possibly
+//      from another company of the Group. One vote in the AND-gate
+//      (decideLeaveRequestAsManager).
 function requireDecisionAccess(action) {
-  return async function (req, res, next) {
-    try {
-      // Brand-scoped holders (Brand Admin, a Brand-level power) only decide
-      // requests from their own Brand(s) — checked against the request's
-      // own employee, never a client-supplied brandId.
-      const scope = await getBrandScope(req.auth, `leave_request:${action}`);
-      if (scope.allowed) {
-        let inScope = scope.companyWide;
-        if (!inScope) {
-          const request = await service.getLeaveRequestForDecision({ companyId: req.auth.companyId, id: req.params.id });
-          inScope = scope.brandIds.some((brandId) => String(brandId) === String(request.employee.brandId));
-        }
-        if (inScope) {
-          req.leaveDecisionMode = 'admin';
-          return next();
-        }
-      }
-
-      if (
-        (await userHasPermission(req.auth, `leave_request:${action}_reports`)) &&
-        req.auth.employeeId != null
-      ) {
-        const request = await service.getLeaveRequestForDecision({
-          companyId: req.auth.companyId,
-          id: req.params.id,
-        });
-        const isSnapshottedManager = request.managerApprovals.some(
-          (approval) => String(approval.managerEmployeeId) === String(req.auth.employeeId)
-        );
-        if (isSnapshottedManager) {
-          req.leaveDecisionMode = 'manager';
-          return next();
-        }
-      }
-
-      return res.status(403).json({ error: 'Forbidden', permission: `leave_request:${action}` });
-    } catch (err) {
-      next(err);
-    }
-  };
+  return requireApprovalDecisionAccess({
+    resource: 'leave_request',
+    action,
+    loadAnyCompany: (id) => service.getLeaveRequestForDecision({ companyId: null, id }),
+    notFoundMessage: 'Leave request not found',
+  });
 }
 
 router.get('/', requireReadAccess, controller.list);

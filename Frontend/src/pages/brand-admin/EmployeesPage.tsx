@@ -331,7 +331,6 @@ export function EmployeesPage() {
           brands={[ownBrand]}
           departments={departments}
           designations={designations}
-          employees={employees}
           rosterGroups={rosterGroups}
           onClose={() => setIsCreateModalOpen(false)}
           onCreated={loadEmployees}
@@ -346,7 +345,6 @@ export function EmployeesPage() {
           brands={[ownBrand]}
           departments={departments}
           designations={designations}
-          employees={employees}
           rosterGroups={rosterGroups}
           onClose={() => setSelectedEmployee(null)}
           onUpdated={() => {

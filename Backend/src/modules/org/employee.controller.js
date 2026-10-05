@@ -5,6 +5,7 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const rosterTransferService = require('./rosterTransfer.service');
 const { getManagersForEmployee } = require('../../utils/managerScope');
+const managerOptions = require('./managerOptions.service');
 const { parsePagination } = require('../../utils/pagination');
 const {
   resolveCompanyScope,
@@ -302,6 +303,32 @@ async function getMyManagers(req, res, next) {
   }
 }
 
+// Manager picker (Employee form): the caller's Group companies + Brands,
+// then one company's/Brand's employees — see managerOptions.service.js.
+async function getManagerCompanies(req, res, next) {
+  try {
+    res.json({ data: await managerOptions.listManagerCompanies({ companyId: req.auth.companyId }) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getManagerEmployees(req, res, next) {
+  try {
+    const ids = req.query.ids ? String(req.query.ids).split(',').filter(Boolean) : null;
+    const rows = await managerOptions.listManagerEmployees({
+      companyId: req.auth.companyId,
+      targetCompanyId: req.query.companyId,
+      brandId: req.query.brandId,
+      search: req.query.search,
+      ids,
+    });
+    res.json({ data: rows });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function uploadPhoto(req, res, next) {
   try {
     if (!req.file) {
@@ -380,6 +407,8 @@ async function removeMyPhoto(req, res, next) {
 }
 
 module.exports = {
+  getManagerCompanies,
+  getManagerEmployees,
   list,
   get,
   create,

@@ -10,6 +10,7 @@ module.exports = (sequelize, DataTypes) => {
       CompOffCredit.belongsTo(models.User, { foreignKey: 'approverUserId', as: 'approverUser' });
       CompOffCredit.belongsTo(models.Attendance, { foreignKey: 'sourceAttendanceId', as: 'sourceAttendance' });
       CompOffCredit.hasOne(models.LeaveRequest, { foreignKey: 'compOffCreditId', as: 'consumedByLeaveRequest' });
+      CompOffCredit.hasMany(models.CompOffCreditApproval, { foreignKey: 'compOffCreditId', as: 'managerApprovals' });
     }
   }
 
@@ -30,6 +31,7 @@ module.exports = (sequelize, DataTypes) => {
       approverId: { type: DataTypes.BIGINT, allowNull: true },
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
+      decisionMode: { type: DataTypes.ENUM('manager_consensus', 'admin_override'), allowNull: true },
       // Null means this credit never expires — earned under a
       // carryForward-enabled CompOffPolicy. compOffExpiry.job.js's sweep
       // (WHERE expiry_date < today) and leaveRequest.service.js's redemption

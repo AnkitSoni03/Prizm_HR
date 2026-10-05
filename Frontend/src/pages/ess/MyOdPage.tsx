@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Send, CalendarRange, MapPin } from 'lucide-react';
 import { RequestCard, RequestCardGrid } from '../../components/ui/RequestCard';
 import { Badge } from '../../components/ui/Badge';
+import { ManagerApprovalStatus } from '../../components/ManagerApprovalStatus';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -167,6 +168,11 @@ export function MyOdPage() {
               <div className="flex items-center gap-1.5 text-sm text-ink-muted">
                 <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                 {r.location}
+              </div>
+            )}
+            {r.status !== 'cancelled' && (
+              <div className="border-t border-border pt-2">
+                <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} variant="list" />
               </div>
             )}
           </RequestCard>

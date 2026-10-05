@@ -116,11 +116,16 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     const tab = APPROVAL_TABS[notification.requestType];
     if (portal === '/company-admin') return `/company-admin/approvals?tab=${tab}`;
     if (portal === '/brand-admin') return `/brand-admin/approvals?tab=${tab}`;
-    // attendance_regularization/comp_off_credit have no manager/power-holder
-    // path in ESS (only Company Admin/Brand Admin/HR Manager can ever hold
-    // those :approve codes) — see leaveRequest.routes.js/odRequest.routes.js
-    // vs attendanceRegularization.routes.js/compOff.routes.js.
-    if (portal === '/ess' && (notification.requestType === 'leave_request' || notification.requestType === 'od_request')) {
+    // Leave/OD/comp-off have a manager path in ESS (Team Approvals — the
+    // manager may even be in another company of the Group);
+    // attendance_regularization has none (only Company Admin/Brand Admin/HR
+    // Manager can decide it) — see attendanceRegularization.routes.js.
+    if (
+      portal === '/ess' &&
+      (notification.requestType === 'leave_request' ||
+        notification.requestType === 'od_request' ||
+        notification.requestType === 'comp_off_credit')
+    ) {
       return `/ess/team-approvals?tab=${tab}`;
     }
     return null;

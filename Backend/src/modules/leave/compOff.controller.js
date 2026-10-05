@@ -4,7 +4,8 @@ const service = require('./compOff.service');
 const { parsePagination } = require('../../utils/pagination');
 const { resolveCompanyScope, assertCompanyInCallerGroup } = require('../../utils/resolveCompanyScope');
 const { listApprovalHistory } = require('../../utils/approvalHistory');
-const { userHasPermission } = require('../../middleware/rbac.middleware');
+const { resolveHistoryAccess } = require('../../middleware/approvalAccess');
+const { runAsCompany } = require('../../config/tenant-context');
 
 async function list(req, res, next) {
   try {
@@ -16,7 +17,8 @@ async function list(req, res, next) {
     await assertCompanyInCallerGroup({ groupId: req.auth.groupId, companyId });
 
     const { rows, count } = await service.listCompOffCredits({
-      companyId,
+      // A manager's reports may span the Group — their ids already bound it.
+      companyId: req.compOffCrossCompany ? null : companyId,
       brandId: req.compOffBrandScope || undefined,
       employeeId: req.compOffEmployeeScope || req.query.employeeId,
       status: req.query.status,
@@ -47,15 +49,32 @@ async function create(req, res, next) {
   }
 }
 
+// req.decision (requireDecisionAccess): an admin's decision finalizes at
+// once; a manager's is one vote, run as the CREDIT's company (the manager
+// may be in a sibling company of the Group).
+function decide(req, decision) {
+  const { mode, companyId } = req.decision;
+  if (mode === 'manager') {
+    return runAsCompany(companyId, () =>
+      service.decideCompOffCreditAsManager({
+        companyId,
+        id: req.params.id,
+        managerEmployeeId: req.auth.employeeId,
+        approverUserId: req.auth.userId,
+        decision,
+        reason: req.body.reason,
+      })
+    );
+  }
+  const args = { companyId, id: req.params.id, approverId: req.auth.employeeId, approverUserId: req.auth.userId };
+  return decision === 'approved'
+    ? service.approveCompOffCredit(args)
+    : service.rejectCompOffCredit({ ...args, reason: req.body.reason });
+}
+
 async function approve(req, res, next) {
   try {
-    const credit = await service.approveCompOffCredit({
-      companyId: req.auth.companyId,
-      id: req.params.id,
-      approverId: req.auth.employeeId,
-      approverUserId: req.auth.userId,
-    });
-    res.json({ data: credit });
+    res.json({ data: await decide(req, 'approved') });
   } catch (err) {
     next(err);
   }
@@ -63,40 +82,30 @@ async function approve(req, res, next) {
 
 async function reject(req, res, next) {
   try {
-    const credit = await service.rejectCompOffCredit({
-      companyId: req.auth.companyId,
-      id: req.params.id,
-      approverId: req.auth.employeeId,
-      approverUserId: req.auth.userId,
-      reason: req.body.reason,
-    });
-    res.json({ data: credit });
+    res.json({ data: await decide(req, 'rejected') });
   } catch (err) {
     next(err);
   }
 }
 
-// No manager/"reports" scoping exists for comp-off credits (unlike
-// leave/OD) — just company/brand-wide read or the caller's own record.
+// Company/brand-wide read, own record, or one of the credit's snapshotted
+// managers (any company of the Group) — checked against the real record.
 async function history(req, res, next) {
   try {
-    const companyId = resolveCompanyScope({
+    const scopeCompanyId = resolveCompanyScope({
       authCompanyId: req.auth.companyId,
       override: req.query.companyId,
     });
-    await assertCompanyInCallerGroup({ groupId: req.auth.groupId, companyId });
+    await assertCompanyInCallerGroup({ groupId: req.auth.groupId, companyId: scopeCompanyId });
 
-    const credit = await service.getCompOffCreditById({ companyId, id: req.params.id });
+    const credit = await service.getCompOffCreditById({ companyId: null, id: req.params.id });
+    const companyId = await resolveHistoryAccess({ req, request: credit, resource: 'comp_off', scopeCompanyId });
+    if (!companyId) return res.status(404).json({ error: 'Comp-off credit not found' });
 
-    const allowed =
-      (await userHasPermission(req.auth, 'comp_off:read', credit.employee.brandId)) ||
-      (req.auth.employeeId != null &&
-        String(credit.employeeId) === String(req.auth.employeeId) &&
-        (await userHasPermission(req.auth, 'comp_off:read_own')));
-
-    if (!allowed) return res.status(403).json({ error: 'Forbidden', permission: 'comp_off:read' });
-
-    const rows = await listApprovalHistory({ companyId, requestType: 'comp_off_credit', requestId: req.params.id });
+    // ApprovalHistory is tenant-scoped — read it as the credit's company.
+    const rows = await runAsCompany(companyId, () =>
+      listApprovalHistory({ companyId, requestType: 'comp_off_credit', requestId: req.params.id })
+    );
     res.json({ data: rows });
   } catch (err) {
     next(err);

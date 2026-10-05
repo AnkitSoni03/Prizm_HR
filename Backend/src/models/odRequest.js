@@ -8,6 +8,7 @@ module.exports = (sequelize, DataTypes) => {
       OdRequest.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
       OdRequest.belongsTo(models.Employee, { foreignKey: 'approverId', as: 'approver' });
       OdRequest.belongsTo(models.User, { foreignKey: 'approverUserId', as: 'approverUser' });
+      OdRequest.hasMany(models.OdRequestApproval, { foreignKey: 'odRequestId', as: 'managerApprovals' });
     }
   }
 
@@ -26,6 +27,7 @@ module.exports = (sequelize, DataTypes) => {
       approverId: { type: DataTypes.BIGINT, allowNull: true },
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
+      decisionMode: { type: DataTypes.ENUM('manager_consensus', 'admin_override'), allowNull: true },
     },
     {
       sequelize,

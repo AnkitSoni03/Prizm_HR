@@ -11,14 +11,14 @@ import {
   updateEmployee,
   uploadEmployeePhoto,
 } from '../../../api/companyAdmin/employees';
-import { ManagerCombobox } from '../../../components/ui/ManagerCombobox';
+import { GroupManagerPicker } from '../../../components/ui/GroupManagerPicker';
 import { createDepartment, createDesignation } from '../../../api/companyAdmin/org';
 import { useAuth } from '../../../context/auth-context';
 import { useToast } from '../../../context/toast-context';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import type { PowerLevelMap } from '../../../api/powers';
 import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
-import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
+import type { Brand, Department, Designation } from '../../../api/tenancy';
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
 import { GENDER_OPTIONS } from '../../../utils/gender';
@@ -28,7 +28,6 @@ interface EmployeeFormModalProps {
   brands: Brand[];
   departments: Department[];
   designations: Designation[];
-  employees: Employee[];
   // Optional — omitted entirely by call sites that don't manage Roster
   // Groups (e.g. Super Admin's employee-creation flow).
   rosterGroups?: RosterPolicyGroup[];
@@ -54,7 +53,6 @@ export function EmployeeFormModal({
   brands,
   departments,
   designations,
-  employees,
   rosterGroups = [],
   onClose,
   onCreated,
@@ -94,12 +92,13 @@ export function EmployeeFormModal({
   const [error, setError] = useState<string | null>(null);
 
   // Once a Brand is picked, every dependent field below (Department,
-  // Designation, Manager, Roster Group) narrows down to ONLY that Brand's
+  // Designation, Roster Group) narrows down to ONLY that Brand's
   // own records — never a sibling Brand's, and not the company's Shared
   // ones either, matching the same "a specific Brand means only that
   // Brand's own" rule already applied to the Roster picker on the Shift/
   // Holiday/Policy forms. A direct-mode company (usesBrands false) has no
-  // Brand dimension at all, so nothing is filtered there.
+  // Brand dimension at all, so nothing is filtered there. Manager is the
+  // exception: it may be anyone in the Group (GroupManagerPicker).
   function ownedByBrand<T extends { brandId: string | null }>(items: T[], forBrandId: string): T[] {
     if (!usesBrands || !forBrandId) return items;
     return items.filter((item) => item.brandId === forBrandId);
@@ -108,10 +107,9 @@ export function EmployeeFormModal({
   const availableDepartments = ownedByBrand(departments, brandId);
   const availableDesignations = ownedByBrand(designations, brandId);
   const availableRosterGroups = ownedByBrand(rosterGroups, brandId);
-  const availableManagers = ownedByBrand(employees, brandId);
 
   // Switching Brand prunes any already-picked Department/Designation/
-  // Manager/Roster Group that's no longer valid for the new Brand — same
+  // Roster Group that's no longer valid for the new Brand — same
   // "drop what's no longer offered" behavior used elsewhere in this session
   // (see ShiftFormModal.tsx's own Brand-change handler).
   function handleBrandChange(nextBrandId: string) {
@@ -123,10 +121,6 @@ export function EmployeeFormModal({
       prev === NEW_OPTION_VALUE || ownedByBrand(designations, nextBrandId).some((d) => d.id === prev) ? prev : ''
     );
     setRosterGroupId((prev) => (ownedByBrand(rosterGroups, nextBrandId).some((rg) => rg.id === prev) ? prev : ''));
-    setManagerIds((prev) => {
-      const allowed = new Set(ownedByBrand(employees, nextBrandId).map((e) => e.id));
-      return prev.filter((id) => allowed.has(id));
-    });
   }
 
   // Only meaningful for a 0-weekly-off + Week-Off-Leave-enabled Roster — a
@@ -386,14 +380,13 @@ export function EmployeeFormModal({
           Used to determine eligibility for gender-restricted leave types (e.g. Maternity/Paternity
           Leave).
         </p>
-        <ManagerCombobox
+        <GroupManagerPicker
           id="employee-manager"
           label="Manager"
-          employees={availableManagers}
           selectedIds={managerIds}
           onChange={setManagerIds}
           placeholder="No manager"
-          helperText="Pick one or more — a leave request needs every manager's approval."
+          helperText="Pick one or more from any company/brand. All must approve."
         />
         <Select
           id="employee-roster-group"

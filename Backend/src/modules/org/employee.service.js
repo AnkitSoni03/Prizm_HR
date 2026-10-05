@@ -13,6 +13,8 @@ const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
 const { getActiveEmployeeShift } = require('../attendance/employeeShift.service');
 const { dateOnly } = require('../../utils/dateRange');
 const { syncWeekOffLeaveForEmployee, syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
+const { assertManagersInGroup } = require('../../utils/managerScope');
+const { syncPendingManagerApprovals } = require('../../utils/managerApprovals');
 
 const GENDER_VALUES = ['male', 'female', 'other'];
 
@@ -311,7 +313,8 @@ async function createEmployee({
   // later via transferEmployee, same deferred-setup shape as Roster.
   if (departmentId) await assertOwnedByBrand(db.Department, departmentId, companyId, brandId, 'Department');
   if (designationId) await assertOwnedByBrand(db.Designation, designationId, companyId, brandId, 'Designation');
-  if (managerId) await assertBelongsToCompany(db.Employee, managerId, companyId, 'Manager');
+  // A manager may be in any company of this company's Group (managerScope.js).
+  if (managerId) await assertManagersInGroup({ employeeCompanyId: companyId, managerIds: [managerId] });
   if (rosterGroupId) await assertOwnedByBrand(db.RosterGroup, rosterGroupId, companyId, brandId, 'Roster Group');
 
   // Roster is no longer a precondition for creating an employee — it can be
@@ -382,7 +385,10 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   if (patch.gender !== null && patch.gender !== undefined && !GENDER_VALUES.includes(patch.gender)) {
     throw new HttpError(400, `gender must be one of ${GENDER_VALUES.join(', ')}`);
   }
-  if (patch.managerId) await assertBelongsToCompany(db.Employee, patch.managerId, companyId, 'Manager');
+  if (patch.managerId) {
+    if (String(patch.managerId) === String(employee.id)) throw new HttpError(400, 'An employee cannot be their own manager');
+    await assertManagersInGroup({ employeeCompanyId: employee.companyId, managerIds: [patch.managerId] });
+  }
   if (patch.designationId) await assertOwnedByBrand(db.Designation, patch.designationId, companyId, employee.brandId, 'Designation');
   if (patch.weekOffLeaveBlockedDays !== undefined) {
     const days = patch.weekOffLeaveBlockedDays;
@@ -399,6 +405,10 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
       throw new HttpError(409, 'employeeCode already in use for this company');
     }
     throw err;
+  }
+
+  if (patch.managerId !== undefined) {
+    await syncPendingManagerApprovals({ companyId: employee.companyId, employeeId: employee.id });
   }
 
   // A corrected dateOfJoining should immediately re-prorate an already-
@@ -797,9 +807,8 @@ async function setEmployeeManagers({ companyId, id, managerIds, scopedBrandIds }
   const ids = [...new Set((Array.isArray(managerIds) ? managerIds : []).map(String))].filter(
     (managerId) => managerId !== String(employee.id)
   );
-  for (const managerId of ids) {
-    await assertBelongsToCompany(db.Employee, managerId, employee.companyId, 'Manager');
-  }
+  // Any company of the employee's own Group — see utils/managerScope.js.
+  await assertManagersInGroup({ employeeCompanyId: employee.companyId, managerIds: ids });
 
   await db.sequelize.transaction(async (t) => {
     // Hard delete — same reasoning as assignEmployeePowers's RolePermission
@@ -813,6 +822,9 @@ async function setEmployeeManagers({ companyId, id, managerIds, scopedBrandIds }
       );
     }
   });
+
+  // Pending requests pick up the new manager set (see managerApprovals.js).
+  await syncPendingManagerApprovals({ companyId: employee.companyId, employeeId: employee.id });
 
   return getEmployeeForRead(employee.id);
 }

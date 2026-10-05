@@ -163,7 +163,7 @@ export function MyProfilePage() {
   const rosterExpiryRemaining = rosterExpiryDate ? daysUntilRosterExpiry(rosterExpiryDate) : null;
 
   // Full manager list — the primary `manager` plus any additional ones (see
-  // ManagerCombobox.tsx on the admin side) — deduped by id in case the same
+  // GroupManagerPicker.tsx on the admin side) — deduped by id in case the same
   // person somehow ends up in both. Shows correctly whether there's one,
   // several, or (falling back to effectiveManager) none at all.
   const allManagers = [profile.manager, ...(profile.additionalManagerLinks ?? []).map((link) => link.manager)].filter(

@@ -4,7 +4,7 @@ import { Calendar, Check, CheckCircle2, Copy, FileText, Pencil, Save, Trash2, X 
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import { ManagerCombobox } from '../../../components/ui/ManagerCombobox';
+import { GroupManagerPicker } from '../../../components/ui/GroupManagerPicker';
 import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { Tabs } from '../../../components/ui/Tabs';
@@ -65,7 +65,6 @@ interface EmployeeDetailModalProps {
   brands: Brand[];
   departments: Department[];
   designations: Designation[];
-  employees: Employee[];
   // Optional — omitted entirely by call sites that don't manage Roster
   // Groups (e.g. Super Admin's BrandCard, ESS's document-verification view).
   rosterGroups?: RosterPolicyGroup[];
@@ -129,7 +128,6 @@ export function EmployeeDetailModal({
   brands,
   departments,
   designations,
-  employees,
   rosterGroups = [],
   onClose,
   onUpdated,
@@ -155,7 +153,7 @@ export function EmployeeDetailModal({
   const canReadLeaveBalances = hasPermission('leave_balance:read');
   const canAdjustLeaveBalances = hasPermission('leave_balance:adjust');
 
-  // Designation/Manager/Roster Group are all edited here WITHOUT touching
+  // Designation/Roster Group are edited here WITHOUT touching
   // this employee's own Brand (that's the separate Transfer form below), so
   // each narrows down to ONLY the employee's OWN Brand's records — never a
   // sibling Brand's, and not the company's Shared ones either, matching the
@@ -165,9 +163,6 @@ export function EmployeeDetailModal({
   const availableDesignations = usesBrands
     ? designations.filter((d) => d.brandId === employee.brandId)
     : designations;
-  const availableManagers = (usesBrands ? employees.filter((e) => e.brandId === employee.brandId) : employees).filter(
-    (e) => e.id !== employee.id
-  );
   const availableRosterGroups = usesBrands ? rosterGroups.filter((rg) => rg.brandId === employee.brandId) : rosterGroups;
 
   const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'powers' | 'leaves'>(initialTab);
@@ -1105,15 +1100,15 @@ export function EmployeeDetailModal({
                 placeholder="No designation"
                 options={availableDesignations.map((d) => ({ value: d.id, label: d.title }))}
               />
-              <ManagerCombobox
+              <GroupManagerPicker
                 id="employee-manager-edit"
                 label="Manager"
-                employees={availableManagers}
                 selectedIds={managerIds}
                 onChange={setManagerIds}
+                excludeEmployeeId={employee.id}
                 disabled={!canUpdate}
                 placeholder="No manager"
-                helperText="Pick one or more — a leave request needs every manager's approval."
+                helperText="Pick one or more from any company/brand. All must approve."
               />
               <Input
                 id="employee-doj-edit"

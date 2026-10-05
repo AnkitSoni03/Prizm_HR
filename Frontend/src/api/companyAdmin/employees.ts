@@ -164,6 +164,43 @@ export async function setEmployeeManagers(id: string, managerIds: string[]): Pro
   return data.data;
 }
 
+// Manager picker — a manager may be in ANY company/brand of the caller's
+// Group (see Backend managerOptions.service.js). First the Group's companies
+// (each with its brands), then one company's/brand's employees.
+export interface ManagerCompanyOption {
+  id: string;
+  name: string;
+  usesBrands: boolean;
+  isOwnCompany: boolean;
+  brands: { id: string; name: string }[];
+}
+
+export interface ManagerEmployeeOption {
+  id: string;
+  name: string | null;
+  employeeCode: string | null;
+  companyId: string;
+  brandId: string | null;
+  company?: { id: string; name: string } | null;
+  brand?: { id: string; name: string } | null;
+}
+
+export async function listManagerCompanies(): Promise<ManagerCompanyOption[]> {
+  const { data } = await apiClient.get<{ data: ManagerCompanyOption[] }>('/employees/manager-options/companies');
+  return data.data;
+}
+
+// brandId 'none' = the company-level employees with no Brand. `ids` instead
+// resolves specific (already selected) employees, for their labels.
+export async function listManagerEmployees(
+  params: { companyId?: string; brandId?: string; search?: string; ids?: string[] }
+): Promise<ManagerEmployeeOption[]> {
+  const { data } = await apiClient.get<{ data: ManagerEmployeeOption[] }>('/employees/manager-options/employees', {
+    params: { ...params, ids: params.ids?.join(',') || undefined },
+  });
+  return data.data;
+}
+
 // Replaces this employee's photo wholesale — optional, file-based (not a
 // URL field). Any previous photo is deleted server-side.
 export async function uploadEmployeePhoto(id: string, file: File): Promise<Employee> {

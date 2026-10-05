@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Bookmark, CalendarRange, CalendarX, Clock, FileText, Layers, MapPin, User, Users } from 'lucide-react';
+import { Bookmark, Building2, CalendarRange, CalendarX, Clock, FileText, Layers, MapPin, User, Users } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
 import { FilterSelect } from '../../components/ui/FilterSelect';
 import { Pagination } from '../../components/ui/Pagination';
@@ -14,6 +14,7 @@ import { Button } from '../../components/ui/Button';
 import { useAuth } from '../../context/auth-context';
 import { useConfirm } from '../../context/confirm-context';
 import {
+  approveCompOffCredit,
   approveLeaveRequest,
   approveOdRequest,
   getCompOffHistory,
@@ -22,9 +23,11 @@ import {
   listCompOffCredits,
   listLeaveRequests,
   listOdRequests,
+  rejectCompOffCredit,
   rejectLeaveRequest,
   rejectOdRequest,
   type CompOffCredit,
+  type LeaveRequestManagerApproval,
   type LeaveRequest,
   type OdRequest,
   type RequestEmployee,
@@ -38,7 +41,23 @@ function employeeLabel(employee: RequestEmployee | undefined, employeeId: string
   return employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
 }
 
+// A manager's reports may sit in another Company/Brand of the Group — show
+// where each one belongs.
+function orgLabel(employee: RequestEmployee | undefined) {
+  if (!employee?.company) return null;
+  return [employee.company.name, employee.brand?.name].filter(Boolean).join(' › ');
+}
+
+function orgField(employee: RequestEmployee | undefined) {
+  const label = orgLabel(employee);
+  return label ? [{ icon: Building2, label: 'Company', value: label }] : [];
+}
+
 type Tab = 'leave' | 'od' | 'compOff';
+type Scope = 'company' | 'reports';
+type Domain = 'leave_request' | 'od_request' | 'comp_off';
+
+const DOMAIN: Record<Tab, Domain> = { leave: 'leave_request', od: 'od_request', compOff: 'comp_off' };
 
 const LIMIT = 20;
 
@@ -48,47 +67,46 @@ const STATUS_OPTIONS = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-// Two independent ways to land on this page's rows, auto-detected per tab
-// from whichever permission the caller actually holds — never a client
-// choice, since the backend is the one enforcing it either way:
-//   - Company-wide "Approve Leave/OD Requests" power (leave_request:read/
-//     approve/reject, od_request:read/approve/reject — see
-//     powerCatalog.js's `approve_requests` bundle): sends `scope=company`,
-//     sees every employee's requests.
-//   - Direct-reports-only manager scope (leave_request:read_reports/
-//     approve_reports/reject_reports — granted broadly to the whole
-//     Employee role, same shape as employee:read_own: most employees have
-//     zero direct reports and this page is just empty for them): sends
-//     `scope=reports`.
-// Neither is ever the default for MyLeavePage.tsx/MyOdPage.tsx's plain
-// (no scope param) calls — see leaveRequest.routes.js/odRequest.routes.js's
-// requireReadAccess. Attendance regularizations and comp-off approvals have
-// no manager/company-wide scoping wired up yet, so they're deliberately not
-// tabs here.
-function resolveScope(hasPermission: (code: string) => boolean, domain: 'leave_request' | 'od_request') {
-  if (hasPermission(`${domain}:read`)) return 'company' as const;
-  if (hasPermission(`${domain}:read_reports`)) return 'reports' as const;
-  return null;
+const SCOPE_OPTIONS = [
+  { value: 'reports', label: 'My team' },
+  { value: 'company', label: 'All employees' },
+];
+
+// Which views the caller can see on a tab, from the permissions they hold
+// (the backend enforces the same rule either way):
+//   - 'company': company/brand-wide `<domain>:read` (e.g. the "Approve
+//     Leave/OD Requests" or "Assign Comp-Off" power).
+//   - 'reports': `<domain>:read_reports` (granted to every Employee) — every
+//     employee who has the caller as primary OR additional manager, in any
+//     company of the Group. Empty for someone who manages nobody.
+// Neither is ever sent by MyLeavePage/MyOdPage/MyCompOffPage's plain calls.
+function availableScopes(hasPermission: (code: string) => boolean, domain: Domain): Scope[] {
+  const scopes: Scope[] = [];
+  if (hasPermission(`${domain}:read_reports`)) scopes.push('reports');
+  if (hasPermission(`${domain}:read`)) scopes.push('company');
+  return scopes;
 }
 
-// A leave request's Approve/Reject buttons here need to reflect the
-// multi-manager AND-gate, not just "is it still pending": an admin-wide
-// approve_requests holder can always decide (bypasses the chain), but a
-// caller only holding approve_reports/reject_reports must be one of THIS
-// request's snapshotted managers AND not have already voted — otherwise the
-// buttons would sit there clickable and just 403/409 on click, which is
-// exactly the kind of confusion this feature is meant to avoid.
-function leaveDecisionAccess(r: LeaveRequest, hasPermission: (code: string) => boolean, myEmployeeId?: string | null) {
-  if (r.status !== 'pending') return { canApprove: false, canReject: false };
-  const hasAdminGrant = hasPermission('leave_request:approve') || hasPermission('leave_request:reject');
-  if (hasAdminGrant) return { canApprove: hasPermission('leave_request:approve'), canReject: hasPermission('leave_request:reject') };
-
-  const myStatus = myManagerApprovalStatus(r.managerApprovals, myEmployeeId);
-  const isMyTurn = myStatus === 'pending';
-  return {
-    canApprove: isMyTurn && hasPermission('leave_request:approve_reports'),
-    canReject: isMyTurn && hasPermission('leave_request:reject_reports'),
-  };
+// Approve/Reject buttons follow the multi-manager AND-gate, not just "is it
+// still pending": a company-wide approver can always decide (bypasses the
+// chain), but a manager must be one of THIS item's snapshotted managers AND
+// not have voted yet — otherwise the buttons would just 403/409 on click.
+function decisionAccess(
+  isPending: boolean,
+  approvals: LeaveRequestManagerApproval[] | undefined,
+  domain: Domain,
+  hasPermission: (code: string) => boolean,
+  myEmployeeId?: string | null
+) {
+  if (!isPending) return { canApprove: false, canReject: false };
+  const myStatus = myManagerApprovalStatus(approvals, myEmployeeId);
+  if (myStatus === 'pending') {
+    return {
+      canApprove: hasPermission(`${domain}:approve_reports`) || hasPermission(`${domain}:approve`),
+      canReject: hasPermission(`${domain}:reject_reports`) || hasPermission(`${domain}:reject`),
+    };
+  }
+  return { canApprove: hasPermission(`${domain}:approve`), canReject: hasPermission(`${domain}:reject`) };
 }
 
 export function TeamApprovalsPage() {
@@ -103,6 +121,9 @@ export function TeamApprovalsPage() {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [statusFilter, setStatusFilter] = useState('');
   const [offset, setOffset] = useState(0);
+  const scopes = availableScopes(hasPermission, DOMAIN[activeTab]);
+  const [scopeChoice, setScopeChoice] = useState<Scope | null>(null);
+  const scope: Scope | null = scopeChoice && scopes.includes(scopeChoice) ? scopeChoice : (scopes[0] ?? null);
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [odRequests, setOdRequests] = useState<OdRequest[]>([]);
@@ -120,35 +141,33 @@ export function TeamApprovalsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      if (activeTab === 'compOff') {
-        if (!canAssignCompOff) {
-          setCompOffCredits([]);
-          setTotal(0);
-          return;
-        }
-        const result = await listCompOffCredits({ status: statusFilter || undefined, limit: LIMIT, offset });
-        setCompOffCredits(result.data);
-        setTotal(result.pagination.total);
-        return;
-      }
-
-      const domain = activeTab === 'leave' ? 'leave_request' : 'od_request';
-      const scope = resolveScope(hasPermission, domain);
       if (!scope) {
-        if (activeTab === 'leave') setLeaveRequests([]);
-        else setOdRequests([]);
+        setLeaveRequests([]);
+        setOdRequests([]);
+        setCompOffCredits([]);
         setTotal(0);
         return;
       }
 
-      const params = { scope, status: statusFilter || undefined, limit: LIMIT, offset };
+      const base = { status: statusFilter || undefined, limit: LIMIT, offset };
       if (activeTab === 'leave') {
-        const result = await listLeaveRequests(params);
+        const result = await listLeaveRequests({ ...base, scope });
         setLeaveRequests(result.data);
         setTotal(result.pagination.total);
-      } else {
-        const result = await listOdRequests(params);
+      } else if (activeTab === 'od') {
+        const result = await listOdRequests({ ...base, scope });
         setOdRequests(result.data);
+        setTotal(result.pagination.total);
+      } else {
+        // Comp-off's company/brand-wide view is its plain (no scope) list.
+        // Its status filter uses 'pending_approval' for pending.
+        const status = statusFilter === 'pending' ? 'pending_approval' : base.status;
+        const result = await listCompOffCredits({
+          ...base,
+          status,
+          scope: scope === 'reports' ? 'reports' : undefined,
+        });
+        setCompOffCredits(result.data);
         setTotal(result.pagination.total);
       }
     } catch {
@@ -162,7 +181,7 @@ export function TeamApprovalsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, statusFilter, offset]);
+  }, [activeTab, statusFilter, offset, scope]);
 
   // Only needed to populate the "Assign Comp-Off" employee picker.
   useEffect(() => {
@@ -178,6 +197,7 @@ export function TeamApprovalsPage() {
     setActiveTab(tab);
     setStatusFilter('');
     setOffset(0);
+    setScopeChoice(null);
   }
 
   async function handleLeaveApprove(id: string) {
@@ -202,12 +222,24 @@ export function TeamApprovalsPage() {
     await approveOdRequest(id);
     load();
   }
+  async function handleCompOffApprove(id: string) {
+    const confirmed = await confirm({
+      title: 'Approve comp-off credit',
+      message: 'Approve this comp-off credit?',
+      confirmLabel: 'Approve',
+      variant: 'primary',
+    });
+    if (!confirmed) return;
+    await approveCompOffCredit(id);
+    load();
+  }
 
   async function confirmReject(reason: string) {
     if (!rejectTarget) return;
     const { tab, id } = rejectTarget;
     if (tab === 'leave') await rejectLeaveRequest(id, reason);
-    else await rejectOdRequest(id, reason);
+    else if (tab === 'od') await rejectOdRequest(id, reason);
+    else await rejectCompOffCredit(id, reason);
     setRejectTarget(null);
     load();
   }
@@ -228,7 +260,7 @@ export function TeamApprovalsPage() {
         items={[
           { key: 'leave', label: 'Leave Requests' },
           { key: 'od', label: 'OD Requests' },
-          ...(canAssignCompOff ? [{ key: 'compOff', label: 'Comp-Off Credits' }] : []),
+          ...(availableScopes(hasPermission, 'comp_off').length > 0 ? [{ key: 'compOff', label: 'Comp-Off Credits' }] : []),
         ]}
         active={activeTab}
         onChange={(key) => switchTab(key as Tab)}
@@ -245,6 +277,18 @@ export function TeamApprovalsPage() {
           ariaLabel="Filter by status"
           options={STATUS_OPTIONS}
         />
+        {scopes.length > 1 && scope && (
+          <FilterSelect
+            value={scope}
+            onChange={(value) => {
+              setOffset(0);
+              setScopeChoice(value as Scope);
+            }}
+            placeholder="View"
+            ariaLabel="Whose requests to show"
+            options={SCOPE_OPTIONS}
+          />
+        )}
         {activeTab === 'compOff' && canAssignCompOff && (
           <Button type="button" onClick={() => setShowAssignCompOff(true)}>
             Assign Comp-Off
@@ -261,9 +305,9 @@ export function TeamApprovalsPage() {
             activeTab === 'leave' ? 'No leave requests' : activeTab === 'od' ? 'No OD requests' : 'No comp-off credits yet'
           }
           description={
-            activeTab === 'compOff'
-              ? 'Credits you assign to employees will show up here.'
-              : 'Requests from employees who report to you will show up here.'
+            scope === 'company'
+              ? 'Requests will show up here.'
+              : 'Requests from employees you manage — in any company or brand of your group — will show up here.'
           }
         />
       )}
@@ -274,7 +318,13 @@ export function TeamApprovalsPage() {
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
               leaveRequests.map((r) => {
-                const { canApprove, canReject } = leaveDecisionAccess(r, hasPermission, user?.employeeId);
+                const { canApprove, canReject } = decisionAccess(
+                  r.status === 'pending',
+                  r.managerApprovals,
+                  'leave_request',
+                  hasPermission,
+                  user?.employeeId
+                );
                 return (
                   <RequestCard
                     key={r.id}
@@ -285,6 +335,7 @@ export function TeamApprovalsPage() {
                     rejectionReason={r.rejectionReason}
                     fields={[
                       { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                      ...orgField(r.employee),
                       { icon: Layers, label: 'Type', value: r.leaveType?.name ?? '—' },
                       { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
                       { icon: Clock, label: 'Days', value: r.days },
@@ -320,34 +371,48 @@ export function TeamApprovalsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
-              odRequests.map((r) => (
-                <RequestCard
-                  key={r.id}
-                  name={employeeLabel(r.employee, r.employeeId)}
-                  photoUrl={r.employee?.photoDownloadUrl}
-                  tag={r.purpose}
-                  status={r.status}
-                  rejectionReason={r.rejectionReason}
-                  fields={[
-                    { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
-                    { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
-                    { icon: FileText, label: 'Purpose', value: r.purpose },
-                    { icon: MapPin, label: 'Location', value: r.location ?? '—' },
-                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
-                  ]}
-                  canApprove={
-                    r.status === 'pending' &&
-                    (hasPermission('od_request:approve') || hasPermission('od_request:approve_reports'))
-                  }
-                  canReject={
-                    r.status === 'pending' &&
-                    (hasPermission('od_request:reject') || hasPermission('od_request:reject_reports'))
-                  }
-                  onApprove={() => handleOdApprove(r.id)}
-                  onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
-                  onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
-                />
-              ))}
+              odRequests.map((r) => {
+                const { canApprove, canReject } = decisionAccess(
+                  r.status === 'pending',
+                  r.managerApprovals,
+                  'od_request',
+                  hasPermission,
+                  user?.employeeId
+                );
+                return (
+                  <RequestCard
+                    key={r.id}
+                    name={employeeLabel(r.employee, r.employeeId)}
+                    photoUrl={r.employee?.photoDownloadUrl}
+                    tag={r.purpose}
+                    status={r.status}
+                    rejectionReason={r.rejectionReason}
+                    fields={[
+                      { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                      ...orgField(r.employee),
+                      { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
+                      { icon: FileText, label: 'Purpose', value: r.purpose },
+                      { icon: MapPin, label: 'Location', value: r.location ?? '—' },
+                      { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                      {
+                        icon: Users,
+                        label: 'Managers',
+                        value:
+                          r.status === 'cancelled' ? (
+                            '—'
+                          ) : (
+                            <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />
+                          ),
+                      },
+                    ]}
+                    canApprove={canApprove}
+                    canReject={canReject}
+                    onApprove={() => handleOdApprove(r.id)}
+                    onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
+                    onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
+                  />
+                );
+              })}
           </div>
 
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
@@ -359,26 +424,45 @@ export function TeamApprovalsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {isLoading && <RequestCardSkeleton />}
             {!isLoading &&
-              compOffCredits.map((r) => (
-                <RequestCard
-                  key={r.id}
-                  name={employeeLabel(r.employee, r.employeeId)}
-                  photoUrl={r.employee?.photoDownloadUrl}
-                  status={r.status}
-                  rejectionReason={r.rejectionReason}
-                  fields={[
-                    { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
-                    { icon: CalendarRange, label: 'Earned Date', value: formatDisplayDate(r.earnedDate) },
-                    { icon: CalendarX, label: 'Expiry Date', value: r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never' },
-                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
-                  ]}
-                  canApprove={false}
-                  canReject={false}
-                  onApprove={() => {}}
-                  onReject={() => {}}
-                  onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
-                />
-              ))}
+              compOffCredits.map((r) => {
+                const { canApprove, canReject } = decisionAccess(
+                  r.status === 'pending_approval',
+                  r.managerApprovals,
+                  'comp_off',
+                  hasPermission,
+                  user?.employeeId
+                );
+                return (
+                  <RequestCard
+                    key={r.id}
+                    name={employeeLabel(r.employee, r.employeeId)}
+                    photoUrl={r.employee?.photoDownloadUrl}
+                    status={r.status}
+                    rejectionReason={r.rejectionReason}
+                    fields={[
+                      { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
+                      ...orgField(r.employee),
+                      { icon: CalendarRange, label: 'Earned Date', value: formatDisplayDate(r.earnedDate) },
+                      { icon: CalendarX, label: 'Expiry Date', value: r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never' },
+                      { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                      ...((r.managerApprovals?.length ?? 0) > 0
+                        ? [
+                            {
+                              icon: Users,
+                              label: 'Managers',
+                              value: <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} />,
+                            },
+                          ]
+                        : []),
+                    ]}
+                    canApprove={canApprove}
+                    canReject={canReject}
+                    onApprove={() => handleCompOffApprove(r.id)}
+                    onReject={() => setRejectTarget({ tab: 'compOff', id: r.id })}
+                    onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
+                  />
+                );
+              })}
           </div>
 
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />

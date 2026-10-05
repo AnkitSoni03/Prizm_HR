@@ -9,6 +9,15 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 const { getOrCreateBalance } = require('./leaveBalance.service');
+const {
+  snapshotManagerApprovals,
+  bypassPendingManagerApprovals,
+  castManagerVote,
+  notifyManagers,
+  MANAGER_INCLUDE,
+} = require('../../utils/managerApprovals');
+
+const MANAGER_APPROVAL_INCLUDE = { model: db.CompOffCreditApproval, as: 'managerApprovals', include: [MANAGER_INCLUDE] };
 
 // An approved Week Off Leave (isWeekOffBucket) request for this exact date —
 // the 0-weekly-off-shift equivalent of a real weekly-off day (see
@@ -106,6 +115,17 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
     { transaction }
   );
 
+  // Every one of the employee's managers (primary + additional, any company
+  // of the Group) must approve it — same AND-gate as leave/OD.
+  const managers = await snapshotManagerApprovals({
+    ApprovalModel: db.CompOffCreditApproval,
+    fkField: 'compOffCreditId',
+    requestId: credit.id,
+    companyId: employee.companyId,
+    employeeId,
+    transaction,
+  });
+
   if (weekOffLeaveRequest) {
     await reverseWeekOffLeaveForAttendance({ request: weekOffLeaveRequest, employee });
   }
@@ -114,6 +134,13 @@ async function checkAndCreateCompOffCredit({ employeeId, attendanceId, dateStr, 
   // odRequest.service.js/attendanceRegularization.service.js's approve
   // functions) already calls this outside its own transaction and wraps it
   // in try/catch, so a notification failure here can't roll back the credit.
+  await notifyManagers(managers, {
+    type: 'approval_pending',
+    requestType: 'comp_off_credit',
+    requestId: credit.id,
+    title: `New comp-off credit pending approval for ${employee.name || employee.employeeCode}`,
+    body: `Earned ${dateStr}${managers.length > 1 ? ` (needs all ${managers.length} managers)` : ''}`,
+  });
   await notifyApprovers({
     companyId: employee.companyId,
     brandId: employee.brandId,
@@ -198,12 +225,20 @@ async function createCompOffCredit({
   return credit;
 }
 
+// companyId null is only ever passed for a manager's ?scope=reports list,
+// where `employeeId` is already the exact (Group-bounded) set of their
+// reports — possibly spread across several companies. An empty array must
+// still filter to zero rows.
 async function listCompOffCredits({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
-  if (employeeId) where.employeeId = employeeId;
+  if (Array.isArray(employeeId)) {
+    where.employeeId = { [Op.in]: employeeId };
+  } else if (employeeId) {
+    where.employeeId = employeeId;
+  }
   if (status) where.status = status;
 
-  const employeeWhere = { companyId };
+  const employeeWhere = companyId ? { companyId } : {};
   if (Array.isArray(brandId)) {
     if (brandId.length > 0) employeeWhere.brandId = { [Op.in]: brandId };
   } else if (brandId) {
@@ -211,51 +246,84 @@ async function listCompOffCredits({ companyId, brandId, employeeId, status, limi
   }
 
   const { rows, count } = await db.CompOffCredit.findAndCountAll({
+    distinct: true,
     where,
     limit,
     offset,
     order: [['earnedDate', 'DESC']],
     include: [
-      { model: db.Employee, as: 'employee', where: employeeWhere, attributes: ['id', 'employeeCode', 'name', 'photoUrl'] },
+      {
+        model: db.Employee,
+        as: 'employee',
+        where: employeeWhere,
+        attributes: ['id', 'employeeCode', 'name', 'photoUrl', 'companyId', 'brandId'],
+        include: [
+          { model: db.Company, as: 'company', attributes: ['id', 'name'] },
+          { model: db.Brand, as: 'brand', attributes: ['id', 'name'] },
+        ],
+      },
       {
         model: db.User,
         as: 'approverUser',
         attributes: ['id', 'email'],
         include: [{ model: db.Employee, as: 'employee', attributes: ['id', 'name'] }],
       },
+      MANAGER_APPROVAL_INCLUDE,
     ],
   });
   return { rows: await withEmployeePhoto(rows), count };
 }
 
-async function getCompOffCreditForDecision({ companyId, id }) {
+// companyId null looks the credit up in ANY company — only for a
+// cross-company manager, whose access is proven against the credit's own
+// snapshotted managerApprovals (middleware/approvalAccess.js). No status
+// restriction — the history endpoint needs decided credits too.
+async function getCompOffCreditById({ companyId, id }) {
   const credit = await db.CompOffCredit.findOne({
     where: { id },
-    include: [{ model: db.Employee, as: 'employee', where: { companyId }, attributes: ['id', 'userId'] }],
+    include: [
+      {
+        model: db.Employee,
+        as: 'employee',
+        where: companyId ? { companyId } : undefined,
+        required: true,
+        attributes: ['id', 'name', 'employeeCode', 'companyId', 'brandId', 'userId'],
+      },
+      MANAGER_APPROVAL_INCLUDE,
+    ],
   });
   if (!credit) throw new HttpError(404, 'Comp-off credit not found');
+  return credit;
+}
+
+async function getCompOffCreditForDecision({ companyId, id }) {
+  const credit = await getCompOffCreditById({ companyId, id });
   if (credit.status !== 'pending_approval') throw new HttpError(409, 'Comp-off credit already decided');
   return credit;
 }
 
-// Same lookup as getCompOffCreditForDecision but without the
-// pending_approval-only restriction — needed for the history endpoint,
-// which is precisely most useful once a credit has already been decided.
-async function getCompOffCreditById({ companyId, id }) {
-  const credit = await db.CompOffCredit.findOne({
-    where: { id },
-    include: [{ model: db.Employee, as: 'employee', where: { companyId }, attributes: ['id', 'brandId'] }],
-  });
-  if (!credit) throw new HttpError(404, 'Comp-off credit not found');
-  return credit;
+async function notifyBypassedManagers(bypassed, credit, verb) {
+  await notifyManagers(
+    bypassed.map((approval) => approval.manager).filter(Boolean),
+    {
+      type: 'approval_decision',
+      requestType: 'comp_off_credit',
+      requestId: credit.id,
+      title: 'A comp-off credit you were reviewing was already decided',
+      body: `An admin ${verb} it directly — no action needed from you.`,
+    }
+  );
 }
 
+// ADMIN path — company/brand-wide comp_off:approve. Finalizes immediately,
+// bypassing any manager who hasn't voted yet.
 async function approveCompOffCredit({ companyId, id, approverId, approverUserId }) {
   const credit = await getCompOffCreditForDecision({ companyId, id });
 
+  let bypassed = [];
   await db.sequelize.transaction(async (t) => {
     await credit.update(
-      { status: 'approved', approverId: approverId || null, approverUserId },
+      { status: 'approved', approverId: approverId || null, approverUserId, decisionMode: 'admin_override' },
       { transaction: t }
     );
     await recordApprovalDecision({
@@ -265,6 +333,11 @@ async function approveCompOffCredit({ companyId, id, approverId, approverUserId 
       action: 'approved',
       actorUserId: approverUserId,
       actorEmployeeId: approverId || null,
+      transaction: t,
+    });
+    bypassed = await bypassPendingManagerApprovals({
+      ApprovalModel: db.CompOffCreditApproval,
+      approvals: credit.managerApprovals,
       transaction: t,
     });
   });
@@ -278,18 +351,27 @@ async function approveCompOffCredit({ companyId, id, approverId, approverUserId 
     title: 'Your comp-off credit was approved',
     body: `Earned ${credit.earnedDate}`,
   });
+  await notifyBypassedManagers(bypassed, credit, 'approved');
 
   return credit;
 }
 
+// ADMIN path — see approveCompOffCredit.
 async function rejectCompOffCredit({ companyId, id, approverId, approverUserId, reason }) {
   if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to reject a comp-off credit');
 
   const credit = await getCompOffCreditForDecision({ companyId, id });
 
+  let bypassed = [];
   await db.sequelize.transaction(async (t) => {
     await credit.update(
-      { status: 'rejected', approverId: approverId || null, approverUserId, rejectionReason: reason.trim() },
+      {
+        status: 'rejected',
+        approverId: approverId || null,
+        approverUserId,
+        rejectionReason: reason.trim(),
+        decisionMode: 'admin_override',
+      },
       { transaction: t }
     );
     await recordApprovalDecision({
@@ -300,6 +382,11 @@ async function rejectCompOffCredit({ companyId, id, approverId, approverUserId, 
       actorUserId: approverUserId,
       actorEmployeeId: approverId || null,
       reason: reason.trim(),
+      transaction: t,
+    });
+    bypassed = await bypassPendingManagerApprovals({
+      ApprovalModel: db.CompOffCreditApproval,
+      approvals: credit.managerApprovals,
       transaction: t,
     });
   });
@@ -313,6 +400,108 @@ async function rejectCompOffCredit({ companyId, id, approverId, approverUserId, 
     title: 'Your comp-off credit was rejected',
     body: reason.trim(),
   });
+  await notifyBypassedManagers(bypassed, credit, 'rejected');
+
+  return credit;
+}
+
+// MANAGER-CONSENSUS path — the caller is one of THIS credit's snapshotted
+// managers (checked in compOff.routes.js and again here). One reject
+// finalizes it as rejected; an approve finalizes only once every manager
+// has approved. `companyId` is the CREDIT's company (the manager may be in
+// another company of the Group); the controller runs this under it.
+async function decideCompOffCreditAsManager({ companyId, id, managerEmployeeId, approverUserId, decision, reason }) {
+  if (decision === 'rejected' && (!reason || !reason.trim())) {
+    throw new HttpError(400, 'A reason is required to reject a comp-off credit');
+  }
+
+  const credit = await getCompOffCreditForDecision({ companyId, id });
+
+  const myApproval = credit.managerApprovals.find(
+    (approval) => String(approval.managerEmployeeId) === String(managerEmployeeId)
+  );
+  if (!myApproval) throw new HttpError(403, 'You are not one of the managers assigned to this comp-off credit');
+  if (myApproval.status !== 'pending') throw new HttpError(409, 'You already decided this comp-off credit');
+
+  const managerLabel = myApproval.manager?.name || myApproval.manager?.employeeCode || 'A manager';
+  const trimmedReason = decision === 'rejected' ? reason.trim() : null;
+
+  let vote;
+  await db.sequelize.transaction(async (t) => {
+    vote = await castManagerVote({
+      ApprovalModel: db.CompOffCreditApproval,
+      fkField: 'compOffCreditId',
+      requestId: credit.id,
+      myApproval,
+      decision,
+      reason: trimmedReason,
+      transaction: t,
+    });
+    await recordApprovalDecision({
+      companyId,
+      requestType: 'comp_off_credit',
+      requestId: credit.id,
+      action: decision,
+      actorUserId: approverUserId,
+      actorEmployeeId: managerEmployeeId,
+      reason: trimmedReason || undefined,
+      transaction: t,
+    });
+
+    if (vote.outcome === 'rejected') {
+      await credit.update(
+        {
+          status: 'rejected',
+          approverId: managerEmployeeId,
+          approverUserId,
+          rejectionReason: trimmedReason,
+          decisionMode: 'manager_consensus',
+        },
+        { transaction: t }
+      );
+    } else if (vote.outcome === 'approved') {
+      await credit.update(
+        { status: 'approved', approverId: managerEmployeeId, approverUserId, decisionMode: 'manager_consensus' },
+        { transaction: t }
+      );
+    }
+  });
+
+  const userId = credit.employee.userId;
+  if (vote.outcome === 'rejected') {
+    await notifyUser({
+      companyId,
+      userId,
+      type: 'approval_decision',
+      requestType: 'comp_off_credit',
+      requestId: credit.id,
+      title: 'Your comp-off credit was rejected',
+      body: `${managerLabel}: ${trimmedReason}`,
+    });
+  } else if (vote.outcome === 'approved') {
+    await notifyUser({
+      companyId,
+      userId,
+      type: 'approval_decision',
+      requestType: 'comp_off_credit',
+      requestId: credit.id,
+      title: 'Your comp-off credit was approved',
+      body:
+        vote.total > 1
+          ? `Earned ${credit.earnedDate} — all ${vote.total} of your managers approved it.`
+          : `Earned ${credit.earnedDate}`,
+    });
+  } else {
+    await notifyUser({
+      companyId,
+      userId,
+      type: 'approval_progress',
+      requestType: 'comp_off_credit',
+      requestId: credit.id,
+      title: `${managerLabel} approved your comp-off credit`,
+      body: `${vote.approvedCount}/${vote.total} managers have approved — waiting on the rest.`,
+    });
+  }
 
   return credit;
 }
@@ -324,4 +513,5 @@ module.exports = {
   getCompOffCreditById,
   approveCompOffCredit,
   rejectCompOffCredit,
+  decideCompOffCreditAsManager,
 };

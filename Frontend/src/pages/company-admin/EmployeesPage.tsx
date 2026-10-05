@@ -386,7 +386,6 @@ export function EmployeesPage() {
     else loadEmployees();
   }
 
-  const allEmployeesForModal = isGroupedView ? brandGroups.flatMap((g) => g.employees) : employees;
 
   return (
     <div className="space-y-4">
@@ -537,7 +536,6 @@ export function EmployeesPage() {
           brands={brands}
           departments={departments}
           designations={designations}
-          employees={allEmployeesForModal}
           rosterGroups={rosterGroups}
           onClose={() => setIsCreateModalOpen(false)}
           onCreated={reloadAll}
@@ -552,7 +550,6 @@ export function EmployeesPage() {
           brands={brands}
           departments={departments}
           designations={designations}
-          employees={allEmployeesForModal}
           rosterGroups={rosterGroups}
           onClose={() => setSelectedEmployee(null)}
           onUpdated={() => {
