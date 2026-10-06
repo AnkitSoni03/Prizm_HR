@@ -5,6 +5,7 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { datesBetween } = require('../../utils/dateRange');
+const { isHoliday, isWeeklyOff } = require('../../utils/workingDays');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
@@ -133,7 +134,7 @@ async function getOdRequestForDecision({ companyId, id }) {
         as: 'employee',
         where: companyId ? { companyId } : undefined,
         required: true,
-        attributes: ['id', 'name', 'employeeCode', 'companyId', 'brandId', 'managerId', 'userId'],
+        attributes: ['id', 'name', 'employeeCode', 'companyId', 'brandId', 'managerId', 'userId', 'rosterGroupId'],
       },
       MANAGER_APPROVAL_INCLUDE,
     ],
@@ -407,6 +408,120 @@ async function decideOdRequestAsManager({ companyId, id, managerEmployeeId, appr
   return request;
 }
 
+// ADMIN-only (requireDecisionAccess('approve', { adminOnly: true })): reverts
+// an already-approved OD request, whoever approved it, undoing what
+// applyOdApprovalSideEffects (and the comp-off detection after it) did.
+// Each 'on_duty'/'od' attendance row in the range goes back to what that day
+// looks like with no OD: 'present' if they actually punched in (the punch
+// stays), else 'holiday' / 'weekoff' / 'absent' — the same status the
+// attendance board derives for a day with no row. Rows are updated, not
+// deleted (non-partial unique (employee_id, date) index, see
+// leaveRequest.service.js::revokeLeaveRequest). A comp-off credit earned from
+// a reverted (non-punched) day is rejected with the revert reason; if one
+// was already spent on a leave the revert is refused — revert that leave
+// first. Also refused once a processed/paid payroll run covers the dates.
+async function revokeOdRequest({ companyId, id, actorEmployeeId, actorUserId, reason }) {
+  if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to revert an OD request');
+
+  const request = await getOdRequestForDecision({ companyId, id });
+  if (request.status !== 'approved') throw new HttpError(409, 'Only an approved OD request can be reverted');
+
+  const lockedRun = await db.PayrollRun.findOne({
+    where: {
+      companyId: request.employee.companyId,
+      status: { [Op.in]: ['processed', 'paid'] },
+      payPeriodStart: { [Op.lte]: request.toDate },
+      payPeriodEnd: { [Op.gte]: request.fromDate },
+    },
+    attributes: ['id', 'periodMonth', 'periodYear'],
+  });
+  if (lockedRun) {
+    throw new HttpError(
+      409,
+      `Payroll for ${lockedRun.periodMonth}/${lockedRun.periodYear} is already processed for these dates — this OD can no longer be reverted`
+    );
+  }
+
+  const rows = await db.Attendance.findAll({
+    where: {
+      employeeId: request.employeeId,
+      date: { [Op.between]: [request.fromDate, request.toDate] },
+      status: 'on_duty',
+      source: 'od',
+    },
+  });
+  const unworkedRows = rows.filter((row) => !row.checkIn);
+  const credits = unworkedRows.length
+    ? await db.CompOffCredit.findAll({
+        where: { sourceAttendanceId: { [Op.in]: unworkedRows.map((row) => row.id) } },
+      })
+    : [];
+  if (credits.some((credit) => credit.status === 'used')) {
+    throw new HttpError(
+      409,
+      'A comp-off earned from this OD has already been used for leave — revert that leave first'
+    );
+  }
+
+  // Resolved before the transaction — isWeeklyOff reads shifts/rosters
+  // outside it anyway.
+  const restoredStatus = new Map();
+  for (const row of unworkedRows) {
+    const holiday = await isHoliday({
+      companyId: request.employee.companyId,
+      brandId: request.employee.brandId,
+      rosterGroupId: request.employee.rosterGroupId,
+      dateStr: row.date,
+    });
+    const weeklyOff = holiday ? false : await isWeeklyOff({ employeeId: request.employeeId, dateStr: row.date });
+    restoredStatus.set(row.id, holiday ? 'holiday' : weeklyOff ? 'weekoff' : 'absent');
+  }
+
+  await db.sequelize.transaction(async (t) => {
+    for (const row of rows) {
+      if (row.checkIn) {
+        await row.update({ status: 'present' }, { transaction: t });
+      } else {
+        await row.update({ status: restoredStatus.get(row.id), source: null }, { transaction: t });
+      }
+    }
+    for (const credit of credits) {
+      if (credit.status === 'rejected' || credit.status === 'expired') continue;
+      await credit.update(
+        { status: 'rejected', rejectionReason: `OD reverted: ${reason.trim()}` },
+        { transaction: t }
+      );
+    }
+
+    await request.update(
+      { status: 'revoked', revokedAt: new Date(), revokedByUserId: actorUserId, revokeReason: reason.trim() },
+      { transaction: t }
+    );
+    await recordApprovalDecision({
+      companyId,
+      requestType: 'od_request',
+      requestId: request.id,
+      action: 'revoked',
+      actorUserId,
+      actorEmployeeId: actorEmployeeId || null,
+      reason: reason.trim(),
+      transaction: t,
+    });
+  });
+
+  await notifyUser({
+    companyId,
+    userId: request.employee.userId,
+    type: 'approval_decision',
+    requestType: 'od_request',
+    requestId: request.id,
+    title: 'Your approved OD was reverted',
+    body: `${request.fromDate} → ${request.toDate}: ${reason.trim()}`,
+  });
+
+  return request;
+}
+
 async function cancelOdRequest({ companyId, employeeId, id }) {
   const request = await db.OdRequest.findOne({ where: { id, employeeId } });
   if (!request) throw new HttpError(404, 'OD request not found');
@@ -448,5 +563,6 @@ module.exports = {
   approveOdRequest,
   rejectOdRequest,
   decideOdRequestAsManager,
+  revokeOdRequest,
   cancelOdRequest,
 };

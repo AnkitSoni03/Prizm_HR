@@ -20,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
       purpose: { type: DataTypes.STRING, allowNull: false },
       location: { type: DataTypes.STRING, allowNull: true },
       status: {
-        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'cancelled'),
+        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'cancelled', 'revoked'),
         allowNull: false,
         defaultValue: 'pending',
       },
@@ -28,6 +28,11 @@ module.exports = (sequelize, DataTypes) => {
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
       decisionMode: { type: DataTypes.ENUM('manager_consensus', 'admin_override'), allowNull: true },
+      // Set when an admin reverts an approved request (status 'revoked') —
+      // see odRequest.service.js::revokeOdRequest.
+      revokedAt: { type: DataTypes.DATE, allowNull: true },
+      revokedByUserId: { type: DataTypes.BIGINT, allowNull: true },
+      revokeReason: { type: DataTypes.TEXT, allowNull: true },
     },
     {
       sequelize,

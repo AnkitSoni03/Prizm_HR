@@ -84,11 +84,14 @@ export interface OdRequest {
   toDate: string;
   purpose: string;
   location: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  // 'revoked' — an admin reverted it after it was approved (revokeReason).
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'revoked';
   approverId: string | null;
   approverUserId: string | null;
   approverUser?: ApproverUser | null;
   rejectionReason: string | null;
+  revokeReason?: string | null;
+  revokedAt?: string | null;
   employee?: RequestEmployee;
   // Same multi-manager AND-gate as leave — see odRequest.service.js.
   decisionMode?: 'manager_consensus' | 'admin_override' | null;
@@ -213,6 +216,13 @@ export async function approveOdRequest(id: string): Promise<OdRequest> {
 
 export async function rejectOdRequest(id: string, reason: string): Promise<OdRequest> {
   const { data } = await apiClient.patch<{ data: OdRequest }>(`/attendance/od-requests/${id}/reject`, { reason });
+  return data.data;
+}
+
+// Admin-only: reverts an APPROVED OD — its attendance days and any comp-off
+// earned from them are undone. Reason is required.
+export async function revokeOdRequest(id: string, reason: string): Promise<OdRequest> {
+  const { data } = await apiClient.patch<{ data: OdRequest }>(`/attendance/od-requests/${id}/revoke`, { reason });
   return data.data;
 }
 

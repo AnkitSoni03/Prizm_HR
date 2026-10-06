@@ -8,8 +8,10 @@ export interface OdRequest {
   toDate: string;
   purpose: string;
   location: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'revoked';
   approverId: string | null;
+  // Set when an admin reverted this OD after approval.
+  revokeReason?: string | null;
   // Every one of the employee's managers must approve — see
   // utils/managerApproval.ts / components/ManagerApprovalStatus.tsx.
   decisionMode?: 'manager_consensus' | 'admin_override' | null;

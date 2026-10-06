@@ -80,10 +80,11 @@ async function requireReadAccess(req, res, next) {
 // Admin (company/brand-wide od_request:approve|reject — finalizes at once)
 // or one of THIS request's snapshotted managers (od_request:*_reports — one
 // vote; every manager must approve). See middleware/approvalAccess.js.
-function requireDecisionAccess(action) {
+function requireDecisionAccess(action, { adminOnly = false } = {}) {
   return requireApprovalDecisionAccess({
     resource: 'od_request',
     action,
+    adminOnly,
     loadAnyCompany: (id) => service.getOdRequestForDecision({ companyId: null, id }),
     notFoundMessage: 'OD request not found',
   });
@@ -94,6 +95,9 @@ router.post('/', requirePermission('od_request:create'), controller.create);
 router.get('/:id/history', controller.history);
 router.patch('/:id/approve', requireDecisionAccess('approve'), controller.approve);
 router.patch('/:id/reject', requireDecisionAccess('reject'), controller.reject);
+// Reverting an approved OD is an admin power only — managers can't undo a
+// finalized request (same as leave).
+router.patch('/:id/revoke', requireDecisionAccess('approve', { adminOnly: true }), controller.revoke);
 router.patch('/:id/cancel', requirePermission('od_request:create'), controller.cancel);
 
 module.exports = router;

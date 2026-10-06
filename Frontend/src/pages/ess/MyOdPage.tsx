@@ -20,6 +20,7 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> 
   approved: 'success',
   rejected: 'danger',
   cancelled: 'neutral',
+  revoked: 'danger',
 };
 
 function extractError(err: unknown, fallback: string): string {
@@ -128,6 +129,7 @@ export function MyOdPage() {
               { value: 'approved', label: 'Approved' },
               { value: 'rejected', label: 'Rejected' },
               { value: 'cancelled', label: 'Cancelled' },
+              { value: 'revoked', label: 'Reverted' },
             ]}
           />
         </div>
@@ -147,7 +149,7 @@ export function MyOdPage() {
           <RequestCard
             icon={Send}
             title={r.purpose}
-            status={<Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>}
+            status={<Badge tone={STATUS_TONE[r.status]}>{r.status === 'revoked' ? 'reverted' : r.status}</Badge>}
             footer={
               r.status === 'pending' ? (
                 <button
@@ -169,6 +171,9 @@ export function MyOdPage() {
                 <MapPin className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                 {r.location}
               </div>
+            )}
+            {r.status === 'revoked' && r.revokeReason && (
+              <p className="line-clamp-3 text-sm text-danger">Reverted: {r.revokeReason}</p>
             )}
             {r.status !== 'cancelled' && (
               <div className="border-t border-border pt-2">

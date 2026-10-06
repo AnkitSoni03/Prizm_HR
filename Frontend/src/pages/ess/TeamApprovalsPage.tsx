@@ -26,6 +26,7 @@ import {
   rejectCompOffCredit,
   rejectLeaveRequest,
   revokeLeaveRequest,
+  revokeOdRequest,
   rejectOdRequest,
   type CompOffCredit,
   type LeaveRequestManagerApproval,
@@ -134,7 +135,7 @@ export function TeamApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ tab: Tab; id: string } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
-  const [revertTarget, setRevertTarget] = useState<string | null>(null);
+  const [revertTarget, setRevertTarget] = useState<{ tab: 'leave' | 'od'; id: string } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAssignCompOff, setShowAssignCompOff] = useState(false);
   const canAssignCompOff = hasPermission('comp_off:credit');
@@ -371,7 +372,7 @@ export function TeamApprovalsPage() {
                     // Admin power only (company/brand-wide leave_request:approve) —
                     // a manager can't undo a finalized request.
                     canRevert={r.status === 'approved' && hasPermission('leave_request:approve')}
-                    onRevert={() => setRevertTarget(r.id)}
+                    onRevert={() => setRevertTarget({ tab: 'leave', id: r.id })}
                   />
                 );
               })}
@@ -401,14 +402,24 @@ export function TeamApprovalsPage() {
                     photoUrl={r.employee?.photoDownloadUrl}
                     tag={r.purpose}
                     status={r.status}
-                    rejectionReason={r.rejectionReason}
+                    rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
                     fields={[
                       { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
                       ...orgField(r.employee),
                       { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
                       { icon: FileText, label: 'Purpose', value: r.purpose },
                       { icon: MapPin, label: 'Location', value: r.location ?? '—' },
-                      { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                      {
+                        icon: Bookmark,
+                        label: 'Status',
+                        value: (
+                          <RequestStatusBadge
+                            status={r.status}
+                            rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
+                          />
+                        ),
+                      },
+                      ...(r.status === 'revoked' ? [{ icon: Undo2, label: 'Revert Reason', value: r.revokeReason ?? '—' }] : []),
                       {
                         icon: Users,
                         label: 'Managers',
@@ -425,6 +436,9 @@ export function TeamApprovalsPage() {
                     onApprove={() => handleOdApprove(r.id)}
                     onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
                     onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
+                    // Admin power only — a manager can't undo a finalized request.
+                    canRevert={r.status === 'approved' && hasPermission('od_request:approve')}
+                    onRevert={() => setRevertTarget({ tab: 'od', id: r.id })}
                   />
                 );
               })}
@@ -486,14 +500,15 @@ export function TeamApprovalsPage() {
 
       {revertTarget && (
         <RejectReasonModal
-          title="Revert approved leave"
+          title={revertTarget.tab === 'leave' ? 'Revert approved leave' : 'Revert approved OD'}
           reasonLabel="Reason for reverting"
-          placeholder="Let the employee know why this approved leave is being reverted"
+          placeholder="Let the employee know why this approved request is being reverted"
           confirmLabel="Revert"
-          errorMessage="Could not revert this leave request."
+          errorMessage="Could not revert this request."
           onClose={() => setRevertTarget(null)}
           onConfirm={async (reason) => {
-            await revokeLeaveRequest(revertTarget, reason);
+            if (revertTarget.tab === 'leave') await revokeLeaveRequest(revertTarget.id, reason);
+            else await revokeOdRequest(revertTarget.id, reason);
             setRevertTarget(null);
             load();
           }}

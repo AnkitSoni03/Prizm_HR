@@ -31,6 +31,7 @@ import {
   rejectOdRequest,
   rejectRegularization,
   revokeLeaveRequest,
+  revokeOdRequest,
   type AttendanceRegularization,
   type CompOffCredit,
   type LeaveRequest,
@@ -114,7 +115,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     null
   );
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
-  const [revertTarget, setRevertTarget] = useState<string | null>(null);
+  const [revertTarget, setRevertTarget] = useState<{ tab: 'leave' | 'od'; id: string } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAssignCompOff, setShowAssignCompOff] = useState(false);
 
@@ -131,7 +132,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
           { value: 'pending', label: 'Pending' },
           { value: 'approved', label: 'Approved' },
           { value: 'rejected', label: 'Rejected' },
-          ...(activeTab === 'leave' ? [{ value: 'revoked', label: 'Reverted' }] : []),
+          ...(activeTab === 'leave' || activeTab === 'od' ? [{ value: 'revoked', label: 'Reverted' }] : []),
         ];
 
   async function load() {
@@ -246,12 +247,13 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
   async function confirmRevert(reason: string) {
     if (!revertTarget) return;
     try {
-      await revokeLeaveRequest(revertTarget, reason);
+      if (revertTarget.tab === 'leave') await revokeLeaveRequest(revertTarget.id, reason);
+      else await revokeOdRequest(revertTarget.id, reason);
     } catch (err) {
       // Surface the server's own message (e.g. payroll already processed).
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
       setRevertTarget(null);
-      setError(message || 'Could not revert this leave request.');
+      setError(message || 'Could not revert this request.');
       return;
     }
     setRevertTarget(null);
@@ -366,7 +368,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                   onReject={() => setRejectTarget({ tab: 'leave', id: r.id })}
                   onHistory={() => setHistoryTarget({ tab: 'leave', id: r.id })}
                   canRevert={r.status === 'approved' && hasPermission('leave_request:approve')}
-                  onRevert={() => setRevertTarget(r.id)}
+                  onRevert={() => setRevertTarget({ tab: 'leave', id: r.id })}
                 />
               ))}
           </div>
@@ -392,13 +394,23 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                   photoUrl={r.employee?.photoDownloadUrl}
                   tag={r.purpose}
                   status={r.status}
-                  rejectionReason={r.rejectionReason}
+                  rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
                   fields={[
                     { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
                     { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
                     { icon: FileText, label: 'Purpose', value: r.purpose },
                     { icon: MapPin, label: 'Location', value: r.location ?? '—' },
-                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                    {
+                      icon: Bookmark,
+                      label: 'Status',
+                      value: (
+                        <RequestStatusBadge
+                          status={r.status}
+                          rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
+                        />
+                      ),
+                    },
+                    ...(r.status === 'revoked' ? [{ icon: Undo2, label: 'Revert Reason', value: r.revokeReason ?? '—' }] : []),
                     {
                       icon: User,
                       label: 'Managers',
@@ -415,6 +427,8 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                   onApprove={() => handleOdApprove(r.id)}
                   onReject={() => setRejectTarget({ tab: 'od', id: r.id })}
                   onHistory={() => setHistoryTarget({ tab: 'od', id: r.id })}
+                  canRevert={r.status === 'approved' && hasPermission('od_request:approve')}
+                  onRevert={() => setRevertTarget({ tab: 'od', id: r.id })}
                 />
               ))}
           </div>
@@ -517,11 +531,11 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
 
       {revertTarget && (
         <RejectReasonModal
-          title="Revert approved leave"
+          title={revertTarget.tab === 'leave' ? 'Revert approved leave' : 'Revert approved OD'}
           reasonLabel="Reason for reverting"
-          placeholder="Let the employee know why this approved leave is being reverted"
+          placeholder="Let the employee know why this approved request is being reverted"
           confirmLabel="Revert"
-          errorMessage="Could not revert this leave request."
+          errorMessage="Could not revert this request."
           onClose={() => setRevertTarget(null)}
           onConfirm={confirmRevert}
         />
