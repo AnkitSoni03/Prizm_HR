@@ -139,7 +139,7 @@ export function Sidebar({
 
       <aside
         className={[
-          "fixed inset-y-0 left-0 z-40 flex h-screen w-full shrink-0 flex-col bg-sidebar shadow-2xl ease-in-out",
+          "fixed inset-y-0 left-0 z-40 flex h-dvh w-full shrink-0 flex-col bg-sidebar shadow-2xl ease-in-out",
           isDragging ? "" : "transition-transform duration-200",
           isOpen ? "translate-x-0" : "-translate-x-full",
           // md:relative (not md:static) so the drag handle below — an

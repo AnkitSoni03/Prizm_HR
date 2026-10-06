@@ -108,7 +108,7 @@ export function AppRoutes() {
       <Route
         path="/kiosk"
         element={
-          <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-sidebar text-sm text-white/70">Loading…</div>}>
+          <Suspense fallback={<div className="flex h-dvh w-full items-center justify-center bg-sidebar text-sm text-white/70">Loading…</div>}>
             <KioskPage />
           </Suspense>
         }

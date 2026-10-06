@@ -157,7 +157,7 @@ export function Table<T>({
                   <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                     {column.header}
                   </span>
-                  <span className="text-right text-[13px] text-ink">{column.render(row)}</span>
+                  <span className="min-w-0 break-words text-right text-[13px] text-ink">{column.render(row)}</span>
                 </div>
               ))}
             </div>

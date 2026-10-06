@@ -84,7 +84,7 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
 
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-card/95 px-3 shadow-xs backdrop-blur transition-colors duration-200 sm:h-16 sm:gap-4 sm:px-4 md:px-6">
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:shrink-0 sm:gap-3">
         <button
           type="button"
           onClick={onOpenMobileMenu}
@@ -98,7 +98,7 @@ export function Topbar({ title, onOpenMobileMenu, navItems = [] }: TopbarProps) 
             <TitleIcon className="h-4 w-4" strokeWidth={1.75} />
           </div>
         )}
-        <h1 className="truncate text-lg font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
+        <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-ink sm:text-base">{title}</h1>
       </div>
 
       {navItems.length > 0 && (

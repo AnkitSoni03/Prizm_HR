@@ -390,7 +390,7 @@ export function KioskPage() {
 
   if (isRestoring) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-sidebar text-sm text-white/60">
+      <div className="flex h-dvh w-full items-center justify-center bg-sidebar text-sm text-white/60">
         Loading…
       </div>
     );
@@ -401,7 +401,7 @@ export function KioskPage() {
   }
 
   return (
-    <div className="relative flex h-screen w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-[10vh] text-center sm:px-4">
+    <div className="relative flex h-dvh w-full flex-col items-center overflow-x-hidden bg-sidebar px-3 py-[10vh] text-center sm:px-4">
       <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2.5 py-1.5 text-xs font-medium text-white/70 sm:left-4 sm:top-4">
         <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
         {location.name}

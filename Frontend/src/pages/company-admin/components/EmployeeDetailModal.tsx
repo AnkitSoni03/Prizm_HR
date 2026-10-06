@@ -914,8 +914,8 @@ export function EmployeeDetailModal({
             </p>
           </div>
 
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-page px-4 py-3">
-            <div>
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-page px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <p className="text-sm font-medium text-ink">Account Status</p>
               <p className="text-xs text-ink-muted">
                 {isAccountActive
@@ -1043,7 +1043,7 @@ export function EmployeeDetailModal({
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
                     Comp-Off Credits
                   </p>
-                  <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-sm">
                       <thead className="bg-page text-xs text-ink-muted">
                         <tr>

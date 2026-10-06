@@ -141,7 +141,7 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
               {currentRun.payPeriodStart} → {currentRun.payPeriodEnd}
             </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {currentRun.status === 'draft' && hasPermission('payroll_run:cancel') && (
               <Button variant="secondary" onClick={handleCancel} isLoading={isActing}>
                 Cancel Run
@@ -163,7 +163,7 @@ export function PayrollRunDetailModal({ run, onClose, onChanged }: PayrollRunDet
         {currentRun.status !== 'draft' && (
           <div
             className={`grid gap-2 rounded-xl border border-border bg-page px-3 py-2.5 text-center text-sm ${
-              currentRun.totalEmployerContributions ? 'grid-cols-4' : 'grid-cols-3'
+              currentRun.totalEmployerContributions ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'
             }`}
           >
             <div>
