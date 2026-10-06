@@ -92,12 +92,29 @@ async function doRefresh(epochAtStart: number): Promise<string | null> {
     if (getSessionEpoch() !== epochAtStart) return null;
     setTokens({ accessToken: data.accessToken, refreshToken: data.refreshToken });
     return data.accessToken as string;
-  } catch {
+  } catch (err) {
     if (getSessionEpoch() !== epochAtStart) return null;
+    // No connection yet (phone just woke up / app reopened), a timeout, or
+    // the server being down/restarting says nothing about the token itself.
+    // Keep it and let the caller retry — wiping it here is what used to log
+    // people out every time they reopened the app on a flaky network. Only
+    // the server explicitly rejecting the token ends the session.
+    if (isTransientError(err)) throw err;
     clearTokens();
     notifyAuthExpired();
     return null;
   }
+}
+
+// True for failures that say nothing about whether the session is still
+// valid: no response at all (offline, DNS, timeout, CORS on a crashed
+// server) or a server-side/rate-limit status. A 4xx like 401/403 is the
+// server's actual verdict and is NOT transient.
+export function isTransientError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const status = err.response?.status;
+  if (status === undefined) return true;
+  return status >= 500 || status === 408 || status === 429;
 }
 
 // Best-effort revoke of a session being replaced by a fresh login (see
@@ -154,6 +171,9 @@ apiClient.interceptors.response.use(
     }
 
     config._retried = true;
+    // A transient refresh failure throws the network error itself (not this
+    // 401): this one request fails, but the stored refresh token stays
+    // intact, and callers that retry on transient errors see it as such.
     const newAccessToken = await refreshAccessToken();
     if (!newAccessToken) {
       throw error;

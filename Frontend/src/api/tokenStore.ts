@@ -77,10 +77,25 @@ export function getTokens(): Tokens {
   return tokens;
 }
 
+// Asks the browser to exempt this site's storage from automatic eviction
+// (low disk / unused-site cleanup), which would otherwise silently drop the
+// saved login. Best-effort — some browsers ignore or deny it.
+let persistRequested = false;
+function requestPersistentStorage(): void {
+  if (persistRequested) return;
+  persistRequested = true;
+  try {
+    void navigator.storage?.persist?.().catch(() => undefined);
+  } catch {
+    /* unsupported */
+  }
+}
+
 export function setTokens(next: Tokens): void {
   tokens = next;
   sessionEpoch += 1;
   if (next.refreshToken) {
+    requestPersistentStorage();
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, next.refreshToken);
   } else {
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);

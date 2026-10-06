@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { apiClient, refreshAccessToken, revokeRefreshToken } from '../api/client';
+import { apiClient, isTransientError, refreshAccessToken, revokeRefreshToken } from '../api/client';
 import {
   clearTokens,
   getTokens,
@@ -52,16 +52,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Only the refresh token survives a page reload (see tokenStore.ts) — the
   // access token is always gone. So on app load, redeem the refresh token
-  // for a fresh access token first, then fetch the profile. If the refresh
-  // token is missing, expired, or already used, refreshAccessToken clears
-  // storage itself and this just resolves to "logged out".
+  // for a fresh access token first, then fetch the profile. Each refresh
+  // issues a new 30-day refresh token, so a user is only asked to log in
+  // again after 30 days without opening the app (or an explicit logout /
+  // password reset / deactivation).
+  //
+  // A network failure here (app reopened before the phone's connection is
+  // back, server restarting) must NOT log anyone out — keep the token and
+  // retry until the server actually answers. Only a definitive rejection
+  // (401/403, handled inside refreshAccessToken) ends the session.
+  const [isReconnecting, setIsReconnecting] = useState(false);
   useEffect(() => {
     if (!getTokens().refreshToken) return;
-    refreshAccessToken()
-      .then((accessToken) => (accessToken ? fetchCurrentUser() : null))
-      .then((profile) => setUser(profile ?? null))
-      .catch(() => clearTokens())
-      .finally(() => setIsBootstrapping(false));
+    let cancelled = false;
+    let timer: number | undefined;
+    let attempt = 0;
+
+    const run = async () => {
+      timer = undefined;
+      try {
+        const accessToken = await refreshAccessToken();
+        const profile = accessToken ? await fetchCurrentUser() : null;
+        if (cancelled) return;
+        if (!profile) clearTokens();
+        setUser(profile);
+        setIsReconnecting(false);
+        setIsBootstrapping(false);
+      } catch (err) {
+        if (cancelled) return;
+        if (isTransientError(err) && getTokens().refreshToken) {
+          attempt += 1;
+          setIsReconnecting(true);
+          timer = window.setTimeout(run, Math.min(2000 * attempt, 15000));
+          return;
+        }
+        clearTokens();
+        setIsReconnecting(false);
+        setIsBootstrapping(false);
+      }
+    };
+
+    // Connection came back — retry right away instead of waiting out the backoff.
+    const onOnline = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        void run();
+      }
+    };
+
+    window.addEventListener('online', onOnline);
+    void run();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      window.removeEventListener('online', onOnline);
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -119,7 +164,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (isBootstrapping) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-page">
-        <div className="text-sm text-ink-muted">Loading…</div>
+        <div className="px-4 text-center text-sm text-ink-muted">
+          {isReconnecting ? 'Connecting… please check your internet connection.' : 'Loading…'}
+        </div>
       </div>
     );
   }

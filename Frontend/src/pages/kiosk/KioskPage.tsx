@@ -4,6 +4,7 @@ import { Camera, LogIn, LogOut, MapPin } from 'lucide-react';
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
 import { ThemeProvider, type Theme } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
+import { isTransientError } from '../../api/client';
 import { useAuth } from '../../context/auth-context';
 import { configureAmplify } from '../../lib/amplifyConfig';
 import {
@@ -163,20 +164,33 @@ export function KioskPage() {
       return;
     }
     let cancelled = false;
-    heartbeatKioskLocation()
-      .then((restored) => {
-        if (!cancelled) setLocation(restored);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        if (isSignedOutByAdmin(err)) signOutKiosk();
-        else setLocation(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsRestoring(false);
-      });
+    let timer: number | undefined;
+    let attempt = 0;
+    // A network blip on reload must not bounce the device to the location
+    // picker — keep retrying until the server actually answers.
+    const restore = () => {
+      heartbeatKioskLocation()
+        .then((restored) => {
+          if (cancelled) return;
+          setLocation(restored);
+          setIsRestoring(false);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (isTransientError(err)) {
+            attempt += 1;
+            timer = window.setTimeout(restore, Math.min(2000 * attempt, 15000));
+            return;
+          }
+          if (isSignedOutByAdmin(err)) signOutKiosk();
+          else setLocation(null);
+          setIsRestoring(false);
+        });
+    };
+    restore();
     return () => {
       cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- signOutKiosk only wraps release + logout; a stale closure is harmless
   }, [isAuthenticated]);
@@ -188,6 +202,8 @@ export function KioskPage() {
     if (!location) return;
     const timer = window.setInterval(() => {
       heartbeatKioskLocation().catch((err) => {
+        // Offline / server hiccup: keep the location, the next beat retries.
+        if (isTransientError(err)) return;
         if (isSignedOutByAdmin(err)) signOutKiosk();
         else setLocation(null);
       });
