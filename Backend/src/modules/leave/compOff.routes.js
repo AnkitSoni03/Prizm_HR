@@ -74,10 +74,11 @@ async function requireReadAccess(req, res, next) {
 // Admin (company/brand-wide comp_off:approve|reject — finalizes at once) or
 // one of THIS credit's snapshotted managers (comp_off:*_reports — one vote;
 // every manager must approve). See middleware/approvalAccess.js.
-function requireDecisionAccess(action) {
+function requireDecisionAccess(action, { adminOnly = false } = {}) {
   return requireApprovalDecisionAccess({
     resource: 'comp_off',
     action,
+    adminOnly,
     loadAnyCompany: (id) => service.getCompOffCreditById({ companyId: null, id }),
     notFoundMessage: 'Comp-off credit not found',
   });
@@ -88,5 +89,8 @@ router.post('/', requirePermission('comp_off:credit'), controller.create);
 router.get('/:id/history', controller.history);
 router.patch('/:id/approve', requireDecisionAccess('approve'), controller.approve);
 router.patch('/:id/reject', requireDecisionAccess('reject'), controller.reject);
+// Reverting an approved credit is an admin power only — managers can't undo
+// a finalized decision (same as leave/OD).
+router.patch('/:id/revoke', requireDecisionAccess('approve', { adminOnly: true }), controller.revoke);
 
 module.exports = router;

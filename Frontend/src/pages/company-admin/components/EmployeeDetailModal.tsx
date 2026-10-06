@@ -88,6 +88,7 @@ const COMP_OFF_STATUS_TONE: Record<CompOffCredit['status'], 'success' | 'warning
   rejected: 'danger',
   expired: 'neutral',
   used: 'neutral',
+  revoked: 'danger',
 };
 
 const EMPLOYMENT_TYPES = [
@@ -1070,7 +1071,7 @@ export function EmployeeDetailModal({
                               </td>
                               <td className="px-3 py-2">
                                 <Badge tone={COMP_OFF_STATUS_TONE[credit.status]}>
-                                  {credit.status.replace('_', ' ')}
+                                  {credit.status === 'revoked' ? 'reverted' : credit.status.replace('_', ' ')}
                                 </Badge>
                               </td>
                             </tr>

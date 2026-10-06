@@ -506,6 +506,53 @@ async function decideCompOffCreditAsManager({ companyId, id, managerEmployeeId, 
   return credit;
 }
 
+// ADMIN-only (requireDecisionAccess('approve', { adminOnly: true })): reverts
+// an approved credit — auto-detected and approved by managers/admin, or
+// manually granted — so it can no longer be spent. Approval itself only
+// flipped the status (no balance/attendance side effects), so 'revoked' is
+// all there is to undo. A credit already spent on a leave ('used') is
+// refused: revert that leave first (leaveRequest.service.js::
+// revokeLeaveRequest), which puts the credit back to 'approved'. A reason is
+// mandatory.
+async function revokeCompOffCredit({ companyId, id, actorEmployeeId, actorUserId, reason }) {
+  if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to revert a comp-off credit');
+
+  const credit = await getCompOffCreditById({ companyId, id });
+  if (credit.status === 'used') {
+    throw new HttpError(409, 'This comp-off has already been used for leave — revert that leave first');
+  }
+  if (credit.status !== 'approved') throw new HttpError(409, 'Only an approved comp-off credit can be reverted');
+
+  await db.sequelize.transaction(async (t) => {
+    await credit.update(
+      { status: 'revoked', revokedAt: new Date(), revokedByUserId: actorUserId, revokeReason: reason.trim() },
+      { transaction: t }
+    );
+    await recordApprovalDecision({
+      companyId,
+      requestType: 'comp_off_credit',
+      requestId: credit.id,
+      action: 'revoked',
+      actorUserId,
+      actorEmployeeId: actorEmployeeId || null,
+      reason: reason.trim(),
+      transaction: t,
+    });
+  });
+
+  await notifyUser({
+    companyId,
+    userId: credit.employee.userId,
+    type: 'approval_decision',
+    requestType: 'comp_off_credit',
+    requestId: credit.id,
+    title: 'Your comp-off credit was reverted',
+    body: `Earned ${credit.earnedDate}: ${reason.trim()}`,
+  });
+
+  return credit;
+}
+
 module.exports = {
   checkAndCreateCompOffCredit,
   createCompOffCredit,
@@ -514,4 +561,5 @@ module.exports = {
   approveCompOffCredit,
   rejectCompOffCredit,
   decideCompOffCreditAsManager,
+  revokeCompOffCredit,
 };

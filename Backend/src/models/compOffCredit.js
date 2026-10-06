@@ -24,7 +24,7 @@ module.exports = (sequelize, DataTypes) => {
       sourceAttendanceId: { type: DataTypes.BIGINT, allowNull: true },
       earnedDate: { type: DataTypes.DATEONLY, allowNull: false },
       status: {
-        type: DataTypes.ENUM('pending_approval', 'approved', 'rejected', 'expired', 'used'),
+        type: DataTypes.ENUM('pending_approval', 'approved', 'rejected', 'expired', 'used', 'revoked'),
         allowNull: false,
         defaultValue: 'pending_approval',
       },
@@ -32,6 +32,11 @@ module.exports = (sequelize, DataTypes) => {
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
       decisionMode: { type: DataTypes.ENUM('manager_consensus', 'admin_override'), allowNull: true },
+      // Set when an admin reverts an approved credit (status 'revoked') —
+      // see compOff.service.js::revokeCompOffCredit.
+      revokedAt: { type: DataTypes.DATE, allowNull: true },
+      revokedByUserId: { type: DataTypes.BIGINT, allowNull: true },
+      revokeReason: { type: DataTypes.TEXT, allowNull: true },
       // Null means this credit never expires — earned under a
       // carryForward-enabled CompOffPolicy. compOffExpiry.job.js's sweep
       // (WHERE expiry_date < today) and leaveRequest.service.js's redemption

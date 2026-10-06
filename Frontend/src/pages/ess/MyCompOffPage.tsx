@@ -19,6 +19,7 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> 
   rejected: 'danger',
   expired: 'neutral',
   used: 'neutral',
+  revoked: 'danger',
 };
 
 function extractError(err: unknown, fallback: string): string {
@@ -158,9 +159,12 @@ export function MyCompOffPage() {
             <RequestCard
               icon={RefreshCw}
               title={`Earned ${formatDisplayDate(c.earnedDate)}`}
-              status={<Badge tone={STATUS_TONE[c.status]}>{c.status.replace('_', ' ')}</Badge>}
+              status={<Badge tone={STATUS_TONE[c.status]}>{c.status === 'revoked' ? 'reverted' : c.status.replace('_', ' ')}</Badge>}
             >
               <RequestCardRow label="Expires" value={c.expiryDate ? formatDisplayDate(c.expiryDate) : 'Never'} />
+              {c.status === 'revoked' && c.revokeReason && (
+                <p className="line-clamp-3 text-sm text-danger">Reverted: {c.revokeReason}</p>
+              )}
               {expiringSoon && (
                 <div className="flex justify-end">
                   <Badge tone="warning">{daysLeft === 0 ? 'Expires today' : `${daysLeft}d left`}</Badge>

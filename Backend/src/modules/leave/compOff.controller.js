@@ -80,6 +80,22 @@ async function approve(req, res, next) {
   }
 }
 
+// Admin-only (see the route) — reverts an approved credit; reason required.
+async function revoke(req, res, next) {
+  try {
+    const credit = await service.revokeCompOffCredit({
+      companyId: req.decision.companyId,
+      id: req.params.id,
+      actorEmployeeId: req.auth.employeeId,
+      actorUserId: req.auth.userId,
+      reason: req.body.reason,
+    });
+    res.json({ data: credit });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function reject(req, res, next) {
   try {
     res.json({ data: await decide(req, 'rejected') });
@@ -112,4 +128,4 @@ async function history(req, res, next) {
   }
 }
 
-module.exports = { list, create, approve, reject, history };
+module.exports = { list, create, approve, reject, revoke, history };

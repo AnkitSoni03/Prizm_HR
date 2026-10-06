@@ -6,8 +6,10 @@ export interface CompOffCredit {
   employeeId: string;
   sourceAttendanceId: string;
   earnedDate: string;
-  status: 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'used';
+  status: 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'used' | 'revoked';
   approverId: string | null;
+  // Set when an admin reverted this credit after approval.
+  revokeReason?: string | null;
   // Null means "earned under a carry-forward Comp-Off Policy — never
   // expires" (see Backend's compOff.service.js).
   expiryDate: string | null;

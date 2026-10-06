@@ -25,6 +25,7 @@ import {
   listOdRequests,
   rejectCompOffCredit,
   rejectLeaveRequest,
+  revokeCompOffCredit,
   revokeLeaveRequest,
   revokeOdRequest,
   rejectOdRequest,
@@ -135,7 +136,7 @@ export function TeamApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<{ tab: Tab; id: string } | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
-  const [revertTarget, setRevertTarget] = useState<{ tab: 'leave' | 'od'; id: string } | null>(null);
+  const [revertTarget, setRevertTarget] = useState<{ tab: 'leave' | 'od' | 'compOff'; id: string } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAssignCompOff, setShowAssignCompOff] = useState(false);
   const canAssignCompOff = hasPermission('comp_off:credit');
@@ -467,13 +468,23 @@ export function TeamApprovalsPage() {
                     name={employeeLabel(r.employee, r.employeeId)}
                     photoUrl={r.employee?.photoDownloadUrl}
                     status={r.status}
-                    rejectionReason={r.rejectionReason}
+                    rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
                     fields={[
                       { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
                       ...orgField(r.employee),
                       { icon: CalendarRange, label: 'Earned Date', value: formatDisplayDate(r.earnedDate) },
                       { icon: CalendarX, label: 'Expiry Date', value: r.expiryDate ? formatDisplayDate(r.expiryDate) : 'Never' },
-                      { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                      {
+                        icon: Bookmark,
+                        label: 'Status',
+                        value: (
+                          <RequestStatusBadge
+                            status={r.status}
+                            rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
+                          />
+                        ),
+                      },
+                      ...(r.status === 'revoked' ? [{ icon: Undo2, label: 'Revert Reason', value: r.revokeReason ?? '—' }] : []),
                       ...((r.managerApprovals?.length ?? 0) > 0
                         ? [
                             {
@@ -489,6 +500,9 @@ export function TeamApprovalsPage() {
                     onApprove={() => handleCompOffApprove(r.id)}
                     onReject={() => setRejectTarget({ tab: 'compOff', id: r.id })}
                     onHistory={() => setHistoryTarget({ tab: 'compOff', id: r.id })}
+                    // Admin power only — a manager can't undo a finalized credit.
+                    canRevert={r.status === 'approved' && hasPermission('comp_off:approve')}
+                    onRevert={() => setRevertTarget({ tab: 'compOff', id: r.id })}
                   />
                 );
               })}
@@ -500,7 +514,13 @@ export function TeamApprovalsPage() {
 
       {revertTarget && (
         <RejectReasonModal
-          title={revertTarget.tab === 'leave' ? 'Revert approved leave' : 'Revert approved OD'}
+          title={
+            revertTarget.tab === 'leave'
+              ? 'Revert approved leave'
+              : revertTarget.tab === 'od'
+                ? 'Revert approved OD'
+                : 'Revert comp-off credit'
+          }
           reasonLabel="Reason for reverting"
           placeholder="Let the employee know why this approved request is being reverted"
           confirmLabel="Revert"
@@ -508,7 +528,8 @@ export function TeamApprovalsPage() {
           onClose={() => setRevertTarget(null)}
           onConfirm={async (reason) => {
             if (revertTarget.tab === 'leave') await revokeLeaveRequest(revertTarget.id, reason);
-            else await revokeOdRequest(revertTarget.id, reason);
+            else if (revertTarget.tab === 'od') await revokeOdRequest(revertTarget.id, reason);
+            else await revokeCompOffCredit(revertTarget.id, reason);
             setRevertTarget(null);
             load();
           }}

@@ -123,11 +123,14 @@ export interface CompOffCredit {
   employeeId: string;
   sourceAttendanceId: string;
   earnedDate: string;
-  status: 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'used';
+  // 'revoked' — an admin reverted it after it was approved (revokeReason).
+  status: 'pending_approval' | 'approved' | 'rejected' | 'expired' | 'used' | 'revoked';
   approverId: string | null;
   approverUserId: string | null;
   approverUser?: ApproverUser | null;
   rejectionReason: string | null;
+  revokeReason?: string | null;
+  revokedAt?: string | null;
   // Null means "earned under a carry-forward Comp-Off Policy — never
   // expires".
   expiryDate: string | null;
@@ -295,6 +298,13 @@ export async function approveCompOffCredit(id: string): Promise<CompOffCredit> {
 
 export async function rejectCompOffCredit(id: string, reason: string): Promise<CompOffCredit> {
   const { data } = await apiClient.patch<{ data: CompOffCredit }>(`/leave/comp-off/${id}/reject`, { reason });
+  return data.data;
+}
+
+// Admin-only: reverts an APPROVED, unused comp-off credit so it can't be
+// spent. Reason is required.
+export async function revokeCompOffCredit(id: string, reason: string): Promise<CompOffCredit> {
+  const { data } = await apiClient.patch<{ data: CompOffCredit }>(`/leave/comp-off/${id}/revoke`, { reason });
   return data.data;
 }
 
