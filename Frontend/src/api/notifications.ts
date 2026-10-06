@@ -14,7 +14,8 @@ export interface AppNotification {
     | 'document_rejected'
     | 'document_upload_request'
     | 'holiday_reminder'
-    | 'leave_balance_updated';
+    | 'leave_balance_updated'
+    | 'probation_ending';
   requestType:
     | 'leave_request'
     | 'od_request'

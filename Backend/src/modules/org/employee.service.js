@@ -15,6 +15,8 @@ const { dateOnly } = require('../../utils/dateRange');
 const { syncWeekOffLeaveForEmployee, syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 const { assertManagersInGroup } = require('../../utils/managerScope');
 const { syncPendingManagerApprovals } = require('../../utils/managerApprovals');
+const { normalizeProbationPeriodDays } = require('../../utils/probation');
+const { sendProbationReminderForEmployee } = require('../../jobs/probationReminder.job');
 
 const GENDER_VALUES = ['male', 'female', 'other'];
 
@@ -294,9 +296,14 @@ async function createEmployee({
   gender,
   employmentType,
   workState,
+  probationPeriodDays,
 }) {
   if (gender !== undefined && gender !== null && !GENDER_VALUES.includes(gender)) {
     throw new HttpError(400, `gender must be one of ${GENDER_VALUES.join(', ')}`);
+  }
+  const periodDays = normalizeProbationPeriodDays(probationPeriodDays);
+  if (Number.isNaN(periodDays)) {
+    throw new HttpError(400, 'probationPeriodDays must be a whole number of days between 1 and 3650');
   }
   const company = await db.Company.findByPk(companyId);
   if (!company) throw new HttpError(404, 'Company not found');
@@ -342,9 +349,13 @@ async function createEmployee({
       gender: gender || null,
       employmentType: employmentType || 'full_time',
       workState: workState || null,
+      probationPeriodDays: periodDays ?? null,
       status: 'onboarding',
     });
     await syncWeekOffLeaveIfShiftless({ rosterGroupId: employee.rosterGroupId });
+    // A period that's already inside the reminder window notifies now, not
+    // at the next 9 AM run (best-effort, never throws).
+    await sendProbationReminderForEmployee(employee.id);
     return withPhotoUrl(employee);
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -372,7 +383,7 @@ async function createEmployee({
 // no separate permission code is needed. Optional and harmless to set on any
 // employee — it only ever affects behavior for one on a 0-weekly-off +
 // Week-Off-Leave-enabled roster (see leaveRequest.service.js::createLeaveRequest).
-const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'userId', 'workState', 'weekOffLeaveBlockedDays'];
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'userId', 'workState', 'weekOffLeaveBlockedDays', 'probationPeriodDays'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
@@ -390,6 +401,12 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
     await assertManagersInGroup({ employeeCompanyId: employee.companyId, managerIds: [patch.managerId] });
   }
   if (patch.designationId) await assertOwnedByBrand(db.Designation, patch.designationId, companyId, employee.brandId, 'Designation');
+  if (patch.probationPeriodDays !== undefined) {
+    patch.probationPeriodDays = normalizeProbationPeriodDays(patch.probationPeriodDays);
+    if (Number.isNaN(patch.probationPeriodDays)) {
+      throw new HttpError(400, 'probationPeriodDays must be a whole number of days between 1 and 3650');
+    }
+  }
   if (patch.weekOffLeaveBlockedDays !== undefined) {
     const days = patch.weekOffLeaveBlockedDays;
     if (!Array.isArray(days) || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
@@ -409,6 +426,16 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
 
   if (patch.managerId !== undefined) {
     await syncPendingManagerApprovals({ companyId: employee.companyId, employeeId: employee.id });
+  }
+
+  // Same as createEmployee: if this edit puts the employee inside the
+  // Probation/Intern reminder window (period/DOJ/type changed), notify now.
+  if (
+    patch.probationPeriodDays !== undefined ||
+    patch.dateOfJoining !== undefined ||
+    patch.employmentType !== undefined
+  ) {
+    await sendProbationReminderForEmployee(employee.id);
   }
 
   // A corrected dateOfJoining should immediately re-prorate an already-

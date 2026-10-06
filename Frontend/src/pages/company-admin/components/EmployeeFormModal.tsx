@@ -24,6 +24,7 @@ import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { INDIAN_STATES } from '../../../utils/indianStates';
 import { GENDER_OPTIONS } from '../../../utils/gender';
 import { WEEKDAY_LABELS } from '../../../utils/weekdays';
+import { ProbationPeriodField } from '../../../components/ProbationPeriodField';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
@@ -46,6 +47,7 @@ const EMPLOYMENT_TYPES = [
   { value: 'part_time', label: 'Part-time' },
   { value: 'contract', label: 'Contract' },
   { value: 'probation', label: 'Probation' },
+  { value: 'intern', label: 'Intern' },
 ];
 
 const NEW_OPTION_VALUE = '__new__';
@@ -84,9 +86,10 @@ export function EmployeeFormModal({
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>('');
   const [employmentType, setEmploymentType] = useState<
-    'full_time' | 'part_time' | 'contract' | 'probation'
+    'full_time' | 'part_time' | 'contract' | 'probation' | 'intern'
   >('full_time');
   const [workState, setWorkState] = useState('');
+  const [probationPeriodDays, setProbationPeriodDays] = useState('');
   const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>([]);
   const [powerLevels, setPowerLevels] = useState<PowerLevelMap>({});
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -184,6 +187,7 @@ export function EmployeeFormModal({
         gender: gender || undefined,
         employmentType,
         workState: workState || undefined,
+        probationPeriodDays: probationPeriodDays ? Number(probationPeriodDays) : null,
       });
 
       // Same non-blocking treatment as powers/photo below — the employee
@@ -358,9 +362,16 @@ export function EmployeeFormModal({
             required
             value={employmentType}
             onChange={(event) =>
-              setEmploymentType(event.target.value as 'full_time' | 'part_time' | 'contract')
+              setEmploymentType(event.target.value as typeof employmentType)
             }
             options={EMPLOYMENT_TYPES}
+          />
+          <ProbationPeriodField
+            id="employee-probation-days"
+            value={probationPeriodDays}
+            onChange={setProbationPeriodDays}
+            dateOfJoining={dateOfJoining}
+            employmentType={employmentType}
           />
           <Input
             id="employee-dob"

@@ -32,7 +32,20 @@ async function notifyUser({ companyId, userId, type, requestType, requestId, tit
 // excludeUserId keeps a submitter who also happens to hold the approve
 // permission (e.g. via the per-employee "powers" feature) from notifying
 // themselves about their own submission.
-async function notifyApprovers({ companyId, brandId, code, excludeUserId, type, requestType, requestId, title, body }) {
+// excludeUserIds (array) does the same for several users at once — e.g. a
+// reminder job that already notified someone as a manager.
+async function notifyApprovers({
+  companyId,
+  brandId,
+  code,
+  excludeUserId,
+  excludeUserIds = [],
+  type,
+  requestType,
+  requestId,
+  title,
+  body,
+}) {
   try {
     const where = { companyId };
     if (brandId) where[Op.or] = [{ brandId: null }, { brandId }];
@@ -49,8 +62,9 @@ async function notifyApprovers({ companyId, brandId, code, excludeUserId, type, 
       ],
     });
 
+    const excluded = new Set([excludeUserId, ...excludeUserIds].filter(Boolean).map(String));
     const userIds = [...new Set(grants.map((grant) => grant.userId))].filter(
-      (userId) => String(userId) !== String(excludeUserId)
+      (userId) => !excluded.has(String(userId))
     );
 
     await Promise.all(

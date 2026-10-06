@@ -105,9 +105,16 @@ module.exports = (sequelize, DataTypes) => {
       // signed download URL on read (see employee.service.js::withPhotoUrl).
       photoUrl: { type: DataTypes.STRING, allowNull: true },
       employmentType: {
-        type: DataTypes.ENUM('full_time', 'part_time', 'contract', 'probation'),
+        type: DataTypes.ENUM('full_time', 'part_time', 'contract', 'probation', 'intern'),
         allowNull: false,
       },
+      // Optional Probation / Intern period length in days, counted from
+      // dateOfJoining (DOJ = day 1). Reminders + the login pop-up run while
+      // employmentType is 'probation'/'intern' — see utils/probation.js and
+      // jobs/probationReminder.job.js. Changing the type ends tracking.
+      probationPeriodDays: { type: DataTypes.INTEGER, allowNull: true },
+      // Business date the daily reminder last went out (dedupe guard).
+      probationLastNotifiedOn: { type: DataTypes.DATEONLY, allowNull: true },
       status: {
         type: DataTypes.ENUM('onboarding', 'active', 'on_notice', 'exited', 'archived'),
         allowNull: false,

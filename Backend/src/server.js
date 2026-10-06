@@ -11,6 +11,7 @@ const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanu
 const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
 const { sendRosterExpiryReminders } = require('./jobs/rosterExpiryReminder.job');
 const { markMissedCheckouts } = require('./jobs/missedCheckout.job');
+const { sendProbationReminders } = require('./jobs/probationReminder.job');
 const { verifyMailerConnection } = require('./utils/mailer');
 
 const PORT = process.env.PORT || 5000;
@@ -51,6 +52,11 @@ function startLeaveJobs() {
   cron.schedule('0 9 * * *', () => {
     sendRosterExpiryReminders().catch((err) => console.error('roster-expiry-reminder job failed:', err));
   });
+  // Probation/Intern period reminders — daily from 3 days before the end
+  // until the Employment Type is changed (utils/probation.js).
+  cron.schedule('0 9 * * *', () => {
+    sendProbationReminders().catch((err) => console.error('probation-reminder job failed:', err));
+  });
 }
 
 db.sequelize
@@ -60,6 +66,10 @@ db.sequelize
       console.log(`HRMS backend listening on port ${PORT}`);
     });
     startLeaveJobs();
+    // Catch-up on boot so a restart/deploy never skips a day's
+    // Probation/Intern reminder (deduped per day, so the 9 AM run won't
+    // repeat it).
+    sendProbationReminders().catch((err) => console.error('probation-reminder startup run failed:', err));
     verifyMailerConnection();
   })
   .catch((err) => {

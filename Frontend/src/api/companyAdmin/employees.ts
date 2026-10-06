@@ -43,8 +43,9 @@ export async function createEmployee(input: {
   dateOfJoining: string;
   dateOfBirth?: string;
   gender?: 'male' | 'female' | 'other';
-  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
+  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
   workState?: string;
+  probationPeriodDays?: number | null;
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
   return data.data;
@@ -55,7 +56,8 @@ export async function updateEmployee(
   input: Partial<{
     employeeCode: string | null;
     designationId: string | null;
-    employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
+    employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
+    probationPeriodDays: number | null;
     status: Employee['status'];
     dateOfJoining: string | null;
     dateOfBirth: string | null;

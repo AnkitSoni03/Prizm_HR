@@ -32,7 +32,7 @@ export interface EmployeeProfile {
   // Free text — used for Professional Tax slab lookup only. An unrecognized
   // or blank value just falls back to the 'default' PT slab.
   workState: string | null;
-  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
+  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
   status: 'onboarding' | 'active' | 'on_notice' | 'exited' | 'archived';
   company?: { id: string; name: string };
   brand?: { id: string; name: string };

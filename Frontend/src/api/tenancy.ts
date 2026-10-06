@@ -162,7 +162,11 @@ export interface Employee {
   // Optional, same precedent as dateOfBirth — drives which gender-restricted
   // leave types (e.g. Maternity/Paternity Leave) this employee is offered.
   gender: 'male' | 'female' | 'other' | null;
-  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation';
+  employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
+  // Optional Probation/Intern period length in days, counted from
+  // dateOfJoining (DOJ = day 1). Reminders run while employmentType is
+  // probation/intern — see Backend/src/utils/probation.js.
+  probationPeriodDays?: number | null;
   // Free text — used for Professional Tax slab lookup only (see
   // Backend/src/config/statutoryDefaults.js). An unrecognized/blank value
   // just falls back to the 'default' PT slab.
@@ -406,7 +410,7 @@ export async function createEmployee(input: {
   designationId?: string | null;
   managerId?: string | null;
   dateOfJoining?: string;
-  employmentType?: 'full_time' | 'part_time' | 'contract' | 'probation';
+  employmentType?: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
   return data.data;

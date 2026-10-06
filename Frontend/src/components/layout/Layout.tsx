@@ -5,6 +5,7 @@ import { Topbar } from './Topbar';
 import { BottomNav } from './BottomNav';
 import { HolidayReminderModal } from '../HolidayReminderModal';
 import { FaceIdReminderModal } from '../FaceIdReminderModal';
+import { ProbationReminderModal } from '../ProbationReminderModal';
 
 interface LayoutProps {
   navItems: NavItem[];
@@ -36,6 +37,7 @@ export function Layout({ navItems, portalLabel, title, children }: LayoutProps) 
       {isEss && !isMobileMenuOpen && <BottomNav />}
       <HolidayReminderModal />
       <FaceIdReminderModal />
+      <ProbationReminderModal />
     </div>
   );
 }

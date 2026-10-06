@@ -56,6 +56,14 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
   // Holidays have no admin-facing "pending" counterpart (they're not a
   // request/approval flow) — every portal that has its own Holidays page
   // reads the same list, so just route to whichever one the recipient has.
+  // Probation/Intern period reminders: an admin goes to Employees to change
+  // the Employment Type; the employee's own copy has nowhere specific to go.
+  if (notification.type === 'probation_ending') {
+    if (portal === '/company-admin') return '/company-admin/employees';
+    if (portal === '/brand-admin') return '/brand-admin/employees';
+    return null;
+  }
+
   if (notification.type === 'holiday_reminder') {
     if (portal === '/company-admin') return '/company-admin/holidays';
     if (portal === '/brand-admin') return '/brand-admin/holidays';

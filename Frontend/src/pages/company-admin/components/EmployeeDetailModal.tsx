@@ -60,6 +60,7 @@ import { holidayAuditName } from '../../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime, daysUntil } from '../../../utils/dateDisplay';
 import { WEEKDAY_LABELS, weeklyOffLabel } from '../../../utils/weekdays';
 import { listCompOffCredits, type CompOffCredit } from '../../../api/companyAdmin/approvals';
+import { ProbationPeriodField } from '../../../components/ProbationPeriodField';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -96,6 +97,7 @@ const EMPLOYMENT_TYPES = [
   { value: 'part_time', label: 'Part-time' },
   { value: 'contract', label: 'Contract' },
   { value: 'probation', label: 'Probation' },
+  { value: 'intern', label: 'Intern' },
 ];
 
 const STATUS_OPTIONS = [
@@ -191,6 +193,9 @@ export function EmployeeDetailModal({
   const [dateOfBirth, setDateOfBirth] = useState(employee.dateOfBirth ?? '');
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>(employee.gender ?? '');
   const [employmentType, setEmploymentType] = useState(employee.employmentType);
+  const [probationPeriodDays, setProbationPeriodDays] = useState(
+    employee.probationPeriodDays ? String(employee.probationPeriodDays) : ''
+  );
   const [status, setStatus] = useState(employee.status);
   const [workState, setWorkState] = useState(employee.workState ?? '');
   const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>(
@@ -710,6 +715,7 @@ export function EmployeeDetailModal({
         employeeCode: employeeCode.trim() || null,
         designationId: designationId || null,
         employmentType,
+        probationPeriodDays: probationPeriodDays ? Number(probationPeriodDays) : null,
         status,
         dateOfJoining: dateOfJoining || null,
         dateOfBirth: dateOfBirth || null,
@@ -1146,10 +1152,18 @@ export function EmployeeDetailModal({
                 label="Employment Type"
                 value={employmentType}
                 onChange={(event) =>
-                  setEmploymentType(event.target.value as 'full_time' | 'part_time' | 'contract')
+                  setEmploymentType(event.target.value as typeof employmentType)
                 }
                 disabled={!canUpdate}
                 options={EMPLOYMENT_TYPES}
+              />
+              <ProbationPeriodField
+                id="employee-probation-days-edit"
+                value={probationPeriodDays}
+                onChange={setProbationPeriodDays}
+                dateOfJoining={dateOfJoining}
+                employmentType={employmentType}
+                disabled={!canUpdate}
               />
               <Select
                 id="employee-status-edit"

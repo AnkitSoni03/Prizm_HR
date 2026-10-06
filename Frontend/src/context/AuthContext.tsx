@@ -8,6 +8,7 @@ import {
   setTokens,
 } from '../api/tokenStore';
 import { AuthContext, type AuthContextValue, type AuthUser } from './auth-context';
+import { PROBATION_POPUP_KEY_PREFIX } from '../utils/probation';
 
 async function fetchCurrentUser(): Promise<AuthUser> {
   const { data } = await apiClient.get<AuthUser>('/auth/me');
@@ -31,6 +32,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // fire-and-forget: the local logout must succeed even if this fails.
     const { refreshToken } = getTokens();
     clearTokens();
+    // So the Probation/Intern reminder pop-up shows again on the next login.
+    try {
+      Object.keys(sessionStorage)
+        .filter((key) => key.startsWith(PROBATION_POPUP_KEY_PREFIX))
+        .forEach((key) => sessionStorage.removeItem(key));
+    } catch {
+      /* storage unavailable — nothing to clear */
+    }
     setUser(null);
     if (refreshToken) {
       void revokeRefreshToken(refreshToken);

@@ -6,6 +6,7 @@ const { HttpError } = require('../../utils/errors');
 const rosterTransferService = require('./rosterTransfer.service');
 const { getManagersForEmployee } = require('../../utils/managerScope');
 const managerOptions = require('./managerOptions.service');
+const { listProbationAlerts } = require('./probationAlerts.service');
 const { parsePagination } = require('../../utils/pagination');
 const {
   resolveCompanyScope,
@@ -82,6 +83,7 @@ async function create(req, res, next) {
       gender,
       employmentType,
       workState,
+      probationPeriodDays,
     } = req.body;
 
     // brandId is conditionally required (validated in the service against
@@ -123,6 +125,7 @@ async function create(req, res, next) {
       gender,
       employmentType,
       workState,
+      probationPeriodDays,
     });
     res.status(201).json({ data: employee });
   } catch (err) {
@@ -308,6 +311,17 @@ async function getMyManagers(req, res, next) {
   }
 }
 
+// Login pop-up: Probation/Intern periods ending soon (or already ended) that
+// this caller should see — their own, ones they can edit, their team's. No
+// permission code: the service scopes each part itself.
+async function getProbationAlerts(req, res, next) {
+  try {
+    res.json({ data: await listProbationAlerts(req.auth) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // Manager picker (Employee form): the caller's Group companies + Brands,
 // then one company's/Brand's employees — see managerOptions.service.js.
 async function getManagerCompanies(req, res, next) {
@@ -427,6 +441,7 @@ module.exports = {
   assignPowers,
   setManagers,
   getMyManagers,
+  getProbationAlerts,
   uploadPhoto,
   removePhoto,
   uploadMyPhoto,

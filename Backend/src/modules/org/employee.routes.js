@@ -48,6 +48,9 @@ router.delete('/me/photo', controller.removeMyPhoto);
 // No permission code — every employee can read their own manager list (same
 // shape as the photo self-service routes above), used by the ESS Dashboard.
 router.get('/me/managers', controller.getMyManagers);
+// No permission code either — the login pop-up's Probation/Intern period
+// alerts; probationAlerts.service.js scopes self / editable / team itself.
+router.get('/probation-alerts', controller.getProbationAlerts);
 
 // Manager picker — anyone who can create or edit an employee (and so set
 // their managers). Before '/:id' so the path isn't read as an id.
