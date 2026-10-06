@@ -8,6 +8,7 @@ module.exports = (sequelize, DataTypes) => {
       LeaveRequest.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
       LeaveRequest.belongsTo(models.Employee, { foreignKey: 'approverId', as: 'approver' });
       LeaveRequest.belongsTo(models.User, { foreignKey: 'approverUserId', as: 'approverUser' });
+      LeaveRequest.belongsTo(models.User, { foreignKey: 'revokedByUserId', as: 'revokedByUser' });
       LeaveRequest.belongsTo(models.LeaveType, { foreignKey: 'leaveTypeId', as: 'leaveType' });
       LeaveRequest.belongsTo(models.CompOffCredit, { foreignKey: 'compOffCreditId', as: 'compOffCredit' });
       // Per-manager decision rows for the multi-manager approval workflow —
@@ -26,7 +27,7 @@ module.exports = (sequelize, DataTypes) => {
       days: { type: DataTypes.DECIMAL(5, 2), allowNull: false },
       reason: { type: DataTypes.STRING, allowNull: true },
       status: {
-        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'cancelled'),
+        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'cancelled', 'revoked'),
         allowNull: false,
         defaultValue: 'pending',
       },
@@ -38,6 +39,11 @@ module.exports = (sequelize, DataTypes) => {
       // company/brand-wide admin bypassed the manager chain entirely) — see
       // the 20260905090200 migration comment.
       decisionMode: { type: DataTypes.ENUM('manager_consensus', 'admin_override'), allowNull: true },
+      // Set when an admin reverts an approved request (status 'revoked') �
+      // see leaveRequest.service.js::revokeLeaveRequest.
+      revokedAt: { type: DataTypes.DATE, allowNull: true },
+      revokedByUserId: { type: DataTypes.BIGINT, allowNull: true },
+      revokeReason: { type: DataTypes.TEXT, allowNull: true },
     },
     {
       sequelize,

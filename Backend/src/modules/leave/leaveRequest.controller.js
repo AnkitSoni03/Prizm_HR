@@ -96,6 +96,22 @@ async function reject(req, res, next) {
   }
 }
 
+// Admin-only (see the route) — reverts an approved request; reason required.
+async function revoke(req, res, next) {
+  try {
+    const request = await service.revokeLeaveRequest({
+      companyId: req.decision.companyId,
+      id: req.params.id,
+      actorEmployeeId: req.auth.employeeId,
+      actorUserId: req.auth.userId,
+      reason: req.body.reason,
+    });
+    res.json({ data: request });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function cancel(req, res, next) {
   try {
     const request = await service.cancelLeaveRequest({
@@ -133,4 +149,4 @@ async function history(req, res, next) {
   }
 }
 
-module.exports = { list, create, approve, reject, cancel, history };
+module.exports = { list, create, approve, reject, revoke, cancel, history };

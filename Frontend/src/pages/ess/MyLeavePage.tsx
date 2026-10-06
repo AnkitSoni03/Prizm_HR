@@ -37,6 +37,7 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> 
   approved: 'success',
   rejected: 'danger',
   cancelled: 'neutral',
+  revoked: 'danger',
 };
 
 function formatDate(d: Date): string {
@@ -192,6 +193,7 @@ export function MyLeavePage() {
               { value: 'approved', label: 'Approved' },
               { value: 'rejected', label: 'Rejected' },
               { value: 'cancelled', label: 'Cancelled' },
+              { value: 'revoked', label: 'Reverted' },
             ]}
           />
         </div>
@@ -221,7 +223,7 @@ export function MyLeavePage() {
           <RequestCard
             icon={CalendarClock}
             title={r.leaveType?.name ?? 'Leave'}
-            status={<Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>}
+            status={<Badge tone={STATUS_TONE[r.status]}>{r.status === 'revoked' ? 'reverted' : r.status}</Badge>}
             footer={
               r.status === 'pending' ? (
                 <button
@@ -240,6 +242,9 @@ export function MyLeavePage() {
             </div>
             <RequestCardRow label="Days" value={r.days} />
             {r.reason && <RequestCardRow label="Reason" value={<span className="line-clamp-2">{r.reason}</span>} />}
+            {r.status === 'revoked' && r.revokeReason && (
+              <RequestCardRow label="Reverted" value={<span className="line-clamp-3 text-danger">{r.revokeReason}</span>} />
+            )}
             {r.status !== 'cancelled' && (
               <div className="border-t border-border pt-2">
                 <ManagerApprovalStatus approvals={r.managerApprovals} decisionMode={r.decisionMode} variant="list" />

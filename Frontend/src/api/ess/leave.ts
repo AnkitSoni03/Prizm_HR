@@ -54,8 +54,11 @@ export interface LeaveRequest {
   toDate: string;
   days: number;
   reason: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'revoked';
   approverId: string | null;
+  rejectionReason?: string | null;
+  // Set when an admin reverted this leave after approval.
+  revokeReason?: string | null;
   compOffCreditId: string | null;
   leaveType?: LeaveType;
   // Multi-manager AND-gate approval — who's approved, who's still pending,

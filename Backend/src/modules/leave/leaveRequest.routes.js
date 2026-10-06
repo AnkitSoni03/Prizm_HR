@@ -86,10 +86,11 @@ async function requireReadAccess(req, res, next) {
 //      request's snapshotted managers (leave_request_approvals) â€” possibly
 //      from another company of the Group. One vote in the AND-gate
 //      (decideLeaveRequestAsManager).
-function requireDecisionAccess(action) {
+function requireDecisionAccess(action, { adminOnly = false } = {}) {
   return requireApprovalDecisionAccess({
     resource: 'leave_request',
     action,
+    adminOnly,
     loadAnyCompany: (id) => service.getLeaveRequestForDecision({ companyId: null, id }),
     notFoundMessage: 'Leave request not found',
   });
@@ -100,6 +101,10 @@ router.post('/', requirePermission('leave_request:create'), controller.create);
 router.get('/:id/history', controller.history);
 router.patch('/:id/approve', requireDecisionAccess('approve'), controller.approve);
 router.patch('/:id/reject', requireDecisionAccess('reject'), controller.reject);
+// Reverting an approved leave is an admin power only (company/brand-wide
+// leave_request:approve) — managers can vote on a pending request but never
+// undo a finalized one.
+router.patch('/:id/revoke', requireDecisionAccess('approve', { adminOnly: true }), controller.revoke);
 router.patch('/:id/cancel', requirePermission('leave_request:cancel'), controller.cancel);
 
 module.exports = router;

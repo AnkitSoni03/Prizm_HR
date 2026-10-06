@@ -57,11 +57,14 @@ export interface LeaveRequest {
   toDate: string;
   days: number;
   reason: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  // 'revoked' — an admin reverted it after it was approved (revokeReason).
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'revoked';
   approverId: string | null;
   approverUserId: string | null;
   approverUser?: ApproverUser | null;
   rejectionReason: string | null;
+  revokeReason?: string | null;
+  revokedAt?: string | null;
   compOffCreditId: string | null;
   employee?: RequestEmployee;
   leaveType?: LeaveType;
@@ -136,7 +139,7 @@ export interface ApprovalHistoryEntry {
   id: string;
   // 'granted' only occurs on a comp-off credit's history — see
   // compOff.service.js::createCompOffCredit.
-  action: 'approved' | 'rejected' | 'granted';
+  action: 'approved' | 'rejected' | 'granted' | 'revoked';
   reason: string | null;
   decidedAt: string;
   actorUser?: ApproverUser | null;
@@ -183,6 +186,13 @@ export async function approveLeaveRequest(id: string): Promise<LeaveRequest> {
 
 export async function rejectLeaveRequest(id: string, reason: string): Promise<LeaveRequest> {
   const { data } = await apiClient.patch<{ data: LeaveRequest }>(`/leave/requests/${id}/reject`, { reason });
+  return data.data;
+}
+
+// Admin-only: reverts an APPROVED request — balance, comp-off credit and
+// attendance go back to how they were before approval. Reason is required.
+export async function revokeLeaveRequest(id: string, reason: string): Promise<LeaveRequest> {
+  const { data } = await apiClient.patch<{ data: LeaveRequest }>(`/leave/requests/${id}/revoke`, { reason });
   return data.data;
 }
 

@@ -6,6 +6,12 @@ interface RejectReasonModalProps {
   title: string;
   onClose: () => void;
   onConfirm: (reason: string) => Promise<void> | void;
+  // Defaults are for a rejection; reverting an approved leave reuses the
+  // same mandatory-reason flow with its own wording.
+  reasonLabel?: string;
+  placeholder?: string;
+  confirmLabel?: string;
+  errorMessage?: string;
 }
 
 // Shared by every approve/reject list (leave, OD, regularization, comp-off,
@@ -13,7 +19,15 @@ interface RejectReasonModalProps {
 // always mandatory and always lands in the approval_histories audit trail
 // (see leaveRequest.service.js::rejectLeaveRequest and its siblings) instead
 // of the old window.confirm() flow, which never collected one at all.
-export function RejectReasonModal({ title, onClose, onConfirm }: RejectReasonModalProps) {
+export function RejectReasonModal({
+  title,
+  onClose,
+  onConfirm,
+  reasonLabel = 'Reason for rejection',
+  placeholder = 'Let the employee know why this was rejected',
+  confirmLabel = 'Reject',
+  errorMessage = 'Could not reject this request.',
+}: RejectReasonModalProps) {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +39,7 @@ export function RejectReasonModal({ title, onClose, onConfirm }: RejectReasonMod
     try {
       await onConfirm(reason.trim());
     } catch {
-      setError('Could not reject this request.');
+      setError(errorMessage);
       setIsSubmitting(false);
     }
   }
@@ -35,7 +49,7 @@ export function RejectReasonModal({ title, onClose, onConfirm }: RejectReasonMod
       <div className="space-y-4">
         <div>
           <label htmlFor="reject-reason" className="mb-1.5 block text-sm font-medium text-ink">
-            Reason for rejection
+            {reasonLabel}
           </label>
           <textarea
             id="reject-reason"
@@ -43,7 +57,7 @@ export function RejectReasonModal({ title, onClose, onConfirm }: RejectReasonMod
             autoFocus
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="Let the employee know why this was rejected"
+            placeholder={placeholder}
             className="w-full rounded-xl border border-border px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -53,7 +67,7 @@ export function RejectReasonModal({ title, onClose, onConfirm }: RejectReasonMod
             Cancel
           </Button>
           <Button variant="danger" onClick={handleSubmit} isLoading={isSubmitting} disabled={!reason.trim()}>
-            Reject
+            {confirmLabel}
           </Button>
         </div>
       </div>

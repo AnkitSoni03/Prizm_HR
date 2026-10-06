@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { Ban, CalendarX, Check, CheckCheck, CheckCircle2, History, Hourglass, X, XCircle } from 'lucide-react';
+import { Ban, CalendarX, Check, CheckCheck, CheckCircle2, History, Hourglass, Undo2, X, XCircle } from 'lucide-react';
 import { Avatar } from './ui/Avatar';
 import { Badge } from './ui/Badge';
 import { DetailRow } from './ui/DetailRow';
@@ -15,6 +15,7 @@ const REQUEST_STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'ne
   approved: 'success',
   rejected: 'danger',
   cancelled: 'neutral',
+  revoked: 'danger',
   expired: 'neutral',
   used: 'neutral',
 };
@@ -25,6 +26,7 @@ const STATUS_ICON: Record<string, ComponentType<{ className?: string; strokeWidt
   approved: CheckCircle2,
   rejected: XCircle,
   cancelled: Ban,
+  revoked: Undo2,
   expired: CalendarX,
   used: CheckCheck,
 };
@@ -34,11 +36,11 @@ export function RequestStatusBadge({ status, rejectionReason }: { status: string
   return (
     <Badge
       tone={REQUEST_STATUS_TONE[status] ?? 'neutral'}
-      title={status === 'rejected' ? rejectionReason ?? undefined : undefined}
+      title={status === 'rejected' || status === 'revoked' ? rejectionReason ?? undefined : undefined}
     >
       <span className="inline-flex items-center gap-1">
         <Icon className="h-3 w-3 shrink-0" strokeWidth={1.75} />
-        {status.replace('_', ' ')}
+        {status === 'revoked' ? 'reverted' : status.replace('_', ' ')}
       </span>
     </Badge>
   );
@@ -65,6 +67,9 @@ interface RequestCardProps {
   onApprove: () => void;
   onReject: () => void;
   onHistory: () => void;
+  // Admin-only "Revert" on an already-approved leave request.
+  canRevert?: boolean;
+  onRevert?: () => void;
 }
 
 // Mobile-first card for one pending/decided request — avatar + name + status
@@ -84,6 +89,8 @@ export function RequestCard({
   onApprove,
   onReject,
   onHistory,
+  canRevert = false,
+  onRevert,
 }: RequestCardProps) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
@@ -138,6 +145,16 @@ export function RequestCard({
           >
             <X className="h-3.5 w-3.5" strokeWidth={1.75} />
             Reject
+          </button>
+        )}
+        {canRevert && (
+          <button
+            type="button"
+            onClick={onRevert}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/10"
+          >
+            <Undo2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Revert
           </button>
         )}
       </div>

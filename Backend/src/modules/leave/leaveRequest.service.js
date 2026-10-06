@@ -4,7 +4,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { isWorkingDay } = require('../../utils/workingDays');
-const { datesBetween, addDays } = require('../../utils/dateRange');
+const { datesBetween, addDays, dateOnly } = require('../../utils/dateRange');
 const { getOrCreateBalance, resolveLeavePolicy } = require('./leaveBalance.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
@@ -619,6 +619,110 @@ async function decideLeaveRequestAsManager({ companyId, id, managerEmployeeId, a
   return request;
 }
 
+// ADMIN-only (requireDecisionAccess('approve', { adminOnly: true })): reverts
+// an already-approved request, whoever approved it (admin or managers), and
+// undoes exactly what applyLeaveApprovalSideEffects did — the days go back
+// into leave_balances (or the comp-off credit becomes spendable again), and
+// the 'leave' attendance rows it wrote go back to what a day with no leave
+// looks like ('present' if they did punch in, else 'absent' — same as the
+// attendance board derives for a working day with no row). The rows are
+// updated, not deleted: attendance has a non-partial unique
+// (employee_id, date) index, so a soft-deleted row would block the
+// employee's next check-in on that date. A reason is mandatory.
+//
+// Refused once a processed/paid payroll run covers any of the leave's dates —
+// that payslip already paid (or docked) those days, and changing them under
+// it would silently put payroll and attendance out of step.
+async function revokeLeaveRequest({ companyId, id, actorEmployeeId, actorUserId, reason }) {
+  if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to revert a leave request');
+
+  const request = await getLeaveRequestForDecision({ companyId, id });
+  if (request.status !== 'approved') throw new HttpError(409, 'Only an approved leave request can be reverted');
+
+  const lockedRun = await db.PayrollRun.findOne({
+    where: {
+      companyId: request.employee.companyId,
+      status: { [Op.in]: ['processed', 'paid'] },
+      payPeriodStart: { [Op.lte]: request.toDate },
+      payPeriodEnd: { [Op.gte]: request.fromDate },
+    },
+    attributes: ['id', 'periodMonth', 'periodYear'],
+  });
+  if (lockedRun) {
+    throw new HttpError(
+      409,
+      `Payroll for ${lockedRun.periodMonth}/${lockedRun.periodYear} is already processed for these dates — this leave can no longer be reverted`
+    );
+  }
+
+  await db.sequelize.transaction(async (t) => {
+    if (request.compOffCreditId) {
+      const credit = await db.CompOffCredit.findOne({ where: { id: request.compOffCreditId }, transaction: t });
+      if (credit && credit.status === 'used') {
+        const today = dateOnly(new Date());
+        const stillValid = !credit.expiryDate || credit.expiryDate >= today;
+        await credit.update({ status: stillValid ? 'approved' : 'expired' }, { transaction: t });
+      }
+    } else {
+      const balance = await getOrCreateBalance({
+        employeeId: request.employeeId,
+        leaveTypeId: request.leaveTypeId,
+        dateStr: request.fromDate,
+        transaction: t,
+      });
+      const used = Number(balance.used) - Number(request.days);
+      await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
+    }
+
+    const rows = await db.Attendance.findAll({
+      where: {
+        employeeId: request.employeeId,
+        date: { [Op.between]: [request.fromDate, request.toDate] },
+        status: 'leave',
+      },
+      transaction: t,
+    });
+    for (const row of rows) {
+      await row.update({ status: row.checkIn ? 'present' : 'absent' }, { transaction: t });
+    }
+
+    await request.update(
+      {
+        status: 'revoked',
+        revokedAt: new Date(),
+        revokedByUserId: actorUserId,
+        revokeReason: reason.trim(),
+        // The link is uniquely indexed — keeping it would stop the credit
+        // ever being spent on another request.
+        compOffCreditId: null,
+      },
+      { transaction: t }
+    );
+    await recordApprovalDecision({
+      companyId,
+      requestType: 'leave_request',
+      requestId: request.id,
+      action: 'revoked',
+      actorUserId,
+      actorEmployeeId: actorEmployeeId || null,
+      reason: reason.trim(),
+      transaction: t,
+    });
+  });
+
+  await notifyUser({
+    companyId,
+    userId: request.employee.userId,
+    type: 'approval_decision',
+    requestType: 'leave_request',
+    requestId: request.id,
+    title: 'Your approved leave was reverted',
+    body: `${request.fromDate} → ${request.toDate}: ${reason.trim()}`,
+  });
+
+  return request;
+}
+
 async function cancelLeaveRequest({ companyId, employeeId, id }) {
   const request = await db.LeaveRequest.findOne({ where: { id, employeeId } });
   if (!request) throw new HttpError(404, 'Leave request not found');
@@ -660,5 +764,6 @@ module.exports = {
   approveLeaveRequest,
   rejectLeaveRequest,
   decideLeaveRequestAsManager,
+  revokeLeaveRequest,
   cancelLeaveRequest,
 };

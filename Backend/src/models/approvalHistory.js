@@ -20,7 +20,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       requestId: { type: DataTypes.BIGINT, allowNull: false },
-      action: { type: DataTypes.ENUM('approved', 'rejected'), allowNull: false },
+      action: { type: DataTypes.ENUM('approved', 'rejected', 'revoked'), allowNull: false },
       actorUserId: { type: DataTypes.BIGINT, allowNull: false },
       actorEmployeeId: { type: DataTypes.BIGINT, allowNull: true },
       reason: { type: DataTypes.TEXT, allowNull: true },

@@ -37,7 +37,8 @@ async function managerCanReach(auth, request) {
   return groupCompanyIds.includes(String(request.employee.companyId));
 }
 
-function requireApprovalDecisionAccess({ resource, action, loadAnyCompany, notFoundMessage }) {
+// adminOnly skips the MANAGER path (e.g. reverting an approved leave).
+function requireApprovalDecisionAccess({ resource, action, loadAnyCompany, notFoundMessage, adminOnly = false }) {
   return async function (req, res, next) {
     try {
       const request = await loadAnyCompany(req.params.id);
@@ -56,6 +57,7 @@ function requireApprovalDecisionAccess({ resource, action, loadAnyCompany, notFo
       }
 
       if (
+        !adminOnly &&
         isSnapshottedManager(request, req.auth.employeeId) &&
         (await userHasPermission(req.auth, `${resource}:${action}_reports`)) &&
         (await managerCanReach(req.auth, request))
