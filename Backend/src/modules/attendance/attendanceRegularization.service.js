@@ -137,7 +137,16 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
       ? resolveCheckOutDateTime(attendanceDate, checkOutTime, finalCheckIn || regularization.attendance.checkIn)
       : regularization.requestedCheckOut;
 
+  const before = regularization.attendance;
   await db.sequelize.transaction(async (t) => {
+    // Snapshot first — the update below overwrites these, and
+    // revokeRegularization needs them back.
+    const snapshot = {
+      previousStatus: before.status,
+      previousCheckIn: before.checkIn,
+      previousCheckOut: before.checkOut,
+      previousCheckoutMissed: before.checkoutMissed,
+    };
     await regularization.attendance.update(
       {
         status: regularization.requestedStatus,
@@ -153,6 +162,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
         approverUserId,
         requestedCheckIn: finalCheckIn,
         requestedCheckOut: finalCheckOut,
+        ...snapshot,
       },
       { transaction: t }
     );
@@ -230,8 +240,136 @@ async function rejectRegularization({ companyId, id, approverId, approverUserId,
   return regularization;
 }
 
+function sameInstant(a, b) {
+  if (!a || !b) return !a && !b;
+  return new Date(a).getTime() === new Date(b).getTime();
+}
+
+// Admin-only (attendanceRegularization.routes.js::requireRevokeAccess):
+// reverts an approved regularization by putting the attendance row back
+// exactly as it was just before approval (the previous_* snapshot taken by
+// approveRegularization). Refused when:
+//   - it was approved before that snapshot existed (nothing to restore to);
+//   - the attendance row has changed since (another regularization, a punch,
+//     an admin correction) — restoring would silently wipe that later change;
+//   - a processed/paid payroll run covers the date;
+//   - a comp-off earned from the regularized day was already used for leave.
+// A comp-off credit earned from the day is rejected when the restored status
+// no longer counts as worked (present/on_duty). A reason is mandatory.
+async function revokeRegularization({ companyId, id, actorEmployeeId, actorUserId, reason }) {
+  if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to revert a regularization');
+
+  const regularization = await db.AttendanceRegularization.findOne({
+    where: { id },
+    include: [
+      {
+        model: db.Employee,
+        as: 'employee',
+        where: { companyId },
+        attributes: ['id', 'userId', 'companyId', 'brandId', 'rosterGroupId'],
+      },
+      { model: db.Attendance, as: 'attendance' },
+    ],
+  });
+  if (!regularization) throw new HttpError(404, 'Regularization request not found');
+  if (regularization.status !== 'approved') {
+    throw new HttpError(409, 'Only an approved regularization can be reverted');
+  }
+  if (!regularization.previousStatus) {
+    throw new HttpError(
+      409,
+      'This regularization was approved before reverting was available — correct the day from Attendance Records instead'
+    );
+  }
+
+  const attendance = regularization.attendance;
+  const unchangedSinceApproval =
+    attendance &&
+    attendance.status === regularization.requestedStatus &&
+    (!regularization.requestedCheckIn || sameInstant(attendance.checkIn, regularization.requestedCheckIn)) &&
+    (!regularization.requestedCheckOut || sameInstant(attendance.checkOut, regularization.requestedCheckOut));
+  if (!unchangedSinceApproval) {
+    throw new HttpError(
+      409,
+      'This day\'s attendance has changed since the regularization was approved — correct it from Attendance Records instead'
+    );
+  }
+
+  const lockedRun = await db.PayrollRun.findOne({
+    where: {
+      companyId: regularization.employee.companyId,
+      status: { [Op.in]: ['processed', 'paid'] },
+      payPeriodStart: { [Op.lte]: attendance.date },
+      payPeriodEnd: { [Op.gte]: attendance.date },
+    },
+    attributes: ['id', 'periodMonth', 'periodYear'],
+  });
+  if (lockedRun) {
+    throw new HttpError(
+      409,
+      `Payroll for ${lockedRun.periodMonth}/${lockedRun.periodYear} is already processed for this date — this regularization can no longer be reverted`
+    );
+  }
+
+  const restoredWorked = regularization.previousStatus === 'present' || regularization.previousStatus === 'on_duty';
+  const credit = restoredWorked
+    ? null
+    : await db.CompOffCredit.findOne({ where: { sourceAttendanceId: attendance.id } });
+  if (credit && credit.status === 'used') {
+    throw new HttpError(
+      409,
+      'A comp-off earned from this day has already been used for leave — revert that leave first'
+    );
+  }
+
+  await db.sequelize.transaction(async (t) => {
+    await attendance.update(
+      {
+        status: regularization.previousStatus,
+        checkIn: regularization.previousCheckIn,
+        checkOut: regularization.previousCheckOut,
+        checkoutMissed: !!regularization.previousCheckoutMissed,
+      },
+      { transaction: t }
+    );
+    if (credit && credit.status !== 'rejected' && credit.status !== 'expired' && credit.status !== 'revoked') {
+      await credit.update(
+        { status: 'rejected', rejectionReason: `Regularization reverted: ${reason.trim()}` },
+        { transaction: t }
+      );
+    }
+    await regularization.update(
+      { status: 'revoked', revokedAt: new Date(), revokedByUserId: actorUserId, revokeReason: reason.trim() },
+      { transaction: t }
+    );
+    await recordApprovalDecision({
+      companyId,
+      requestType: 'attendance_regularization',
+      requestId: regularization.id,
+      action: 'revoked',
+      actorUserId,
+      actorEmployeeId: actorEmployeeId || null,
+      reason: reason.trim(),
+      transaction: t,
+    });
+  });
+
+  await notifyUser({
+    companyId,
+    userId: regularization.employee.userId,
+    type: 'approval_decision',
+    requestType: 'attendance_regularization',
+    requestId: regularization.id,
+    title: 'Your approved attendance regularization was reverted',
+    body: `${attendance.date}: ${reason.trim()}`,
+  });
+
+  return regularization;
+}
+
 module.exports = {
   listRegularizations,
+  revokeRegularization,
   createRegularization,
   getRegularizationById,
   approveRegularization,

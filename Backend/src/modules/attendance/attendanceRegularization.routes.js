@@ -4,6 +4,7 @@ const { Router } = require('express');
 const controller = require('./attendanceRegularization.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission, getBrandScope } = require('../../middleware/rbac.middleware');
+const db = require('../../models');
 
 const router = Router();
 router.use(requireAuth);
@@ -38,10 +39,39 @@ async function requireReadAccess(req, res, next) {
   }
 }
 
+// Reverting is an admin power: company/brand-wide
+// attendance_regularization:approve, and a brand-scoped holder only for an
+// employee of their own Brand(s) — checked against the record itself, never
+// a client-supplied brandId. Out-of-reach ids 404 (don't leak existence).
+async function requireRevokeAccess(req, res, next) {
+  try {
+    const scope = await getBrandScope(req.auth, 'attendance_regularization:approve');
+    if (!scope.allowed) {
+      return res.status(403).json({ error: 'Forbidden', permission: 'attendance_regularization:approve' });
+    }
+    if (!scope.companyWide) {
+      const regularization = await db.AttendanceRegularization.findOne({
+        where: { id: req.params.id },
+        include: [
+          { model: db.Employee, as: 'employee', where: { companyId: req.auth.companyId }, attributes: ['brandId'] },
+        ],
+      });
+      const inScope =
+        regularization &&
+        scope.brandIds.some((brandId) => String(brandId) === String(regularization.employee.brandId));
+      if (!inScope) return res.status(404).json({ error: 'Regularization request not found' });
+    }
+    return next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 router.get('/', requireReadAccess, controller.list);
 router.post('/', requirePermission('attendance_regularization:request'), controller.create);
 router.get('/:id/history', controller.history);
 router.patch('/:id/approve', requirePermission('attendance_regularization:approve'), controller.approve);
 router.patch('/:id/reject', requirePermission('attendance_regularization:reject'), controller.reject);
+router.patch('/:id/revoke', requireRevokeAccess, controller.revoke);
 
 module.exports = router;

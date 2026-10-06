@@ -104,11 +104,17 @@ export interface AttendanceRegularization {
   employeeId: string;
   requestedStatus: 'present' | 'absent' | 'half_day' | 'leave' | 'holiday' | 'weekoff' | 'on_duty';
   reason: string;
-  status: 'pending' | 'approved' | 'rejected';
+  // 'revoked' — an admin reverted it after it was approved (revokeReason).
+  status: 'pending' | 'approved' | 'rejected' | 'revoked';
   approverId: string | null;
   approverUserId: string | null;
   approverUser?: ApproverUser | null;
   rejectionReason: string | null;
+  // Attendance status just before approval; null = approved before this was
+  // recorded, which the backend refuses to revert.
+  previousStatus?: string | null;
+  revokeReason?: string | null;
+  revokedAt?: string | null;
   employee?: RequestEmployee;
   attendance?: { id: string; date: string; status: string };
   // The employee's own claimed check-in/check-out instant for this date —
@@ -260,6 +266,16 @@ export async function approveRegularization(
 export async function rejectRegularization(id: string, reason: string): Promise<AttendanceRegularization> {
   const { data } = await apiClient.patch<{ data: AttendanceRegularization }>(
     `/attendance/regularizations/${id}/reject`,
+    { reason }
+  );
+  return data.data;
+}
+
+// Admin-only: reverts an APPROVED regularization — the day's attendance goes
+// back to exactly what it was before approval. Reason is required.
+export async function revokeRegularization(id: string, reason: string): Promise<AttendanceRegularization> {
+  const { data } = await apiClient.patch<{ data: AttendanceRegularization }>(
+    `/attendance/regularizations/${id}/revoke`,
     { reason }
   );
   return data.data;

@@ -32,10 +32,21 @@ module.exports = (sequelize, DataTypes) => {
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
       status: {
-        type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+        type: DataTypes.ENUM('pending', 'approved', 'rejected', 'revoked'),
         allowNull: false,
         defaultValue: 'pending',
       },
+      // The attendance row's values just before approval overwrote them —
+      // what revokeRegularization restores. Null previousStatus = approved
+      // before this snapshot existed (can't be reverted).
+      previousStatus: { type: DataTypes.STRING, allowNull: true },
+      previousCheckIn: { type: DataTypes.DATE, allowNull: true },
+      previousCheckOut: { type: DataTypes.DATE, allowNull: true },
+      previousCheckoutMissed: { type: DataTypes.BOOLEAN, allowNull: true },
+      // Set when an admin reverts an approved request (status 'revoked').
+      revokedAt: { type: DataTypes.DATE, allowNull: true },
+      revokedByUserId: { type: DataTypes.BIGINT, allowNull: true },
+      revokeReason: { type: DataTypes.TEXT, allowNull: true },
     },
     {
       sequelize,

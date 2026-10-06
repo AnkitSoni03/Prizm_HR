@@ -38,6 +38,7 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> 
   pending: 'warning',
   approved: 'success',
   rejected: 'danger',
+  revoked: 'danger',
 };
 
 const STATUS_OPTIONS = [
@@ -414,7 +415,14 @@ export function MyAttendancePage() {
               {
                 key: 'status',
                 header: 'Status',
-                render: (r) => <Badge tone={STATUS_TONE[r.status] ?? 'neutral'}>{r.status}</Badge>,
+                render: (r) => (
+                  <Badge
+                    tone={STATUS_TONE[r.status] ?? 'neutral'}
+                    title={r.status === 'revoked' ? r.revokeReason ?? undefined : r.rejectionReason ?? undefined}
+                  >
+                    {r.status === 'revoked' ? 'reverted' : r.status}
+                  </Badge>
+                ),
               },
             ]}
           />

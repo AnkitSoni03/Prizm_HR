@@ -33,6 +33,7 @@ import {
   revokeCompOffCredit,
   revokeLeaveRequest,
   revokeOdRequest,
+  revokeRegularization,
   type AttendanceRegularization,
   type CompOffCredit,
   type LeaveRequest,
@@ -116,7 +117,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     null
   );
   const [historyTarget, setHistoryTarget] = useState<{ tab: Tab; id: string } | null>(null);
-  const [revertTarget, setRevertTarget] = useState<{ tab: 'leave' | 'od' | 'compOff'; id: string } | null>(null);
+  const [revertTarget, setRevertTarget] = useState<{ tab: 'leave' | 'od' | 'compOff' | 'regularization'; id: string } | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showAssignCompOff, setShowAssignCompOff] = useState(false);
 
@@ -134,7 +135,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
           { value: 'pending', label: 'Pending' },
           { value: 'approved', label: 'Approved' },
           { value: 'rejected', label: 'Rejected' },
-          ...(activeTab === 'leave' || activeTab === 'od' ? [{ value: 'revoked', label: 'Reverted' }] : []),
+          { value: 'revoked', label: 'Reverted' },
         ];
 
   async function load() {
@@ -251,6 +252,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     try {
       if (revertTarget.tab === 'leave') await revokeLeaveRequest(revertTarget.id, reason);
       else if (revertTarget.tab === 'od') await revokeOdRequest(revertTarget.id, reason);
+      else if (revertTarget.tab === 'regularization') await revokeRegularization(revertTarget.id, reason);
       else await revokeCompOffCredit(revertTarget.id, reason);
     } catch (err) {
       // Surface the server's own message (e.g. payroll already processed).
@@ -457,20 +459,36 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                   photoUrl={r.employee?.photoDownloadUrl}
                   tag={r.requestedStatus}
                   status={r.status}
-                  rejectionReason={r.rejectionReason}
+                  rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
                   fields={[
                     { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
                     { icon: CalendarRange, label: 'Date', value: formatDisplayDate(r.attendance?.date) },
                     { icon: Tag, label: 'Requested Status', value: r.requestedStatus },
                     { icon: Clock, label: 'Requested Time', value: formatRequestedTimes(r) },
                     { icon: FileText, label: 'Reason', value: r.reason },
-                    { icon: Bookmark, label: 'Status', value: <RequestStatusBadge status={r.status} rejectionReason={r.rejectionReason} /> },
+                    {
+                      icon: Bookmark,
+                      label: 'Status',
+                      value: (
+                        <RequestStatusBadge
+                          status={r.status}
+                          rejectionReason={r.status === 'revoked' ? r.revokeReason : r.rejectionReason}
+                        />
+                      ),
+                    },
+                    ...(r.status === 'revoked' ? [{ icon: Undo2, label: 'Revert Reason', value: r.revokeReason ?? '—' }] : []),
                   ]}
                   canApprove={r.status === 'pending' && hasPermission('attendance_regularization:approve')}
                   canReject={r.status === 'pending' && hasPermission('attendance_regularization:reject')}
                   onApprove={() => setApproveRegularizationTarget(r)}
                   onReject={() => setRejectTarget({ tab: 'regularization', id: r.id })}
                   onHistory={() => setHistoryTarget({ tab: 'regularization', id: r.id })}
+                  // Only ones approved after the before-approval snapshot
+                  // existed can be put back (previousStatus set).
+                  canRevert={
+                    r.status === 'approved' && !!r.previousStatus && hasPermission('attendance_regularization:approve')
+                  }
+                  onRevert={() => setRevertTarget({ tab: 'regularization', id: r.id })}
                 />
               ))}
           </div>
@@ -551,7 +569,9 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
               ? 'Revert approved leave'
               : revertTarget.tab === 'od'
                 ? 'Revert approved OD'
-                : 'Revert comp-off credit'
+                : revertTarget.tab === 'regularization'
+                  ? 'Revert approved regularization'
+                  : 'Revert comp-off credit'
           }
           reasonLabel="Reason for reverting"
           placeholder="Let the employee know why this approved request is being reverted"

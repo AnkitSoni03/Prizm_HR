@@ -23,8 +23,11 @@ export interface AttendanceRegularization {
   employeeId: string;
   requestedStatus: Attendance['status'];
   reason: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'revoked';
   approverId: string | null;
+  rejectionReason?: string | null;
+  // Set when an admin reverted this request after approval.
+  revokeReason?: string | null;
   // The employee's own claimed check-in/check-out instant for this date —
   // optional. Once approved, this reflects whatever value actually landed
   // on the Attendance row (the approver's own override, if any).

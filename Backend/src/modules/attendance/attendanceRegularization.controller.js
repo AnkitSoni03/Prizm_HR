@@ -91,6 +91,23 @@ async function approve(req, res, next) {
   }
 }
 
+// Admin-only (see the route) — reverts an approved regularization; reason
+// required.
+async function revoke(req, res, next) {
+  try {
+    const regularization = await service.revokeRegularization({
+      companyId: req.auth.companyId,
+      id: req.params.id,
+      actorEmployeeId: req.auth.employeeId,
+      actorUserId: req.auth.userId,
+      reason: req.body.reason,
+    });
+    res.json({ data: regularization });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function reject(req, res, next) {
   try {
     const regularization = await service.rejectRegularization({
@@ -139,4 +156,4 @@ async function history(req, res, next) {
   }
 }
 
-module.exports = { list, create, approve, reject, history };
+module.exports = { list, create, approve, reject, revoke, history };
