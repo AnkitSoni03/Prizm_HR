@@ -166,9 +166,13 @@
        view-transition snapshot is anchored to the document, not the
        post-scroll viewport. */
     overflow-y: hidden;
+    /* Scrolling only — no pinch or double-tap zoom (see index.html). iOS
+       Safari ignores user-scalable=no but honours this. */
+    touch-action: pan-x pan-y;
   }
 
   body {
+    touch-action: pan-x pan-y;
     @apply bg-page text-ink antialiased transition-colors duration-200;
   }
 

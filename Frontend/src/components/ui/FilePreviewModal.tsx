@@ -1,5 +1,6 @@
 import { Download } from 'lucide-react';
 import { Modal } from './Modal';
+import { ZoomableImage } from './ZoomableImage';
 import { getFileKind } from '../../utils/fileKind';
 
 interface FilePreviewModalProps {
@@ -44,7 +45,7 @@ export function FilePreviewModal({ title, fileUrl, previewUrl, downloadUrl, onCl
       <div className="flex h-[calc(90vh-120px)] items-center justify-center overflow-auto rounded-xl border border-border bg-page">
         {!previewUrl && <p className="p-6 text-center text-sm text-ink-muted">File unavailable.</p>}
         {previewUrl && kind === 'image' && (
-          <img src={previewUrl} alt={title} className="max-h-full max-w-full object-contain" />
+          <ZoomableImage src={previewUrl} alt={title} />
         )}
         {previewUrl && kind === 'pdf' && (
           <iframe src={previewUrl} title={title} className="h-full w-full rounded-lg border-0" />

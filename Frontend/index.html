@@ -10,7 +10,16 @@
       })();
     </script>
     <link rel="icon" type="image/png" href="/HRMS%20Logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No browser pinch/double-tap zoom: the app is installed as a PWA and
+         should behave like a native app. user-scalable=no covers Android;
+         iOS ignores it, so index.css (touch-action) and main.tsx
+         (gesturestart) cover iPhone. viewport-fit=cover makes
+         env(safe-area-inset-*) work (BottomNav vs the home indicator).
+         Document previews get their own zoom (ZoomableImage.tsx). -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <title>Prizm HR</title>
   </head>
   <body>
