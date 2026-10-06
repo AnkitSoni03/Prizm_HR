@@ -19,6 +19,14 @@ const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
 app.use(helmet());
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
+// Express 5 leaves req.body undefined when a request has no body (e.g. a
+// bodyless PATCH .../approve), so any `req.body.x` read threw a 500 — this
+// is what broke a manager's leave/OD/comp-off approve. Default it once here
+// instead of guarding every controller.
+app.use((req, res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

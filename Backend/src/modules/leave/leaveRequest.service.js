@@ -530,18 +530,23 @@ async function decideLeaveRequestAsManager({ companyId, id, managerEmployeeId, a
       { status: decision, reason: decision === 'rejected' ? reason.trim() : null, decidedAt: new Date() },
       { transaction: t }
     );
-    await recordApprovalDecision({
-      companyId,
-      requestType: 'leave_request',
-      requestId: request.id,
-      action: decision,
-      actorUserId: approverUserId,
-      actorEmployeeId: managerEmployeeId,
-      reason: decision === 'rejected' ? reason.trim() : undefined,
-      transaction: t,
-    });
+    // One history row per vote — except the vote that finalizes the
+    // request, where applyLeaveApprovalSideEffects records the 'approved'
+    // row itself (same as odRequest.service.js), or it would show twice.
+    const recordVote = () =>
+      recordApprovalDecision({
+        companyId,
+        requestType: 'leave_request',
+        requestId: request.id,
+        action: decision,
+        actorUserId: approverUserId,
+        actorEmployeeId: managerEmployeeId,
+        reason: decision === 'rejected' ? reason.trim() : undefined,
+        transaction: t,
+      });
 
     if (decision === 'rejected') {
+      await recordVote();
       await request.update(
         {
           status: 'rejected',
@@ -577,6 +582,7 @@ async function decideLeaveRequestAsManager({ companyId, id, managerEmployeeId, a
       });
       outcome = 'approved';
     } else {
+      await recordVote();
       outcome = 'pending';
     }
   });
