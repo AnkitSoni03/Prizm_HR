@@ -45,6 +45,7 @@ import { listBrands } from '../../api/companyAdmin/org';
 import type { Brand, Employee } from '../../api/tenancy';
 import { AssignCompOffModal } from './components/AssignCompOffModal';
 import { formatDisplayDate, formatDisplayTime } from '../../utils/dateDisplay';
+import { apiErrorMessage } from '../../utils/apiError';
 
 function formatRequestedTimes(r: AttendanceRegularization): string {
   if (!r.requestedCheckIn && !r.requestedCheckOut) return '—';
@@ -204,7 +205,12 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
       variant: 'primary',
     });
     if (!confirmed) return;
-    await approveLeaveRequest(id);
+    try {
+      await approveLeaveRequest(id);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not approve this leave request.'));
+      return;
+    }
     load();
   }
   async function handleOdApprove(id: string) {
@@ -215,12 +221,23 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
       variant: 'primary',
     });
     if (!confirmed) return;
-    await approveOdRequest(id);
+    try {
+      await approveOdRequest(id);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not approve this OD request.'));
+      return;
+    }
     load();
   }
   async function confirmRegularizationApprove(overrides: { checkInTime?: string; checkOutTime?: string }) {
     if (!approveRegularizationTarget) return;
-    await approveRegularization(approveRegularizationTarget.id, overrides);
+    try {
+      await approveRegularization(approveRegularizationTarget.id, overrides);
+    } catch (err) {
+      setApproveRegularizationTarget(null);
+      setError(apiErrorMessage(err, 'Could not approve this regularization.'));
+      return;
+    }
     setApproveRegularizationTarget(null);
     load();
   }
@@ -232,7 +249,12 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
       variant: 'primary',
     });
     if (!confirmed) return;
-    await approveCompOffCredit(id);
+    try {
+      await approveCompOffCredit(id);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not approve this comp-off credit.'));
+      return;
+    }
     load();
   }
 
@@ -255,10 +277,8 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
       else if (revertTarget.tab === 'regularization') await revokeRegularization(revertTarget.id, reason);
       else await revokeCompOffCredit(revertTarget.id, reason);
     } catch (err) {
-      // Surface the server's own message (e.g. payroll already processed).
-      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
       setRevertTarget(null);
-      setError(message || 'Could not revert this request.');
+      setError(apiErrorMessage(err, 'Could not revert this request.'));
       return;
     }
     setRevertTarget(null);

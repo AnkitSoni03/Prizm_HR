@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
+import { apiErrorMessage } from '../utils/apiError';
 
 interface RejectReasonModalProps {
   title: string;
@@ -38,8 +39,8 @@ export function RejectReasonModal({
     setError(null);
     try {
       await onConfirm(reason.trim());
-    } catch {
-      setError(errorMessage);
+    } catch (err) {
+      setError(apiErrorMessage(err, errorMessage));
       setIsSubmitting(false);
     }
   }

@@ -39,6 +39,7 @@ import { listEmployees } from '../../api/companyAdmin/employees';
 import type { Employee } from '../../api/tenancy';
 import { AssignCompOffModal } from '../company-admin/components/AssignCompOffModal';
 import { formatDisplayDate } from '../../utils/dateDisplay';
+import { apiErrorMessage } from '../../utils/apiError';
 
 function employeeLabel(employee: RequestEmployee | undefined, employeeId: string) {
   return employee ? [employee.name, employee.employeeCode].filter(Boolean).join(' · ') : employeeId;
@@ -211,7 +212,12 @@ export function TeamApprovalsPage() {
       variant: 'primary',
     });
     if (!confirmed) return;
-    await approveLeaveRequest(id);
+    try {
+      await approveLeaveRequest(id);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not approve this leave request.'));
+      return;
+    }
     load();
   }
   async function handleOdApprove(id: string) {
@@ -222,7 +228,12 @@ export function TeamApprovalsPage() {
       variant: 'primary',
     });
     if (!confirmed) return;
-    await approveOdRequest(id);
+    try {
+      await approveOdRequest(id);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not approve this OD request.'));
+      return;
+    }
     load();
   }
   async function handleCompOffApprove(id: string) {
@@ -233,7 +244,12 @@ export function TeamApprovalsPage() {
       variant: 'primary',
     });
     if (!confirmed) return;
-    await approveCompOffCredit(id);
+    try {
+      await approveCompOffCredit(id);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not approve this comp-off credit.'));
+      return;
+    }
     load();
   }
 
