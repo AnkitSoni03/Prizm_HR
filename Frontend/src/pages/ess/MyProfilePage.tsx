@@ -12,6 +12,7 @@ import {
   Trash2,
   Users,
   X,
+  Mail,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
@@ -284,6 +285,15 @@ export function MyProfilePage() {
                 <div className="min-w-0">
                   <h2 className="truncate text-base font-semibold text-ink sm:text-lg">{profile.name}</h2>
                   <p className="text-xs text-ink-muted sm:text-sm">{profile.employeeCode ?? 'No code yet'}</p>
+                  {/* The login email of the signed-in employee (this page is always their own profile). */}
+                  {user.email && (
+                    <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-muted sm:text-sm">
+                      <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                      <span className="truncate" title={user.email}>
+                        {user.email}
+                      </span>
+                    </p>
+                  )}
                 </div>
               }
               previewUrl={profile.photoDownloadUrl}
