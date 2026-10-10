@@ -41,7 +41,8 @@ export function ApproveRegularizationModal({ regularization, onClose, onConfirm 
           Review the check-in/check-out time before approving — adjust it if needed. Leaving a field
           blank leaves that punch as recorded.
         </p>
-        <div className="grid grid-cols-2 gap-3">
+        {/* One column below 400px, side by side above. */}
+        <div className="grid grid-cols-1 items-end gap-3 min-[400px]:grid-cols-2">
           <Input
             id="approve-reg-check-in"
             type="time"

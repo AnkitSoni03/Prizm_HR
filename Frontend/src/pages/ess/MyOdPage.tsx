@@ -188,8 +188,9 @@ export function MyOdPage() {
       {isModalOpen && (
         <Modal title="Apply for on-duty" onClose={() => setIsModalOpen(false)}>
           <div className="space-y-4">
-            <div className="flex gap-3">
-              <div className="flex-1">
+            {/* One column below 400px, side by side above. */}
+            <div className="grid grid-cols-1 items-end gap-3 min-[400px]:grid-cols-2">
+              <div className="min-w-0">
                 <Input
                   id="od-from"
                   type="date"
@@ -198,7 +199,7 @@ export function MyOdPage() {
                   onChange={(event) => setFromDate(event.target.value)}
                 />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0">
                 <Input
                   id="od-to"
                   type="date"

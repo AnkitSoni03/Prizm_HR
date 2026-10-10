@@ -352,6 +352,7 @@ export function MyAttendancePage() {
       {activeTab === 'history' && !isBeforeJoining && (
         <Table
           scrollOnMobile
+          mobileSize="comfortable"
           isLoading={isLoading}
           rows={attendance}
           rowKey={(r) => r.id}
@@ -455,21 +456,29 @@ export function MyAttendancePage() {
                 ask your admin.
               </p>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                id="regularization-check-in"
-                type="time"
-                label="Check-In Time (optional)"
-                value={checkInTime}
-                onChange={(event) => setCheckInTime(event.target.value)}
-              />
-              <Input
-                id="regularization-check-out"
-                type="time"
-                label="Check-Out Time (optional)"
-                value={checkOutTime}
-                onChange={(event) => setCheckOutTime(event.target.value)}
-              />
+            {/* One column below 400px, two side by side above. min-w-0 +
+                appearance-none stop iOS Safari's time input from forcing its own
+                width past the grid cell; items-end keeps both boxes aligned when
+                one label wraps to two lines. */}
+            <div className="grid grid-cols-1 items-end gap-3 min-[400px]:grid-cols-2">
+              <div className="min-w-0">
+                <Input
+                  id="regularization-check-in"
+                  type="time"
+                  label="Check-In Time (optional)"
+                  value={checkInTime}
+                  onChange={(event) => setCheckInTime(event.target.value)}
+                />
+              </div>
+              <div className="min-w-0">
+                <Input
+                  id="regularization-check-out"
+                  type="time"
+                  label="Check-Out Time (optional)"
+                  value={checkOutTime}
+                  onChange={(event) => setCheckOutTime(event.target.value)}
+                />
+              </div>
             </div>
             <p className="-mt-2 text-xs text-ink-muted">
               Fill these in only if the kiosk missed your actual time — once approved, they'll replace the

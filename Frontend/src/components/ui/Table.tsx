@@ -18,6 +18,10 @@ interface TableProps<T> {
   // instead of the default stacked-card view. Off by default so every
   // existing caller of this shared component is unaffected.
   scrollOnMobile?: boolean;
+  // Only with scrollOnMobile: 'comfortable' uses readable text/padding on
+  // phones (14px body, 11px headers) instead of the default compact size.
+  // Desktop (sm+) is identical either way.
+  mobileSize?: 'compact' | 'comfortable';
 }
 
 export function Table<T>({
@@ -27,17 +31,21 @@ export function Table<T>({
   emptyMessage = 'No records found.',
   isLoading,
   scrollOnMobile,
+  mobileSize = 'compact',
 }: TableProps<T>) {
   if (scrollOnMobile) {
+    const comfortable = mobileSize === 'comfortable';
     return (
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-xs">
-        <table className="w-full text-left text-xs sm:text-sm">
+        <table className={`w-full text-left ${comfortable ? 'text-sm' : 'text-xs sm:text-sm'}`}>
           <thead className="border-b border-border bg-page">
             <tr>
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:px-4 sm:py-2.5 sm:text-xs"
+                  className={`whitespace-nowrap font-semibold uppercase tracking-wide text-ink-muted sm:px-4 sm:py-2.5 sm:text-xs ${
+                    comfortable ? 'px-4 py-2.5 text-[11px]' : 'px-3 py-2 text-[10px]'
+                  }`}
                 >
                   {column.header}
                 </th>
@@ -68,7 +76,11 @@ export function Table<T>({
                   {columns.map((column) => (
                     <td
                       key={column.key}
-                      className={['whitespace-nowrap px-3 py-2 align-middle text-ink sm:px-4 sm:py-2.5', column.className]
+                      className={[
+                        'whitespace-nowrap align-middle text-ink sm:px-4 sm:py-2.5',
+                        comfortable ? 'px-4 py-3' : 'px-3 py-2',
+                        column.className,
+                      ]
                         .filter(Boolean)
                         .join(' ')}
                     >

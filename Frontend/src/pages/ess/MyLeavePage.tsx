@@ -316,8 +316,10 @@ export function MyLeavePage() {
                 You can't take Week Off Leave on: {blockedDayLabels}.
               </p>
             )}
-            <div className="flex gap-3">
-              <div className="flex-1">
+            {/* One column below 400px, side by side above; min-w-0 keeps the
+                browser's date input from forcing its own width past the cell. */}
+            <div className="grid grid-cols-1 items-end gap-3 min-[400px]:grid-cols-2">
+              <div className="min-w-0">
                 <Input
                   id="apply-leave-from"
                   type="date"
@@ -341,7 +343,7 @@ export function MyLeavePage() {
                   }}
                 />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0">
                 <Input
                   id="apply-leave-to"
                   type="date"
