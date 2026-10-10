@@ -104,6 +104,23 @@ async function syncLeavePolicyRosterGroups(leavePolicyId, leaveTypeId, rosterGro
   }
 }
 
+// Quota is either a fixed number of days or Unlimited (stored as
+// annualQuota 0 + isUnlimited true). A linked leave type (e.g. Half Day,
+// leave_types.deduct_from_leave_type_id set) has no quota of its own at all —
+// its uses are charged against the source type's balance — so its policy only
+// decides which Rosters can use it; the quota is pinned to 0 / not unlimited.
+async function resolveQuota({ companyId, leaveTypeId, annualQuota, isUnlimited }) {
+  const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId }, attributes: ['deductFromLeaveTypeId'] });
+  if (leaveType && leaveType.deductFromLeaveTypeId) return { annualQuota: 0, isUnlimited: false };
+  if (isUnlimited) return { annualQuota: 0, isUnlimited: true };
+
+  const quota = Number(annualQuota);
+  if (annualQuota === undefined || annualQuota === null || annualQuota === '' || !Number.isFinite(quota) || quota < 0) {
+    throw new HttpError(400, 'Enter an annual quota (0 or more days), or choose Unlimited');
+  }
+  return { annualQuota: quota, isUnlimited: false };
+}
+
 async function createLeavePolicy({
   companyId,
   brandId,
@@ -111,12 +128,14 @@ async function createLeavePolicy({
   leaveTypeId,
   rosterGroupIds,
   annualQuota,
+  isUnlimited,
   accrual,
   applicableAfterDays,
 }) {
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
   await assertBelongsToCompany(db.LeaveType, leaveTypeId, companyId, 'Leave type');
+  const quota = await resolveQuota({ companyId, leaveTypeId, annualQuota, isUnlimited });
   await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, resolvedBrandId);
   await assertNoLeaveTypeConflict({ companyId, brandId: resolvedBrandId, leaveTypeId, rosterGroupIds, excludePolicyId: null });
 
@@ -124,7 +143,7 @@ async function createLeavePolicy({
     companyId,
     brandId: resolvedBrandId,
     leaveTypeId,
-    annualQuota,
+    ...quota,
     accrual: accrual || 'yearly',
     applicableAfterDays: applicableAfterDays || 0,
   });
@@ -135,7 +154,7 @@ async function createLeavePolicy({
 
 async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
   const policy = await getLeavePolicyForWrite({ companyId, id, scopedBrandIds });
-  const { annualQuota, accrual, applicableAfterDays, rosterGroupIds, brandId } = updates;
+  const { annualQuota, isUnlimited, accrual, applicableAfterDays, rosterGroupIds, brandId } = updates;
 
   assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
   if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
@@ -166,8 +185,18 @@ async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
     }
   }
 
+  const quotaPatch =
+    annualQuota !== undefined || isUnlimited !== undefined
+      ? await resolveQuota({
+          companyId,
+          leaveTypeId: policy.leaveTypeId,
+          annualQuota: annualQuota !== undefined ? annualQuota : policy.annualQuota,
+          isUnlimited: isUnlimited !== undefined ? isUnlimited : policy.isUnlimited,
+        })
+      : {};
+
   await policy.update({
-    ...(annualQuota !== undefined && { annualQuota }),
+    ...quotaPatch,
     ...(accrual !== undefined && { accrual }),
     ...(applicableAfterDays !== undefined && { applicableAfterDays }),
     ...(brandId !== undefined && { brandId: nextBrandId }),

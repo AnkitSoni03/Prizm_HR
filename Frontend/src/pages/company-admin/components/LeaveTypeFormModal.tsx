@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
-import { createLeaveType, updateLeaveType, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
+import { createLeaveType, listLeaveTypes, updateLeaveType, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
+import { apiErrorMessage } from '../../../utils/apiError';
 import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import { APPLICABLE_GENDER_OPTIONS } from '../../../utils/gender';
 import type { Brand } from '../../../api/tenancy';
@@ -25,6 +26,11 @@ const CYCLE_OPTIONS = [
   { value: 'calendar', label: 'Calendar Year (resets every Jan 1 – Dec 31)' },
   { value: 'anniversary', label: 'Anniversary Year (resets every year from date of joining)' },
   { value: 'custom', label: 'Custom (admin-defined start date, resets every year)' },
+];
+
+const DEDUCTION_OPTIONS = [
+  { value: '0.5', label: '0.5 day (half day)' },
+  { value: '1', label: '1 day' },
 ];
 
 const MONTH_OPTIONS = [
@@ -73,8 +79,32 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
   const [customCycleStartDay, setCustomCycleStartDay] = useState(
     leaveType?.customCycleStartDay != null ? String(leaveType.customCycleStartDay) : '1'
   );
+  // Optional "Deduct from another leave" link — '' = independent type with
+  // its own quota (set on the Leave Policy).
+  const [deductFromLeaveTypeId, setDeductFromLeaveTypeId] = useState(leaveType?.deductFromLeaveTypeId ?? '');
+  const [deductionPerUse, setDeductionPerUse] = useState(
+    leaveType?.deductionPerUse != null ? String(Number(leaveType.deductionPerUse)) : '0.5'
+  );
+  const [otherLeaveTypes, setOtherLeaveTypes] = useState<LeaveType[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listLeaveTypes()
+      .then(setOtherLeaveTypes)
+      .catch(() => setOtherLeaveTypes([]));
+  }, []);
+
+  // Only an ordinary independent type can be a source: not this type, not
+  // another linked type (no chains), not comp-off, and — for a Brand-pinned
+  // type — only a shared or same-Brand type.
+  const sourceOptions = otherLeaveTypes.filter(
+    (lt) =>
+      lt.id !== leaveType?.id &&
+      !lt.deductFromLeaveTypeId &&
+      lt.code !== 'CO' &&
+      (!brandId || !lt.brandId || lt.brandId === brandId)
+  );
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -94,6 +124,9 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
       // Only ever sent when the field below is actually rendered/editable
       // (showBrandField) — see the brands prop's own comment above.
       const brandPatch = showBrandField ? { brandId } : {};
+      const linkPayload = deductFromLeaveTypeId
+        ? { deductFromLeaveTypeId, deductionPerUse: Number(deductionPerUse) }
+        : { deductFromLeaveTypeId: null, deductionPerUse: null };
       let saved: LeaveType;
       if (isEdit) {
         saved = await updateLeaveType(leaveType.id, {
@@ -105,6 +138,7 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           applicableGender,
           ...cyclePayload,
           ...brandPatch,
+          ...linkPayload,
         });
       } else {
         saved = await createLeaveType({
@@ -117,15 +151,19 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           applicableGender,
           ...cyclePayload,
           ...brandPatch,
+          ...linkPayload,
         });
       }
       onSaved(saved);
       onClose();
-    } catch {
+    } catch (err) {
       setError(
-        isEdit
-          ? 'Could not update this leave type. Please try again.'
-          : 'Could not create this leave type — the code may already be in use.'
+        apiErrorMessage(
+          err,
+          isEdit
+            ? 'Could not update this leave type. Please try again.'
+            : 'Could not create this leave type — the code may already be in use.'
+        )
       );
       setIsSubmitting(false);
     }
@@ -173,6 +211,36 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
         </label>
 
         <Select
+          id="leave-type-deduct-from"
+          label="Deduct from another leave (optional)"
+          value={deductFromLeaveTypeId}
+          onChange={(event) => setDeductFromLeaveTypeId(event.target.value)}
+          placeholder="None — this leave has its own quota"
+          options={sourceOptions.map((lt) => ({ value: lt.id, label: lt.name }))}
+        />
+        {deductFromLeaveTypeId ? (
+          <>
+            <Select
+              id="leave-type-deduction-per-use"
+              label="Deduction per use"
+              value={deductionPerUse}
+              onChange={(event) => setDeductionPerUse(event.target.value)}
+              options={DEDUCTION_OPTIONS}
+            />
+            <p className="-mt-2 text-xs text-ink-muted">
+              Each use is one date and is taken from the{' '}
+              {sourceOptions.find((lt) => lt.id === deductFromLeaveTypeId)?.name ?? 'selected'} balance. E.g. with 6
+              days left and 0.5 per use, the employee can take 12 of this leave.
+              {deductionPerUse === '0.5' && ' The employee picks First Half or Second Half when applying.'}
+            </p>
+          </>
+        ) : (
+          <p className="-mt-2 text-xs text-ink-muted">
+            Leave empty for an independent leave (e.g. Special Leave) with its own quota.
+          </p>
+        )}
+
+        <Select
           id="leave-type-applicable-gender"
           label="Applicable To"
           value={applicableGender}
@@ -184,56 +252,61 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           Leave → Male only). Employees whose gender doesn't match never see or can apply it.
         </p>
 
-        <Select
-          id="leave-type-cycle"
-          label="Leave Cycle"
-          value={cycleType}
-          onChange={(event) => setCycleType(event.target.value as LeaveType['cycleType'])}
-          options={CYCLE_OPTIONS}
-        />
-        {cycleType === 'custom' && (
-          <div className="flex gap-2">
+        {/* A linked type has no balance of its own, so cycle/carry-forward don't apply. */}
+        {!deductFromLeaveTypeId && (
+          <>
             <Select
-              id="leave-type-custom-cycle-month"
-              label="Starts every"
-              value={customCycleStartMonth}
-              onChange={(event) => setCustomCycleStartMonth(event.target.value)}
-              options={MONTH_OPTIONS}
+              id="leave-type-cycle"
+              label="Leave Cycle"
+              value={cycleType}
+              onChange={(event) => setCycleType(event.target.value as LeaveType['cycleType'])}
+              options={CYCLE_OPTIONS}
             />
-            <Input
-              id="leave-type-custom-cycle-day"
-              label="Day"
-              type="number"
-              min={1}
-              max={31}
-              step={1}
-              value={customCycleStartDay}
-              onChange={(event) => setCustomCycleStartDay(event.target.value)}
-              className="w-24"
-            />
-          </div>
-        )}
+            {cycleType === 'custom' && (
+              <div className="flex gap-2">
+                <Select
+                  id="leave-type-custom-cycle-month"
+                  label="Starts every"
+                  value={customCycleStartMonth}
+                  onChange={(event) => setCustomCycleStartMonth(event.target.value)}
+                  options={MONTH_OPTIONS}
+                />
+                <Input
+                  id="leave-type-custom-cycle-day"
+                  label="Day"
+                  type="number"
+                  min={1}
+                  max={31}
+                  step={1}
+                  value={customCycleStartDay}
+                  onChange={(event) => setCustomCycleStartDay(event.target.value)}
+                  className="w-24"
+                />
+              </div>
+            )}
 
-        <label className="flex items-center gap-2.5 text-sm text-ink">
-          <input
-            type="checkbox"
-            checked={carryForward}
-            onChange={(event) => setCarryForward(event.target.checked)}
-            className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
-          />
-          Allow carry-forward to next cycle
-        </label>
-        {carryForward && (
-          <Input
-            id="leave-type-max-carry-forward"
-            label="Max Carry-Forward (days)"
-            type="number"
-            min="0"
-            step="0.5"
-            value={maxCarryForwardDays}
-            onChange={(event) => setMaxCarryForwardDays(event.target.value)}
-            placeholder="Leave blank for unlimited"
-          />
+            <label className="flex items-center gap-2.5 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={carryForward}
+                onChange={(event) => setCarryForward(event.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
+              />
+              Allow carry-forward to next cycle
+            </label>
+            {carryForward && (
+              <Input
+                id="leave-type-max-carry-forward"
+                label="Max Carry-Forward (days)"
+                type="number"
+                min="0"
+                step="0.5"
+                value={maxCarryForwardDays}
+                onChange={(event) => setMaxCarryForwardDays(event.target.value)}
+                placeholder="Leave blank for unlimited"
+              />
+            )}
+          </>
         )}
 
         <div className="flex justify-end gap-2 pt-2">

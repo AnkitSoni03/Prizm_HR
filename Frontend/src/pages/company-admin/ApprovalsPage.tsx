@@ -363,7 +363,13 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
                     { icon: User, label: 'Employee', value: employeeLabel(r.employee, r.employeeId) },
                     { icon: Layers, label: 'Type', value: r.leaveType?.name ?? '—' },
                     { icon: CalendarRange, label: 'Dates', value: `${formatDisplayDate(r.fromDate)} – ${formatDisplayDate(r.toDate)}` },
-                    { icon: Clock, label: 'Days', value: r.days },
+                    {
+                        icon: Clock,
+                        label: 'Days',
+                        value: r.halfDaySession
+                          ? `${Number(r.days)} (${r.halfDaySession === 'first_half' ? 'First Half' : 'Second Half'})`
+                          : r.days,
+                      },
                     { icon: FileText, label: 'Reason', value: r.reason ?? '—' },
                     {
                       icon: Bookmark,

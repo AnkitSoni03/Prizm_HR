@@ -118,6 +118,41 @@ function resolveCustomCycleFields({ cycleType, customCycleStartMonth, customCycl
   return { customCycleStartMonth, customCycleStartDay };
 }
 
+const DEDUCTION_PER_USE_VALUES = [0.5, 1];
+
+// Validates/normalizes the optional "Deduct from another leave" link. Returns
+// the two column values to persist: both NULL for an independent type.
+// Rules: the source must be a real, ordinary leave type of this company (not
+// itself, not another linked type — no chains — not comp-off, not a
+// system-generated bucket), and the deduction must be 0.5 or 1.
+async function resolveDeductionLink({ companyId, selfId, deductFromLeaveTypeId, deductionPerUse }) {
+  if (!deductFromLeaveTypeId) return { deductFromLeaveTypeId: null, deductionPerUse: null };
+
+  if (selfId && String(deductFromLeaveTypeId) === String(selfId)) {
+    throw new HttpError(400, 'A leave type cannot deduct from itself');
+  }
+  const source = await db.LeaveType.findOne({ where: { id: deductFromLeaveTypeId, companyId } });
+  if (!source) throw new HttpError(400, 'Deduct-from leave type not found for this company');
+  if (source.deductFromLeaveTypeId) {
+    throw new HttpError(400, `${source.name} itself deducts from another leave — pick an independent leave type`);
+  }
+  if (source.code === 'CO' || source.isCarryForwardBucket || source.isWeekOffBucket) {
+    throw new HttpError(400, `${source.name} cannot be used as a deduct-from leave type`);
+  }
+  if (selfId) {
+    const dependants = await db.LeaveType.count({ where: { deductFromLeaveTypeId: selfId, companyId } });
+    if (dependants > 0) {
+      throw new HttpError(400, 'Other leave types already deduct from this one, so it cannot deduct from another leave');
+    }
+  }
+
+  const amount = Number(deductionPerUse);
+  if (!DEDUCTION_PER_USE_VALUES.includes(amount)) {
+    throw new HttpError(400, 'deductionPerUse must be 0.5 or 1');
+  }
+  return { deductFromLeaveTypeId: source.id, deductionPerUse: amount };
+}
+
 async function createLeaveType({
   companyId,
   brandId,
@@ -132,6 +167,8 @@ async function createLeaveType({
   customCycleStartMonth,
   customCycleStartDay,
   applicableGender,
+  deductFromLeaveTypeId,
+  deductionPerUse,
 }) {
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
@@ -146,6 +183,8 @@ async function createLeaveType({
     throw new HttpError(400, `applicableGender must be one of ${APPLICABLE_GENDER_VALUES.join(', ')}`);
   }
 
+  const link = await resolveDeductionLink({ companyId, selfId: null, deductFromLeaveTypeId, deductionPerUse });
+
   try {
     return await db.LeaveType.create({
       companyId,
@@ -159,6 +198,7 @@ async function createLeaveType({
       defaultAccrual: defaultAccrual || null,
       applicableGender: resolvedApplicableGender,
       ...customCycle,
+      ...link,
     });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -181,6 +221,8 @@ async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
     customCycleStartDay,
     brandId,
     applicableGender,
+    deductFromLeaveTypeId,
+    deductionPerUse,
   } = updates;
 
   assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
@@ -220,6 +262,17 @@ async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
     );
   }
 
+  // Only touched when the caller actually sends the link field. Safe to
+  // change any time: every request snapshots the balance it was charged
+  // against (leave_requests.balance_leave_type_id), so approvals/reverts of
+  // older requests keep hitting the original balance.
+  if (deductFromLeaveTypeId !== undefined) {
+    Object.assign(
+      patch,
+      await resolveDeductionLink({ companyId, selfId: leaveType.id, deductFromLeaveTypeId, deductionPerUse })
+    );
+  }
+
   await leaveType.update(patch);
   return leaveType;
 }
@@ -246,6 +299,16 @@ async function deleteLeaveType({ companyId, id, force = false, scopedBrandIds })
     db.LeaveBalance.count({ where: { leaveTypeId: id } }),
     db.LeaveRequest.count({ where: { leaveTypeId: id } }),
   ]);
+
+  // Never allowed, even with force — a linked type (e.g. Half Day) would be
+  // left pointing at a deleted balance. Unlink or delete those first.
+  const dependants = await db.LeaveType.findAll({ where: { deductFromLeaveTypeId: id, companyId }, attributes: ['name'] });
+  if (dependants.length > 0) {
+    throw new HttpError(
+      409,
+      `Cannot delete: ${dependants.map((d) => d.name).join(', ')} deduct${dependants.length === 1 ? 's' : ''} from this leave type.`
+    );
+  }
 
   if (!force) {
     if (balanceCount > 0) {

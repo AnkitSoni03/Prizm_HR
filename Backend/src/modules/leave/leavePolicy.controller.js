@@ -24,9 +24,11 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { leaveTypeId, rosterGroupIds, annualQuota, accrual, applicableAfterDays, brandId } = req.body;
-    if (!leaveTypeId || annualQuota === undefined) {
-      return res.status(400).json({ error: 'leaveTypeId and annualQuota are required' });
+    const { leaveTypeId, rosterGroupIds, annualQuota, isUnlimited, accrual, applicableAfterDays, brandId } = req.body;
+    // annualQuota itself is validated in the service (it's not needed for
+    // an Unlimited quota or a linked leave type).
+    if (!leaveTypeId) {
+      return res.status(400).json({ error: 'leaveTypeId is required' });
     }
 
     const policy = await service.createLeavePolicy({
@@ -36,6 +38,7 @@ async function create(req, res, next) {
       leaveTypeId,
       rosterGroupIds,
       annualQuota,
+      isUnlimited: !!isUnlimited,
       accrual,
       applicableAfterDays,
     });

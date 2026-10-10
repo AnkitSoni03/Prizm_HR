@@ -466,21 +466,26 @@ export function EssDashboard() {
             monthWorkingDays++;
           }
         }
+        // Linked rows (e.g. Half Day) just restate the source type's balance in
+        // uses — counting them would double up. Unlimited quotas have no
+        // meaningful "remaining" to add to a total.
+        const ownBalances = balances.filter((b) => !b.linkedTo);
+        const limitedBalances = ownBalances.filter((b) => !b.isUnlimited);
         setSummary({
           todayStatus: todayRecord?.status ?? null,
           checkIn: todayRecord?.checkIn ?? null,
           checkOut: todayRecord?.checkOut ?? null,
           monthPresent,
           monthWorkingDays,
-          leaveBalanceTotal: balances.reduce((sum, b) => sum + Number(b.balance), 0),
-          leaveBreakdown: balances.map((b) => ({
+          leaveBalanceTotal: limitedBalances.reduce((sum, b) => sum + Number(b.balance), 0),
+          leaveBreakdown: limitedBalances.map((b) => ({
             name: b.leaveType?.name ?? 'Leave',
             balance: Number(b.balance),
           })),
-          leaveUsage: balances
+          leaveUsage: ownBalances
             .filter((b) => Number(b.allotted) > 0 || Number(b.used) > 0)
             .map((b) => ({ code: b.leaveType?.code ?? b.leaveType?.name ?? 'Leave', used: Number(b.used) })),
-          leaveUsedTotal: balances.reduce((sum, b) => sum + Number(b.used), 0),
+          leaveUsedTotal: ownBalances.reduce((sum, b) => sum + Number(b.used), 0),
           pendingRequests:
             leaveRequests.pagination.total + odRequests.pagination.total + regularizations.pagination.total,
           monthAttendance: attendance.data,

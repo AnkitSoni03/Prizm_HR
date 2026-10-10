@@ -33,7 +33,7 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { leaveTypeId, fromDate, toDate, reason } = req.body;
+    const { leaveTypeId, fromDate, toDate, reason, halfDaySession } = req.body;
     if (!leaveTypeId || !fromDate || !toDate) {
       return res.status(400).json({ error: 'leaveTypeId, fromDate and toDate are required' });
     }
@@ -48,6 +48,7 @@ async function create(req, res, next) {
       fromDate,
       toDate,
       reason,
+      halfDaySession,
     });
     res.status(201).json({ data: request });
   } catch (err) {

@@ -15,6 +15,8 @@ export interface LeavePolicy {
   // per Roster — enforced server-side, not here.
   rosterGroups?: RosterPolicyGroup[];
   annualQuota: number;
+  // Unlimited quota — annualQuota is ignored (0) and no balance limit applies.
+  isUnlimited: boolean;
   accrual: 'yearly' | 'monthly' | 'monthly_reset';
   applicableAfterDays: number;
   leaveType?: LeaveType;
@@ -45,6 +47,7 @@ export async function createLeavePolicy(input: {
   leaveTypeId: string;
   rosterGroupIds?: string[];
   annualQuota: number;
+  isUnlimited?: boolean;
   accrual?: 'yearly' | 'monthly' | 'monthly_reset';
   applicableAfterDays?: number;
   // Omit (or '') for a Leave Policy shared across every Brand — see
@@ -59,6 +62,7 @@ export async function updateLeavePolicy(
   id: string,
   input: Partial<{
     annualQuota: number;
+    isUnlimited: boolean;
     accrual: 'yearly' | 'monthly' | 'monthly_reset';
     applicableAfterDays: number;
     rosterGroupIds: string[];
@@ -67,4 +71,13 @@ export async function updateLeavePolicy(
 ): Promise<LeavePolicy> {
   const { data } = await apiClient.patch<{ data: LeavePolicy }>(`/leave/policies/${id}`, input);
   return data.data;
+}
+
+// Display text for a policy's quota column/row.
+export function formatPolicyQuota(policy: LeavePolicy): string {
+  if (policy.leaveType?.deductFromLeaveTypeId) {
+    return `${Number(policy.leaveType.deductionPerUse) || 1} day per use (linked)`;
+  }
+  if (policy.isUnlimited) return 'Unlimited';
+  return `${Number(policy.annualQuota)} days`;
 }

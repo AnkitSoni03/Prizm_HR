@@ -17,6 +17,9 @@ module.exports = (sequelize, DataTypes) => {
       // reuse the same bucket across repeated roster changes instead of
       // creating a new one every time.
       LeaveType.belongsTo(models.LeaveType, { foreignKey: 'sourceLeaveTypeId', as: 'sourceLeaveType' });
+      // A "linked" type (e.g. Half Day) charges its uses against this other
+      // type's balance instead of having one of its own.
+      LeaveType.belongsTo(models.LeaveType, { foreignKey: 'deductFromLeaveTypeId', as: 'deductFromLeaveType' });
     }
   }
 
@@ -65,6 +68,13 @@ module.exports = (sequelize, DataTypes) => {
       // leaveRequest.service.js::createLeaveRequest (the real backstop) and
       // leaveType.service.js::listLeaveTypes (filters it out of an ESS
       // caller's own applicable-types list).
+      // Optional link: when set, this type has no balance of its own — each
+      // use (always a single date) charges deductionPerUse (0.5 or 1) day
+      // against the source type's balance. 0.5 = a half-day leave (the
+      // request then carries a first/second half session). NULL = an
+      // independent type with its own quota. See migration 20261010090000.
+      deductFromLeaveTypeId: { type: DataTypes.BIGINT, allowNull: true },
+      deductionPerUse: { type: DataTypes.DECIMAL(3, 2), allowNull: true },
       applicableGender: {
         type: DataTypes.ENUM('all', 'male', 'female', 'other'),
         allowNull: false,

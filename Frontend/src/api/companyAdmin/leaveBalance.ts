@@ -28,6 +28,11 @@ export interface LeaveType {
   // Maternity Leave -> 'female', Paternity Leave -> 'male'). Enforced
   // against the applying employee's own Employee.gender.
   applicableGender: 'all' | 'male' | 'female' | 'other';
+  // Optional "Deduct from another leave" link — when set, this type has no
+  // balance of its own; each use (one date) charges deductionPerUse (0.5 or
+  // 1) day to the source type's balance. 0.5 = a half-day leave.
+  deductFromLeaveTypeId?: string | null;
+  deductionPerUse?: number | string | null;
 }
 
 export interface LeaveBalance {
@@ -61,6 +66,9 @@ interface LeaveTypeWriteInput {
   customCycleStartDay?: number | null;
   defaultAccrual?: 'yearly' | 'monthly' | 'monthly_reset' | null;
   applicableGender?: 'all' | 'male' | 'female' | 'other';
+  // null/'' = independent type with its own quota.
+  deductFromLeaveTypeId?: string | null;
+  deductionPerUse?: number | null;
 }
 
 export async function createLeaveType(input: LeaveTypeWriteInput): Promise<LeaveType> {

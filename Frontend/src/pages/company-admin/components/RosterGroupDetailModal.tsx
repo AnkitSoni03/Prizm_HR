@@ -1,3 +1,4 @@
+import { formatPolicyQuota } from '../../../api/companyAdmin/leavePolicies';
 import { useEffect, useState } from 'react';
 import { Plus, RotateCw, UserMinus } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
@@ -461,7 +462,7 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, allRosterGro
                   <div>
                     <p className="font-medium text-ink">{policy.leaveType?.name ?? policy.leaveTypeId}</p>
                     <p className="text-xs text-ink-muted">
-                      {policy.annualQuota} days/year · {policy.accrual.replace('_', ' ')}
+                      {policy.isUnlimited || policy.leaveType?.deductFromLeaveTypeId ? formatPolicyQuota(policy) : `${policy.annualQuota} days/year · ${policy.accrual.replace('_', ' ')}`}
                     </p>
                   </div>
                   <Badge tone="success">Assigned</Badge>

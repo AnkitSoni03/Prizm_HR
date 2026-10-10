@@ -112,7 +112,25 @@ async function getLeaveRequestForDecision({ companyId, id }) {
 // admin action, so a "pending request" notification to the manager would be
 // stale/confusing by the time anyone saw it — the admin path sends its own
 // single "who changed it" notification instead).
-async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate, toDate, reason, notify = true }) {
+// The leave type whose leave_balances row a request is charged against — the
+// snapshot taken at submission, else the request's own type (every request
+// created before linked types existed).
+function balanceTypeIdOf(request) {
+  return request.balanceLeaveTypeId || request.leaveTypeId;
+}
+
+const HALF_DAY_SESSIONS = ['first_half', 'second_half'];
+
+async function createLeaveRequest({
+  companyId,
+  employeeId,
+  leaveTypeId,
+  fromDate,
+  toDate,
+  reason,
+  halfDaySession,
+  notify = true,
+}) {
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
 
@@ -146,6 +164,25 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
   // would have no clean way to partially reverse just one day's worth of
   // balance/status. Taking multiple basis days means multiple 1-day requests.
   const isWeekOffLeaveType = !!leaveType.isWeekOffBucket;
+
+  // Linked type (e.g. Half Day → Annual Leave at 0.5): one date per use,
+  // charged against the source type's balance. A 0.5 deduction is a half-day
+  // leave and must say which half.
+  const isLinked = !!leaveType.deductFromLeaveTypeId;
+  const deductionPerUse = isLinked ? Number(leaveType.deductionPerUse) || 1 : null;
+  const isHalfDay = isLinked && deductionPerUse === 0.5;
+  if (isLinked && fromDate !== toDate) {
+    throw new HttpError(400, `${leaveType.name} is for a single date — submit one request per day`);
+  }
+  if (isHalfDay && !HALF_DAY_SESSIONS.includes(halfDaySession)) {
+    throw new HttpError(400, 'Choose First Half or Second Half for a half-day leave');
+  }
+  const session = isHalfDay ? halfDaySession : null;
+  let balanceLeaveType = leaveType;
+  if (isLinked) {
+    balanceLeaveType = await db.LeaveType.findOne({ where: { id: leaveType.deductFromLeaveTypeId, companyId } });
+    if (!balanceLeaveType) throw new HttpError(422, `${leaveType.name} is not linked to a valid leave type`);
+  }
   if (isWeekOffLeaveType && fromDate !== toDate) {
     throw new HttpError(400, 'Week Off Leave requests must be a single day — submit one request per day');
   }
@@ -183,20 +220,30 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
       isWorkingDay({ employeeId, companyId, brandId: employee.brandId, rosterGroupId: employee.rosterGroupId, dateStr })
     )
   );
-  const days = workingFlags.filter(Boolean).length;
-  if (days === 0) {
+  const workingDayCount = workingFlags.filter(Boolean).length;
+  if (workingDayCount === 0) {
     throw new HttpError(422, 'No working days in the selected range');
   }
+  // A linked type is always a single (working) date, charged its own
+  // per-use deduction rather than a whole day.
+  const days = isLinked ? deductionPerUse : workingDayCount;
 
-  const overlapping = await db.LeaveRequest.count({
+  // Two half-day requests may share a date only if they're for different
+  // halves; anything else overlapping (a full day on either side, or the
+  // same half twice) is a conflict.
+  const overlappingRows = await db.LeaveRequest.findAll({
     where: {
       employeeId,
       status: { [Op.in]: ['pending', 'approved'] },
       fromDate: { [Op.lte]: toDate },
       toDate: { [Op.gte]: fromDate },
     },
+    attributes: ['id', 'halfDaySession'],
   });
-  if (overlapping > 0) {
+  const conflicts = overlappingRows.filter(
+    (row) => !session || !row.halfDaySession || row.halfDaySession === session
+  );
+  if (conflicts.length > 0) {
     throw new HttpError(409, 'An overlapping leave request already exists');
   }
 
@@ -215,12 +262,28 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
     });
     if (!credit) throw new HttpError(422, 'No available comp-off credit for this employee');
     compOffCreditId = credit.id;
-  } else if (!leaveType.isPaid) {
-    // LWP-style: no balance sufficiency check — negative balance allowed.
   } else {
-    const balance = await getOrCreateBalance({ employeeId, leaveTypeId, dateStr: fromDate });
-    if (Number(balance.balance) < days) {
-      throw new HttpError(422, 'Insufficient leave balance');
+    // The policy that governs the balance being charged — the source type's
+    // for a linked type. A linked type is unusable if the employee's Roster
+    // doesn't have the source leave at all (there's no balance to charge).
+    const balancePolicy = isLinked
+      ? await resolveLeavePolicy({ companyId, leaveTypeId: balanceLeaveType.id, rosterGroupId: employee.rosterGroupId })
+      : policy;
+    if (isLinked && !balancePolicy) {
+      throw new HttpError(422, `${leaveType.name} uses your ${balanceLeaveType.name} balance, which isn't available on your Roster`);
+    }
+
+    // No sufficiency check (balance may go negative) for an Unlimited quota
+    // or an unpaid (LWP-style) type — usage is still recorded on approval.
+    const skipCheck = (balancePolicy && balancePolicy.isUnlimited) || !leaveType.isPaid || !balanceLeaveType.isPaid;
+    if (!skipCheck) {
+      const balance = await getOrCreateBalance({ employeeId, leaveTypeId: balanceLeaveType.id, dateStr: fromDate });
+      if (Number(balance.balance) < days) {
+        throw new HttpError(
+          422,
+          isLinked ? `Insufficient ${balanceLeaveType.name} balance` : 'Insufficient leave balance'
+        );
+      }
     }
   }
 
@@ -235,6 +298,8 @@ async function createLeaveRequest({ companyId, employeeId, leaveTypeId, fromDate
       reason: reason || null,
       status: 'pending',
       compOffCreditId,
+      halfDaySession: session,
+      balanceLeaveTypeId: isLinked ? balanceLeaveType.id : null,
     });
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -347,13 +412,18 @@ async function applyLeaveApprovalSideEffects({ companyId, request, actorEmployee
     // which is allowed to push balance negative.
     const balance = await getOrCreateBalance({
       employeeId: request.employeeId,
-      leaveTypeId: request.leaveTypeId,
+      leaveTypeId: balanceTypeIdOf(request),
       dateStr: request.fromDate,
       transaction: t,
     });
     const used = Number(balance.used) + Number(request.days);
     await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
   }
+
+  // A half-day leave leaves the attendance row alone — the employee works
+  // the other half and punches in as normal; payroll accounts for the leave
+  // half itself (payrollRun.service.js::computeSegmentPayability).
+  if (request.halfDaySession) return;
 
   for (const date of datesBetween(request.fromDate, request.toDate)) {
     const working = await isWorkingDay({
@@ -672,7 +742,7 @@ async function revokeLeaveRequest({ companyId, id, actorEmployeeId, actorUserId,
     } else {
       const balance = await getOrCreateBalance({
         employeeId: request.employeeId,
-        leaveTypeId: request.leaveTypeId,
+        leaveTypeId: balanceTypeIdOf(request),
         dateStr: request.fromDate,
         transaction: t,
       });
@@ -680,16 +750,20 @@ async function revokeLeaveRequest({ companyId, id, actorEmployeeId, actorUserId,
       await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
     }
 
-    const rows = await db.Attendance.findAll({
-      where: {
-        employeeId: request.employeeId,
-        date: { [Op.between]: [request.fromDate, request.toDate] },
-        status: 'leave',
-      },
-      transaction: t,
-    });
-    for (const row of rows) {
-      await row.update({ status: row.checkIn ? 'present' : 'absent' }, { transaction: t });
+    // A half-day leave never wrote 'leave' attendance rows (see
+    // applyLeaveApprovalSideEffects), so there's nothing to put back.
+    if (!request.halfDaySession) {
+      const rows = await db.Attendance.findAll({
+        where: {
+          employeeId: request.employeeId,
+          date: { [Op.between]: [request.fromDate, request.toDate] },
+          status: 'leave',
+        },
+        transaction: t,
+      });
+      for (const row of rows) {
+        await row.update({ status: row.checkIn ? 'present' : 'absent' }, { transaction: t });
+      }
     }
 
     await request.update(
@@ -763,7 +837,20 @@ async function cancelLeaveRequest({ companyId, employeeId, id }) {
   return request;
 }
 
+// Every approved leave (full-day or half-day) covering one employee's date —
+// used by attendance corrections, which must never silently override an
+// approved leave (attendanceRegularization.service.js) and must revert it
+// when an admin deliberately changes the day's status
+// (attendance.service.js::bulkSetAttendanceStatus).
+async function findApprovedLeavesOnDate({ employeeId, date }) {
+  return db.LeaveRequest.findAll({
+    where: { employeeId, status: 'approved', fromDate: { [Op.lte]: date }, toDate: { [Op.gte]: date } },
+    include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['id', 'name'] }],
+  });
+}
+
 module.exports = {
+  findApprovedLeavesOnDate,
   listLeaveRequests,
   getLeaveRequestForDecision,
   createLeaveRequest,

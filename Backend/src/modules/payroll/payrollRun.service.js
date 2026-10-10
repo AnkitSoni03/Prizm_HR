@@ -83,18 +83,30 @@ async function computeSegmentPayability({ employeeId, companyId, brandId, roster
   });
   const attendanceByDate = new Map(attendanceRows.map((a) => [a.date, a.status]));
 
-  const paidLeaveRows = await db.LeaveRequest.findAll({
+  const leaveRows = await db.LeaveRequest.findAll({
     where: {
       employeeId,
       status: 'approved',
       fromDate: { [Op.lte]: segEnd },
       toDate: { [Op.gte]: segStart },
     },
-    include: [{ model: db.LeaveType, as: 'leaveType', where: { isPaid: true } }],
+    include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['id', 'isPaid'] }],
   });
   const paidLeaveDates = new Set();
-  for (const leave of paidLeaveRows) {
-    for (const d of datesBetween(leave.fromDate, leave.toDate)) paidLeaveDates.add(d);
+  // Half-day leaves (leave_requests.half_day_session set) — per date, how
+  // much of the day is on leave and how much of that leave is paid. Two
+  // halves on one date are allowed (different sessions).
+  const halfDayLeaveByDate = new Map();
+  for (const leave of leaveRows) {
+    const isPaid = !!leave.leaveType?.isPaid;
+    if (leave.halfDaySession) {
+      const entry = halfDayLeaveByDate.get(leave.fromDate) || { leave: 0, paid: 0 };
+      entry.leave += 0.5;
+      if (isPaid) entry.paid += 0.5;
+      halfDayLeaveByDate.set(leave.fromDate, entry);
+    } else if (isPaid) {
+      for (const d of datesBetween(leave.fromDate, leave.toDate)) paidLeaveDates.add(d);
+    }
   }
 
   for (const date of dates) {
@@ -102,6 +114,16 @@ async function computeSegmentPayability({ employeeId, companyId, brandId, roster
     workingDays += 1;
 
     const status = attendanceByDate.get(date);
+    const halfDayLeave = halfDayLeaveByDate.get(date);
+    if (halfDayLeave) {
+      // The worked part counts only if they actually showed up; the leave
+      // part counts only if it's paid. So an unpaid half day + present = 0.5,
+      // a paid half day + present = 1, a paid half day + absent = 0.5.
+      const showedUp = status === 'present' || status === 'on_duty' || status === 'half_day';
+      const worked = showedUp ? Math.max(0, 1 - halfDayLeave.leave) : 0;
+      payableDays += Math.min(1, worked + halfDayLeave.paid);
+      continue;
+    }
     if (status === 'present' || status === 'on_duty') payableDays += 1;
     else if (status === 'half_day') payableDays += 0.5;
     else if (paidLeaveDates.has(date)) payableDays += 1;

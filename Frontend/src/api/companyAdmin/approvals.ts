@@ -66,6 +66,8 @@ export interface LeaveRequest {
   revokeReason?: string | null;
   revokedAt?: string | null;
   compOffCreditId: string | null;
+  // Set only for a half-day leave.
+  halfDaySession?: 'first_half' | 'second_half' | null;
   employee?: RequestEmployee;
   leaveType?: LeaveType;
   // Multi-manager AND-gate approval — see leaveRequest.service.js.

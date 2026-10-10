@@ -10,6 +10,7 @@ module.exports = (sequelize, DataTypes) => {
       LeaveRequest.belongsTo(models.User, { foreignKey: 'approverUserId', as: 'approverUser' });
       LeaveRequest.belongsTo(models.User, { foreignKey: 'revokedByUserId', as: 'revokedByUser' });
       LeaveRequest.belongsTo(models.LeaveType, { foreignKey: 'leaveTypeId', as: 'leaveType' });
+      LeaveRequest.belongsTo(models.LeaveType, { foreignKey: 'balanceLeaveTypeId', as: 'balanceLeaveType' });
       LeaveRequest.belongsTo(models.CompOffCredit, { foreignKey: 'compOffCreditId', as: 'compOffCredit' });
       // Per-manager decision rows for the multi-manager approval workflow —
       // a snapshot of the employee's managers taken at submission time. See
@@ -35,6 +36,12 @@ module.exports = (sequelize, DataTypes) => {
       approverUserId: { type: DataTypes.BIGINT, allowNull: true },
       rejectionReason: { type: DataTypes.TEXT, allowNull: true },
       compOffCreditId: { type: DataTypes.BIGINT, allowNull: true },
+      // Set only for a half-day (0.5-deduction linked type) request.
+      halfDaySession: { type: DataTypes.ENUM('first_half', 'second_half'), allowNull: true },
+      // The leave type whose balance this request was charged against -
+      // NULL means leaveTypeId itself (see leaveRequest.service.js::
+      // balanceTypeIdOf).
+      balanceLeaveTypeId: { type: DataTypes.BIGINT, allowNull: true },
       // 'manager_consensus' (every manager approved) vs 'admin_override' (a
       // company/brand-wide admin bypassed the manager chain entirely) — see
       // the 20260905090200 migration comment.

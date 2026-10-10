@@ -31,6 +31,10 @@ module.exports = (sequelize, DataTypes) => {
       brandId: { type: DataTypes.BIGINT, allowNull: true },
       leaveTypeId: { type: DataTypes.BIGINT, allowNull: false },
       annualQuota: { type: DataTypes.DECIMAL(5, 2), allowNull: false },
+      // "Unlimited" quota — annualQuota is ignored (stored as 0) and no
+      // insufficient-balance check ever runs; usage is still recorded on
+      // leave_balances. See migration 20261010090000.
+      isUnlimited: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       // 'monthly_reset': flat annualQuota amount granted every month, reset
       // (not cumulative) — no carry-forward. See migration
       // 20260813090100 and leaveBalance.service.js/leaveAccrual.job.js.

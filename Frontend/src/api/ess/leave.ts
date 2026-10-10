@@ -15,6 +15,11 @@ export interface LeaveType {
   // this to keep an employee's own weekOffLeaveBlockedDays un-pickable in
   // the date fields when this type is selected.
   isWeekOffBucket?: boolean;
+  // Optional "Deduct from another leave" link — when set, this type has no
+  // balance of its own; each use (one date) charges deductionPerUse (0.5 or
+  // 1) day to the source type's balance. 0.5 = a half-day leave.
+  deductFromLeaveTypeId?: string | null;
+  deductionPerUse?: number | string | null;
 }
 
 export interface LeaveBalance {
@@ -31,6 +36,11 @@ export interface LeaveBalance {
   // happen for a row that exists at all, since a balance can't be created
   // without one). See leaveBalance.service.js::attachAccrualInfo.
   accrual: 'yearly' | 'monthly' | 'monthly_reset' | null;
+  // The governing policy's quota is Unlimited — no balance limit applies.
+  isUnlimited?: boolean;
+  // Set on a synthesized row for a linked type (e.g. Half Day): its numbers
+  // are the source type's balance expressed in uses of this type.
+  linkedTo?: { leaveTypeId: string; name: string | null; deductionPerUse: number } | null;
 }
 
 // One row per manager, snapshotted at submission time — see
@@ -60,6 +70,8 @@ export interface LeaveRequest {
   // Set when an admin reverted this leave after approval.
   revokeReason?: string | null;
   compOffCreditId: string | null;
+  // Set only for a half-day leave.
+  halfDaySession?: 'first_half' | 'second_half' | null;
   leaveType?: LeaveType;
   // Multi-manager AND-gate approval — who's approved, who's still pending,
   // for full transparency on this request's own status. 'manager_consensus'
@@ -120,6 +132,7 @@ export async function createLeaveRequest(input: {
   fromDate: string;
   toDate: string;
   reason?: string;
+  halfDaySession?: 'first_half' | 'second_half';
 }): Promise<LeaveRequest> {
   const { data } = await apiClient.post<{ data: LeaveRequest }>('/leave/requests', input);
   return data.data;
@@ -140,4 +153,15 @@ export async function listHolidays(params: { from?: string; to?: string; rosterG
     params: { ...params, limit: 100 },
   });
   return data.data;
+}
+
+export const HALF_DAY_SESSION_LABELS: Record<'first_half' | 'second_half', string> = {
+  first_half: 'First Half',
+  second_half: 'Second Half',
+};
+
+// A linked type at 0.5 per use is a half-day leave — the request then needs
+// a First/Second Half session.
+export function isHalfDayLeaveType(leaveType?: Pick<LeaveType, 'deductFromLeaveTypeId' | 'deductionPerUse'> | null): boolean {
+  return !!leaveType?.deductFromLeaveTypeId && Number(leaveType.deductionPerUse) === 0.5;
 }

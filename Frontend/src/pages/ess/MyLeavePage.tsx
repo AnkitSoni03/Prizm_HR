@@ -14,6 +14,8 @@ import { useConfirm } from '../../context/confirm-context';
 import {
   cancelLeaveRequest,
   createLeaveRequest,
+  HALF_DAY_SESSION_LABELS,
+  isHalfDayLeaveType,
   listLeaveTypes,
   listMyLeaveRequests,
   type LeaveRequest,
@@ -64,6 +66,7 @@ export function MyLeavePage() {
   const [fromDate, setFromDate] = useState(formatDate(new Date()));
   const [toDate, setToDate] = useState(formatDate(new Date()));
   const [reason, setReason] = useState('');
+  const [halfDaySession, setHalfDaySession] = useState<'first_half' | 'second_half'>('first_half');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [dateWarning, setDateWarning] = useState<string | null>(null);
@@ -108,6 +111,7 @@ export function MyLeavePage() {
     setFromDate(formatDate(new Date()));
     setToDate(formatDate(new Date()));
     setReason('');
+    setHalfDaySession('first_half');
     setSubmitError(null);
     setDateWarning(null);
     setIsModalOpen(true);
@@ -121,6 +125,12 @@ export function MyLeavePage() {
   // soon as this type is selected, rather than letting the employee pick a
   // range and only finding out via a 400 on submit.
   const isWeekOffLeaveType = !!selectedLeaveType?.isWeekOffBucket;
+  // A linked type (e.g. Half Day → Annual Leave) is also one date per use.
+  const isSingleDayType = isWeekOffLeaveType || !!selectedLeaveType?.deductFromLeaveTypeId;
+  const isHalfDay = isHalfDayLeaveType(selectedLeaveType);
+  const linkedSourceName = selectedLeaveType?.deductFromLeaveTypeId
+    ? leaveTypes.find((t) => t.id === selectedLeaveType.deductFromLeaveTypeId)?.name
+    : undefined;
   // Admin-assigned restriction only applies to the Week Off Leave bucket —
   // every other leave type is unaffected. The date inputs below are native
   // <input type="date">, which can't grey out individual weekdays, so a
@@ -152,7 +162,13 @@ export function MyLeavePage() {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      await createLeaveRequest({ leaveTypeId, fromDate, toDate, reason: reason.trim() || undefined });
+      await createLeaveRequest({
+        leaveTypeId,
+        fromDate,
+        toDate,
+        reason: reason.trim() || undefined,
+        halfDaySession: isHalfDay ? halfDaySession : undefined,
+      });
       setIsModalOpen(false);
       setOffset(0);
       loadRequests();
@@ -240,7 +256,10 @@ export function MyLeavePage() {
               <CalendarRange className="h-3.5 w-3.5 shrink-0 text-ink-muted" strokeWidth={1.75} />
               {formatDisplayDate(r.fromDate)} → {formatDisplayDate(r.toDate)}
             </div>
-            <RequestCardRow label="Days" value={r.days} />
+            <RequestCardRow
+              label="Days"
+              value={r.halfDaySession ? `${Number(r.days)} (${HALF_DAY_SESSION_LABELS[r.halfDaySession]})` : r.days}
+            />
             {r.reason && <RequestCardRow label="Reason" value={<span className="line-clamp-2">{r.reason}</span>} />}
             {r.status === 'revoked' && r.revokeReason && (
               <RequestCardRow label="Reverted" value={<span className="line-clamp-3 text-danger">{r.revokeReason}</span>} />
@@ -269,10 +288,29 @@ export function MyLeavePage() {
                 // Force single-day the moment Week Off Leave is picked —
                 // matches the server-side constraint, and avoids the
                 // employee filling in a range only to hit a 400 on submit.
-                if (leaveTypes.find((t) => t.id === value)?.isWeekOffBucket) setToDate(fromDate);
+                const picked = leaveTypes.find((t) => t.id === value);
+                if (picked?.isWeekOffBucket || picked?.deductFromLeaveTypeId) setToDate(fromDate);
               }}
               options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
             />
+            {selectedLeaveType?.deductFromLeaveTypeId && (
+              <p className="-mt-2 text-xs text-ink-muted">
+                Deducts {Number(selectedLeaveType.deductionPerUse) || 1} day from your {linkedSourceName ?? 'linked leave'}{' '}
+                balance. One date per request.
+              </p>
+            )}
+            {isHalfDay && (
+              <Select
+                id="apply-leave-session"
+                label="Which half"
+                value={halfDaySession}
+                onChange={(event) => setHalfDaySession(event.target.value as 'first_half' | 'second_half')}
+                options={[
+                  { value: 'first_half', label: HALF_DAY_SESSION_LABELS.first_half },
+                  { value: 'second_half', label: HALF_DAY_SESSION_LABELS.second_half },
+                ]}
+              />
+            )}
             {isWeekOffLeaveSelected && (
               <p className="-mt-2 text-xs text-ink-muted">
                 You can't take Week Off Leave on: {blockedDayLabels}.
@@ -299,7 +337,7 @@ export function MyLeavePage() {
                     // "From" for this type. Otherwise, just keep "To" from
                     // silently holding a now-invalid date before the newly
                     // picked "From".
-                    if (isWeekOffLeaveType || toDate < value) setToDate(value);
+                    if (isSingleDayType || toDate < value) setToDate(value);
                   }}
                 />
               </div>
@@ -310,7 +348,7 @@ export function MyLeavePage() {
                   label="To"
                   value={toDate}
                   min={fromDate}
-                  disabled={isWeekOffLeaveType}
+                  disabled={isSingleDayType}
                   onChange={(event) => {
                     const value = event.target.value;
                     if (isDateBlocked(value)) {

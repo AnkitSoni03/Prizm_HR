@@ -60,7 +60,8 @@ export function LeavePolicyFormModal({
   const defaultBrandId = showBrandField ? (brands[0]?.id ?? '') : '';
   const [localLeaveTypes, setLocalLeaveTypes] = useState(leaveTypes);
   const [leaveTypeId, setLeaveTypeId] = useState(policy?.leaveTypeId ?? leaveTypes[0]?.id ?? '');
-  const [annualQuota, setAnnualQuota] = useState(policy ? String(policy.annualQuota) : '');
+  const [annualQuota, setAnnualQuota] = useState(policy && !policy.isUnlimited ? String(policy.annualQuota) : '');
+  const [quotaMode, setQuotaMode] = useState<'fixed' | 'unlimited'>(policy?.isUnlimited ? 'unlimited' : 'fixed');
   const [accrual, setAccrual] = useState<LeavePolicy['accrual']>(policy?.accrual ?? 'yearly');
   const [applicableAfterDays, setApplicableAfterDays] = useState(
     policy ? String(policy.applicableAfterDays) : '0'
@@ -102,6 +103,19 @@ export function LeavePolicyFormModal({
   // either, since picking a specific Brand here means "this policy belongs
   // to Snow Village," and only Snow Village's own Rosters are relevant to
   // choose from.
+  // A linked leave type (e.g. Half Day) has no quota of its own — it uses the
+  // source type's balance — so its policy only picks the Rosters.
+  const selectedLeaveType = localLeaveTypes.find((lt) => lt.id === leaveTypeId);
+  const linkedSource = selectedLeaveType?.deductFromLeaveTypeId
+    ? localLeaveTypes.find((lt) => lt.id === selectedLeaveType.deductFromLeaveTypeId)
+    : undefined;
+  const isLinkedType = !!selectedLeaveType?.deductFromLeaveTypeId;
+  const quotaPayload = isLinkedType
+    ? { annualQuota: 0, isUnlimited: false }
+    : quotaMode === 'unlimited'
+      ? { annualQuota: 0, isUnlimited: true }
+      : { annualQuota: Number(annualQuota), isUnlimited: false };
+
   const availableRosterGroups = brandId ? rosterGroups.filter((rg) => rg.brandId === brandId) : rosterGroups;
 
   async function handleSubmit(event: FormEvent) {
@@ -115,7 +129,7 @@ export function LeavePolicyFormModal({
       const brandPatch = showBrandField ? { brandId } : {};
       if (isEdit) {
         await updateLeavePolicy(policy.id, {
-          annualQuota: Number(annualQuota),
+          ...quotaPayload,
           accrual,
           applicableAfterDays: Number(applicableAfterDays) || 0,
           rosterGroupIds,
@@ -125,7 +139,7 @@ export function LeavePolicyFormModal({
         await createLeavePolicy({
           leaveTypeId,
           rosterGroupIds,
-          annualQuota: Number(annualQuota),
+          ...quotaPayload,
           accrual,
           applicableAfterDays: Number(applicableAfterDays) || 0,
           ...brandPatch,
@@ -196,23 +210,58 @@ export function LeavePolicyFormModal({
             options={brands.map((b) => ({ value: b.id, label: b.name }))}
           />
         )}
-        <Input
-          id="leave-policy-quota"
-          label="Annual Quota (days)"
-          type="number"
-          min="0"
-          step="0.5"
-          required
-          value={annualQuota}
-          onChange={(event) => setAnnualQuota(event.target.value)}
-        />
-        <Select
-          id="leave-policy-accrual"
-          label="Accrual"
-          value={accrual}
-          onChange={(event) => setAccrual(event.target.value as LeavePolicy['accrual'])}
-          options={ACCRUAL_OPTIONS}
-        />
+        {isLinkedType ? (
+          <p className="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-ink-muted">
+            This leave uses the employee's <span className="font-medium text-ink">{linkedSource?.name ?? 'linked'}</span>{' '}
+            balance ({Number(selectedLeaveType?.deductionPerUse) || 1} day per use), so it has no quota of its own.
+            Just pick the Roster(s) that can use it.
+          </p>
+        ) : (
+          <>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-ink">Annual Quota</span>
+              <div className="mb-2 flex gap-4">
+                {(['fixed', 'unlimited'] as const).map((mode) => (
+                  <label key={mode} className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="radio"
+                      name="leave-policy-quota-mode"
+                      checked={quotaMode === mode}
+                      onChange={() => setQuotaMode(mode)}
+                      className="h-4 w-4 border-border text-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    {mode === 'fixed' ? 'Fixed days' : 'Unlimited'}
+                  </label>
+                ))}
+              </div>
+              {quotaMode === 'fixed' ? (
+                <Input
+                  id="leave-policy-quota"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  required
+                  label="Days per year"
+                  value={annualQuota}
+                  onChange={(event) => setAnnualQuota(event.target.value)}
+                />
+              ) : (
+                <p className="text-xs text-ink-muted">
+                  No limit — employees can apply as many times as they need (approval still required).
+                </p>
+              )}
+            </div>
+            {quotaMode === 'fixed' && (
+              <Select
+                id="leave-policy-accrual"
+                label="Accrual"
+                value={accrual}
+                onChange={(event) => setAccrual(event.target.value as LeavePolicy['accrual'])}
+                options={ACCRUAL_OPTIONS}
+              />
+            )}
+          </>
+        )}
         <Input
           id="leave-policy-eligibility"
           label="Applicable After (days from joining)"

@@ -35,6 +35,11 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
 
   let processed = 0;
   for (const policy of policies) {
+    // Unlimited quota: nothing to accrue (no insufficient-balance check ever
+    // runs against it). Linked types (e.g. Half Day) have no balance of
+    // their own — checked below once the leave type is loaded.
+    if (policy.isUnlimited) continue;
+
     // A policy's Roster scoping is a many-to-many join, not a column — it
     // can be linked to zero, one, or several Rosters. Roster is now the sole
     // determinant of who a policy applies to (see
@@ -50,8 +55,9 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
 
     const leaveType = await db.LeaveType.findOne({
       where: { id: policy.leaveTypeId },
-      attributes: ['id', 'cycleType', 'customCycleStartMonth', 'customCycleStartDay', 'applicableGender'],
+      attributes: ['id', 'cycleType', 'customCycleStartMonth', 'customCycleStartDay', 'applicableGender', 'deductFromLeaveTypeId'],
     });
+    if (leaveType && leaveType.deductFromLeaveTypeId) continue;
     const cycleType = leaveType ? leaveType.cycleType : 'calendar';
 
     const employees = await db.Employee.findAll({

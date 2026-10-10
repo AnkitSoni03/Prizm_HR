@@ -43,6 +43,8 @@ async function create(req, res, next) {
       customCycleStartDay,
       brandId,
       applicableGender,
+      deductFromLeaveTypeId,
+      deductionPerUse,
     } = req.body;
     if (!code || !name) {
       return res.status(400).json({ error: 'code and name are required' });
@@ -62,6 +64,8 @@ async function create(req, res, next) {
       customCycleStartMonth,
       customCycleStartDay,
       applicableGender,
+      deductFromLeaveTypeId,
+      deductionPerUse,
     });
     res.status(201).json({ data: leaveType });
   } catch (err) {

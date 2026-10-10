@@ -8,7 +8,7 @@ import { SearchInput } from '../../components/ui/SearchInput';
 import { FilterSelect } from '../../components/ui/FilterSelect';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { useAuth } from '../../context/auth-context';
-import { listLeavePolicies, type LeavePolicy } from '../../api/companyAdmin/leavePolicies';
+import { formatPolicyQuota, listLeavePolicies, type LeavePolicy } from '../../api/companyAdmin/leavePolicies';
 import { listLeaveTypes, type LeaveType } from '../../api/companyAdmin/leaveBalance';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands } from '../../api/companyAdmin/org';
@@ -84,7 +84,7 @@ function LeavePolicyCard({ policy, brandName, onViewRoster, onEdit }: LeavePolic
 
       <div className="mt-3.5 space-y-2.5 border-t border-border pt-3.5">
         <DetailRow icon={Layers} label="Applies To" value={<RosterChips rosterGroups={policy.rosterGroups ?? []} onView={onViewRoster} />} />
-        <DetailRow icon={CalendarDays} label="Annual Quota" value={`${policy.annualQuota} days`} />
+        <DetailRow icon={CalendarDays} label="Annual Quota" value={formatPolicyQuota(policy)} />
         <DetailRow icon={RotateCw} label="Accrual" value={ACCRUAL_LABELS[policy.accrual]} />
         <DetailRow icon={Clock} label="Eligible After" value={eligibilityLabel(policy)} />
         {brandName !== undefined && <DetailRow icon={Building2} label="Brand" value={brandName ?? 'Shared'} />}
@@ -271,7 +271,7 @@ export function LeavePolicySettingsPage() {
                   header: 'Applies To',
                   render: (p) => <RosterChips rosterGroups={p.rosterGroups ?? []} onView={setViewingRosterGroup} />,
                 },
-                { key: 'quota', header: 'Annual Quota', render: (p) => `${p.annualQuota} days` },
+                { key: 'quota', header: 'Annual Quota', render: (p) => formatPolicyQuota(p) },
                 { key: 'accrual', header: 'Accrual', render: (p) => ACCRUAL_LABELS[p.accrual] },
                 { key: 'eligibility', header: 'Eligible After', render: (p) => eligibilityLabel(p) },
                 {

@@ -282,11 +282,15 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
   const allLinks = await db.RosterGroupLeavePolicy.findAll({
     where: { rosterGroupId: employee.rosterGroupId },
     attributes: ['leaveTypeId'],
-    include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['id', 'applicableGender'] }],
+    include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['id', 'applicableGender', 'deductFromLeaveTypeId'] }],
   });
   // Never seed a balance for a gender-restricted type this employee isn't
-  // eligible for (e.g. Maternity Leave for a male employee).
-  const links = allLinks.filter((link) => isGenderEligible(link.leaveType, employee.gender));
+  // eligible for (e.g. Maternity Leave for a male employee), nor for a linked
+  // type (e.g. Half Day) — it has no balance of its own, its uses are charged
+  // to the source type's row.
+  const links = allLinks.filter(
+    (link) => isGenderEligible(link.leaveType, employee.gender) && !(link.leaveType && link.leaveType.deductFromLeaveTypeId)
+  );
   if (links.length === 0) return;
 
   const currentYear = toBusinessLocal().getFullYear();
@@ -334,21 +338,55 @@ async function attachAccrualInfo(rows, employeeId) {
 
   const links = await db.RosterGroupLeavePolicy.findAll({
     where: { rosterGroupId: employee.rosterGroupId },
-    include: [{ model: db.LeavePolicy, as: 'leavePolicy', attributes: ['id', 'leaveTypeId', 'accrual'] }],
+    include: [
+      { model: db.LeavePolicy, as: 'leavePolicy', attributes: ['id', 'leaveTypeId', 'accrual', 'isUnlimited'] },
+      { model: db.LeaveType, as: 'leaveType' },
+    ],
   });
-  const accrualByTypeId = new Map(links.map((link) => [String(link.leaveTypeId), link.leavePolicy.accrual]));
+  const policyByTypeId = new Map(links.map((link) => [String(link.leaveTypeId), link.leavePolicy]));
 
   // Also hides a gender-restricted type the employee isn't eligible for
   // (e.g. Paternity Leave for a female employee) — same rule
   // leaveType.service.js::listLeaveTypes applies to the ESS type list, so the
   // Dashboard's balance widget and the Leave Balance page always agree.
-  return rows
-    .filter((row) => accrualByTypeId.has(String(row.leaveTypeId)))
+  const result = rows
+    .filter((row) => policyByTypeId.has(String(row.leaveTypeId)))
     .filter((row) => isGenderEligible(row.leaveType, employee.gender))
     .map((row) => {
-    const plain = row.toJSON ? row.toJSON() : row;
-    return { ...plain, accrual: accrualByTypeId.get(String(plain.leaveTypeId)) ?? null };
-  });
+      const plain = row.toJSON ? row.toJSON() : row;
+      const policy = policyByTypeId.get(String(plain.leaveTypeId));
+      return { ...plain, accrual: policy?.accrual ?? null, isUnlimited: !!policy?.isUnlimited };
+    });
+
+  // Linked types (e.g. Half Day deducting 0.5 from Annual Leave) have no row
+  // of their own — synthesize one per source row, expressed in USES of the
+  // linked type: Annual Leave balance 6 at 0.5 per use = 12 Half Days left.
+  // Unlimited follows the source's own policy.
+  for (const link of links) {
+    const linkedType = link.leaveType;
+    if (!linkedType || !linkedType.deductFromLeaveTypeId) continue;
+    if (!isGenderEligible(linkedType, employee.gender)) continue;
+    const perUse = Number(linkedType.deductionPerUse) || 1;
+    for (const source of result.filter((r) => String(r.leaveTypeId) === String(linkedType.deductFromLeaveTypeId))) {
+      const toUses = (days) => Math.round((Number(days) / perUse) * 100) / 100;
+      result.push({
+        id: `linked-${linkedType.id}-${source.id}`,
+        employeeId: source.employeeId,
+        leaveTypeId: linkedType.id,
+        year: source.year,
+        month: source.month,
+        allotted: toUses(source.allotted),
+        used: toUses(source.used),
+        balance: toUses(source.balance),
+        leaveType: linkedType.toJSON ? linkedType.toJSON() : linkedType,
+        accrual: source.accrual,
+        isUnlimited: source.isUnlimited,
+        // Lets the UI say "Uses Annual Leave balance (0.5 day each)".
+        linkedTo: { leaveTypeId: source.leaveTypeId, name: source.leaveType?.name ?? null, deductionPerUse: perUse },
+      });
+    }
+  }
+  return result;
 }
 
 async function listLeaveBalances({ companyId, employeeId, year, limit, offset }) {

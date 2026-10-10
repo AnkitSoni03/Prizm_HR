@@ -210,7 +210,10 @@ export function LeaveBalancePage() {
               const used = balance ? Number(balance.used) : 0;
               const remaining = balance ? Number(balance.balance) : 0;
               const usagePercent = allotted > 0 ? Math.min(100, Math.round((used / allotted) * 100)) : 0;
-              const status = statusFor(allotted, used, remaining);
+              const isUnlimited = !!balance?.isUnlimited;
+              const status = isUnlimited
+                ? ({ label: 'Unlimited', tone: 'success' } as const)
+                : statusFor(allotted, used, remaining);
               const category = resolveLeaveCategory(type);
               const visual = category ? CATEGORY_VISUAL[category] : null;
               const Icon = visual?.icon ?? Wallet;
@@ -231,14 +234,27 @@ export function LeaveBalancePage() {
                   <p className="truncate text-sm font-semibold sm:text-base" style={{ color: accentColor }}>
                     {type.name}
                   </p>
-                  <p className="mt-1 text-[10px] text-ink-muted sm:text-xs">
-                    {balance?.accrual ? ACCRUAL_LABELS[balance.accrual] : 'Accrual not set'}
-                  </p>
-                  <p className="mb-3.5 text-[10px] text-ink-muted sm:mb-5 sm:text-xs">
-                    {type.carryForward
-                      ? `Carries forward — up to ${type.maxCarryForwardDays != null ? `${type.maxCarryForwardDays} days` : 'unlimited'} into next year`
-                      : 'Does not carry forward — unused days expire at year end'}
-                  </p>
+                  {balance?.linkedTo ? (
+                    <p className="mb-3.5 mt-1 text-[10px] text-ink-muted sm:mb-5 sm:text-xs">
+                      Uses your {balance.linkedTo.name ?? 'linked leave'} balance — {balance.linkedTo.deductionPerUse} day
+                      per use. Numbers below are counted in uses.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-1 text-[10px] text-ink-muted sm:text-xs">
+                        {isUnlimited
+                          ? 'Unlimited — no balance limit'
+                          : balance?.accrual
+                            ? ACCRUAL_LABELS[balance.accrual]
+                            : 'Accrual not set'}
+                      </p>
+                      <p className="mb-3.5 text-[10px] text-ink-muted sm:mb-5 sm:text-xs">
+                        {type.carryForward
+                          ? `Carries forward — up to ${type.maxCarryForwardDays != null ? `${type.maxCarryForwardDays} days` : 'unlimited'} into next year`
+                          : 'Does not carry forward — unused days expire at year end'}
+                      </p>
+                    </>
+                  )}
 
                   <div
                     className="mb-3.5 grid grid-cols-3 divide-x divide-border rounded-lg py-2.5 text-center sm:mb-5 sm:py-3.5"
@@ -246,7 +262,7 @@ export function LeaveBalancePage() {
                   >
                     <div>
                       <p className="text-base font-bold sm:text-lg" style={{ color: accentColor }}>
-                        {allotted}
+                        {isUnlimited ? '∞' : allotted}
                       </p>
                       <p className="text-[9px] uppercase tracking-wide text-ink-muted sm:text-[10px]">Total</p>
                     </div>
@@ -258,7 +274,7 @@ export function LeaveBalancePage() {
                     </div>
                     <div>
                       <p className="text-base font-bold sm:text-lg" style={{ color: accentColor }}>
-                        {remaining}
+                        {isUnlimited ? '∞' : remaining}
                       </p>
                       <p className="text-[9px] uppercase tracking-wide text-ink-muted sm:text-[10px]">Remaining</p>
                     </div>
