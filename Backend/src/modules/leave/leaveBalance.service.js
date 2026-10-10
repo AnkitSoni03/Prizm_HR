@@ -332,8 +332,40 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
 // The company-wide admin list (listLeaveBalances, no attachAccrualInfo call)
 // is deliberately NOT filtered this way — an admin needs to see a stray
 // balance to clean it up, not have it hidden from them too.
+// The date range a balance row covers: one calendar month for a
+// 'monthly_reset' row, otherwise the leave type's cycle whose key is
+// row.year (see utils/leaveCycle.js — calendar year, custom cycle start year,
+// or employment-year number for 'anniversary').
+function periodForBalanceRow(row, leaveType, dateOfJoining) {
+  const year = Number(row.year);
+  const pad = (n) => String(n).padStart(2, '0');
+  if (row.month) {
+    const lastDay = new Date(year, Number(row.month), 0).getDate();
+    return { start: `${year}-${pad(row.month)}-01`, end: `${year}-${pad(row.month)}-${pad(lastDay)}` };
+  }
+  const cycleType = leaveType?.cycleType || 'calendar';
+  let anchor = `${year}-01-01`;
+  if (cycleType === 'custom' && leaveType.customCycleStartMonth && leaveType.customCycleStartDay) {
+    anchor = `${year}-${pad(leaveType.customCycleStartMonth)}-${pad(leaveType.customCycleStartDay)}`;
+  } else if (cycleType === 'anniversary' && dateOfJoining) {
+    const join = new Date(`${dateOfJoining}T00:00:00`);
+    anchor = `${join.getFullYear() + year - 1}-${pad(join.getMonth() + 1)}-${pad(join.getDate())}`;
+  }
+  const { cycleStart, cycleEnd } = resolveLeaveCycle({
+    cycleType,
+    dateOfJoining,
+    dateStr: anchor,
+    customCycleStartMonth: leaveType?.customCycleStartMonth,
+    customCycleStartDay: leaveType?.customCycleStartDay,
+  });
+  return { start: cycleStart, end: cycleEnd };
+}
+
 async function attachAccrualInfo(rows, employeeId) {
-  const employee = await db.Employee.findOne({ where: { id: employeeId }, attributes: ['rosterGroupId', 'gender'] });
+  const employee = await db.Employee.findOne({
+    where: { id: employeeId },
+    attributes: ['rosterGroupId', 'gender', 'dateOfJoining'],
+  });
   if (!employee || !employee.rosterGroupId) return [];
 
   const links = await db.RosterGroupLeavePolicy.findAll({
@@ -359,25 +391,42 @@ async function attachAccrualInfo(rows, employeeId) {
     });
 
   // Linked types (e.g. Half Day deducting 0.5 from Annual Leave) have no row
-  // of their own — synthesize one per source row, expressed in USES of the
-  // linked type: Annual Leave balance 6 at 0.5 per use = 12 Half Days left.
+  // of their own — synthesize one per source row, in USES of the linked type:
+  //   remaining = what the source balance still allows (6 days at 0.5 = 12),
+  //   used      = how many of THIS type were actually taken in that period
+  //               (approved requests) — not the source's own usage,
+  //   total     = used + remaining.
+  // So Annual 6 left -> Half Day 12/0/12; after one Annual day -> 10/0/10;
+  // after one Half Day instead -> Annual 5.5, Half Day 10/1/9.
   // Unlimited follows the source's own policy.
   for (const link of links) {
     const linkedType = link.leaveType;
     if (!linkedType || !linkedType.deductFromLeaveTypeId) continue;
     if (!isGenderEligible(linkedType, employee.gender)) continue;
     const perUse = Number(linkedType.deductionPerUse) || 1;
-    for (const source of result.filter((r) => String(r.leaveTypeId) === String(linkedType.deductFromLeaveTypeId))) {
+    const sources = result.filter((r) => String(r.leaveTypeId) === String(linkedType.deductFromLeaveTypeId));
+    for (const source of sources) {
       const toUses = (days) => Math.round((Number(days) / perUse) * 100) / 100;
+      const period = periodForBalanceRow(source, source.leaveType, employee.dateOfJoining);
+      const usedDays = await db.LeaveRequest.sum('days', {
+        where: {
+          employeeId,
+          leaveTypeId: linkedType.id,
+          status: 'approved',
+          fromDate: { [Op.between]: [period.start, period.end] },
+        },
+      });
+      const used = toUses(usedDays || 0);
+      const remaining = Math.max(0, toUses(source.balance));
       result.push({
         id: `linked-${linkedType.id}-${source.id}`,
         employeeId: source.employeeId,
         leaveTypeId: linkedType.id,
         year: source.year,
         month: source.month,
-        allotted: toUses(source.allotted),
-        used: toUses(source.used),
-        balance: toUses(source.balance),
+        allotted: Math.round((used + remaining) * 100) / 100,
+        used,
+        balance: remaining,
         leaveType: linkedType.toJSON ? linkedType.toJSON() : linkedType,
         accrual: source.accrual,
         isUnlimited: source.isUnlimited,
