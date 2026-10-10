@@ -1,8 +1,9 @@
-import type { ComponentType, ReactNode } from 'react';
+import { useState, type ComponentType, type KeyboardEvent, type ReactNode } from 'react';
 import { Ban, CalendarX, Check, CheckCheck, CheckCircle2, History, Hourglass, Undo2, X, XCircle } from 'lucide-react';
 import { Avatar } from './ui/Avatar';
 import { Badge } from './ui/Badge';
 import { DetailRow } from './ui/DetailRow';
+import { Modal } from './ui/Modal';
 import { Skeleton } from './ui/Skeleton';
 
 // Shared by every approvals-shaped list (Company/Brand Admin's ApprovalsPage,
@@ -92,8 +93,79 @@ export function RequestCard({
   canRevert = false,
   onRevert,
 }: RequestCardProps) {
+  // The card cuts long values (a reason, a revert reason) to one line —
+  // clicking it opens every field in full.
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+
+  function handleCardKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setIsDetailOpen(true);
+    }
+  }
+
+  // Shared by the card and the detail pop-up. Each action closes the pop-up
+  // first so the next modal (reject reason, history...) isn't stacked on it.
+  function renderActions(fromDetail: boolean) {
+    const run = (action?: () => void) => () => {
+      if (fromDetail) setIsDetailOpen(false);
+      action?.();
+    };
+    return (
+      <>
+        <button
+          type="button"
+          onClick={run(onHistory)}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-light"
+        >
+          <History className="h-3.5 w-3.5" strokeWidth={1.75} />
+          History
+        </button>
+        {canApprove && (
+          <button
+            type="button"
+            onClick={run(onApprove)}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-success transition-colors hover:bg-success/10"
+          >
+            <Check className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Approve
+          </button>
+        )}
+        {canReject && (
+          <button
+            type="button"
+            onClick={run(onReject)}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/10"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Reject
+          </button>
+        )}
+        {canRevert && (
+          <button
+            type="button"
+            onClick={run(onRevert)}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/10"
+          >
+            <Undo2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Revert
+          </button>
+        )}
+      </>
+    );
+  }
+
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
+    <>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => setIsDetailOpen(true)}
+      onKeyDown={handleCardKeyDown}
+      title="View full details"
+      className="cursor-pointer rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:p-5"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar src={photoUrl} size="lg" />
@@ -118,47 +190,52 @@ export function RequestCard({
         ))}
       </div>
 
-      <div className="mt-3.5 flex items-center gap-1 border-t border-border pt-3">
-        <button
-          type="button"
-          onClick={onHistory}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary-light"
-        >
-          <History className="h-3.5 w-3.5" strokeWidth={1.75} />
-          History
-        </button>
-        {canApprove && (
-          <button
-            type="button"
-            onClick={onApprove}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-success transition-colors hover:bg-success/10"
-          >
-            <Check className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Approve
-          </button>
-        )}
-        {canReject && (
-          <button
-            type="button"
-            onClick={onReject}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/10"
-          >
-            <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Reject
-          </button>
-        )}
-        {canRevert && (
-          <button
-            type="button"
-            onClick={onRevert}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/10"
-          >
-            <Undo2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Revert
-          </button>
-        )}
+      {/* Buttons act on their own — they mustn't also open the pop-up. */}
+      <div
+        className="mt-3.5 flex items-center gap-1 border-t border-border pt-3"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        {renderActions(false)}
       </div>
     </div>
+
+    {/* Outside the clickable card: clicks inside the pop-up (e.g. its close
+        button) would otherwise bubble up and re-open it. */}
+    {isDetailOpen && (
+      <Modal title="Request details" onClose={() => setIsDetailOpen(false)} widthClassName="max-w-lg">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Avatar src={photoUrl} size="lg" />
+            <div className="min-w-0">
+              <p className="break-words text-[15px] font-semibold text-ink">{name}</p>
+              {tag && <p className="mt-0.5 break-words text-xs text-ink-muted">{tag}</p>}
+            </div>
+          </div>
+          <div className="shrink-0">
+            <RequestStatusBadge status={status} rejectionReason={rejectionReason} />
+          </div>
+        </div>
+
+        <dl className="mt-4 divide-y divide-border border-t border-border">
+          {fields.map((field) => {
+            const Icon = field.icon;
+            return (
+              <div key={field.label} className="grid grid-cols-[8.5rem_1fr] gap-3 py-2.5 text-sm max-[400px]:grid-cols-1 max-[400px]:gap-1">
+                <dt className="flex items-center gap-1.5 text-ink-muted">
+                  <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                  {field.label}
+                </dt>
+                <dd className="min-w-0 whitespace-pre-line break-words font-medium text-ink">{field.value}</dd>
+              </div>
+            );
+          })}
+        </dl>
+
+        <div className="mt-3 flex items-center gap-1 border-t border-border pt-3">{renderActions(true)}</div>
+      </Modal>
+    )}
+    </>
   );
 }
 
