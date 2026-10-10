@@ -3,6 +3,7 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser, notifyApprovers } = require('../../utils/notifications');
@@ -23,12 +24,12 @@ async function findFullDayLeaveOnDate({ employeeId, date }) {
   return leaves.find((leave) => !leave.halfDaySession) || null;
 }
 
-async function listRegularizations({ companyId, brandId, employeeId, status, limit, offset }) {
+async function listRegularizations({ companyId, brandId, employeeId, status, search, limit, offset }) {
   const where = {};
   if (employeeId) where.employeeId = employeeId;
   if (status) where.status = status;
 
-  const employeeWhere = { companyId };
+  const employeeWhere = { companyId, ...employeeSearchWhere(search) };
   if (Array.isArray(brandId)) {
     if (brandId.length > 0) employeeWhere.brandId = { [Op.in]: brandId };
   } else if (brandId) {

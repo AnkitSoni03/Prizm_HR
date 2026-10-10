@@ -4,6 +4,7 @@ import { Bookmark, CalendarRange, CalendarX, Clock, FileText, Layers, MapPin, Ta
 import { Tabs } from '../../components/ui/Tabs';
 import { FilterSelect } from '../../components/ui/FilterSelect';
 import { Pagination } from '../../components/ui/Pagination';
+import { SearchInput } from '../../components/ui/SearchInput';
 import { Button } from '../../components/ui/Button';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { RejectReasonModal } from '../../components/RejectReasonModal';
@@ -58,7 +59,8 @@ function employeeLabel(employee: RequestEmployee | undefined, employeeId: string
 
 type Tab = 'leave' | 'od' | 'regularization' | 'compOff';
 
-const LIMIT = 20;
+// 9 = three full rows of the 3-column card grid.
+const LIMIT = 9;
 
 interface ApprovalsPageProps {
   // Merged into every list call's params — set by the Brand Admin portal
@@ -85,6 +87,20 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
   const [brandFilter, setBrandFilter] = useState('');
   const [brands, setBrands] = useState<Brand[]>([]);
   const [offset, setOffset] = useState(0);
+  // searchInput follows every keystroke; search is the debounced value that
+  // actually hits the API.
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    const trimmed = searchInput.trim();
+    const timer = setTimeout(() => {
+      if (trimmed === search) return;
+      setOffset(0);
+      setSearch(trimmed);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
 
   // Only Company Admin's own view gets to pick a Brand. Brand Admin's own
   // view already has one fixed by extraParams.brandId, and a second filter
@@ -145,6 +161,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     try {
       const params = {
         status: statusFilter || undefined,
+        search: search || undefined,
         brandId: showBrandFilter ? brandFilter || undefined : undefined,
         limit: LIMIT,
         offset,
@@ -178,7 +195,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, statusFilter, brandFilter, offset]);
+  }, [activeTab, statusFilter, brandFilter, search, offset]);
 
   // Only needed to populate the "Assign Comp-Off" employee picker — lazy so
   // a caller without comp_off:credit never pays for this extra request.
@@ -309,6 +326,7 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
 
       <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+          <SearchInput placeholder="Search employee name or code" value={searchInput} onChange={setSearchInput} />
           <FilterSelect
             value={statusFilter}
             onChange={(value) => {

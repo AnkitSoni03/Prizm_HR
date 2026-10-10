@@ -3,6 +3,7 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { datesBetween } = require('../../utils/dateRange');
 const { isHoliday, isWeeklyOff } = require('../../utils/workingDays');
@@ -23,7 +24,7 @@ const MANAGER_APPROVAL_INCLUDE = { model: db.OdRequestApproval, as: 'managerAppr
 // companyId null is only ever passed for a manager's ?scope=reports list,
 // where `employeeId` is already the exact (Group-bounded) set of their
 // reports — possibly spread across several companies.
-async function listOdRequests({ companyId, brandId, employeeId, status, limit, offset }) {
+async function listOdRequests({ companyId, brandId, employeeId, status, search, limit, offset }) {
   const where = {};
   // Array form is a manager's "my team's requests" scope (see
   // odRequest.routes.js's requireReadAccess) — an empty array must still
@@ -36,7 +37,7 @@ async function listOdRequests({ companyId, brandId, employeeId, status, limit, o
   }
   if (status) where.status = status;
 
-  const employeeWhere = companyId ? { companyId } : {};
+  const employeeWhere = { ...(companyId ? { companyId } : {}), ...employeeSearchWhere(search) };
   if (Array.isArray(brandId)) {
     if (brandId.length > 0) employeeWhere.brandId = { [Op.in]: brandId };
   } else if (brandId) {

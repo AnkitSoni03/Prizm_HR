@@ -3,6 +3,7 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { isWorkingDay } = require('../../utils/workingDays');
 const { datesBetween, addDays, dateOnly } = require('../../utils/dateRange');
 const { getOrCreateBalance, resolveLeavePolicy } = require('./leaveBalance.service');
@@ -21,7 +22,7 @@ const MANAGER_APPROVAL_INCLUDE = {
 // companyId null is only ever passed for a manager's ?scope=reports list,
 // where `employeeId` is already the exact (Group-bounded) set of their
 // reports — possibly spread across several companies.
-async function listLeaveRequests({ companyId, brandId, employeeId, status, limit, offset }) {
+async function listLeaveRequests({ companyId, brandId, employeeId, status, search, limit, offset }) {
   const where = {};
   // Array form is how a manager's "my team's requests" scope is expressed
   // (see leaveRequest.routes.js's requireReadAccess) — unlike brandId's
@@ -34,7 +35,7 @@ async function listLeaveRequests({ companyId, brandId, employeeId, status, limit
   }
   if (status) where.status = status;
 
-  const employeeWhere = companyId ? { companyId } : {};
+  const employeeWhere = { ...(companyId ? { companyId } : {}), ...employeeSearchWhere(search) };
   if (Array.isArray(brandId)) {
     if (brandId.length > 0) employeeWhere.brandId = { [Op.in]: brandId };
   } else if (brandId) {

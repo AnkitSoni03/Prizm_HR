@@ -3,6 +3,7 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
+const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { isHoliday, isWeeklyOff } = require('../../utils/workingDays');
 const { addDays } = require('../../utils/dateRange');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
@@ -229,7 +230,7 @@ async function createCompOffCredit({
 // where `employeeId` is already the exact (Group-bounded) set of their
 // reports — possibly spread across several companies. An empty array must
 // still filter to zero rows.
-async function listCompOffCredits({ companyId, brandId, employeeId, status, limit, offset }) {
+async function listCompOffCredits({ companyId, brandId, employeeId, status, search, limit, offset }) {
   const where = {};
   if (Array.isArray(employeeId)) {
     where.employeeId = { [Op.in]: employeeId };
@@ -238,7 +239,7 @@ async function listCompOffCredits({ companyId, brandId, employeeId, status, limi
   }
   if (status) where.status = status;
 
-  const employeeWhere = companyId ? { companyId } : {};
+  const employeeWhere = { ...(companyId ? { companyId } : {}), ...employeeSearchWhere(search) };
   if (Array.isArray(brandId)) {
     if (brandId.length > 0) employeeWhere.brandId = { [Op.in]: brandId };
   } else if (brandId) {

@@ -31,6 +31,7 @@ async function list(req, res, next) {
       brandId: req.regularizationBrandScope || undefined,
       employeeId: req.regularizationEmployeeScope || req.query.employeeId,
       status: req.query.status,
+      search: req.query.search,
       limit,
       offset,
     });

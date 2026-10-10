@@ -166,6 +166,8 @@ interface ListResult<T> {
 
 interface ListParams {
   status?: string;
+  // Employee name or employee code ("contains", case-insensitive).
+  search?: string;
   limit?: number;
   offset?: number;
   // Unused by Company Admin/HR Manager (their own companyId is resolved

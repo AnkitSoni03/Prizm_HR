@@ -22,6 +22,7 @@ async function list(req, res, next) {
       brandId: req.odRequestBrandScope || undefined,
       employeeId: req.odRequestEmployeeScope || req.query.employeeId,
       status: req.query.status,
+      search: req.query.search,
       limit,
       offset,
     });
