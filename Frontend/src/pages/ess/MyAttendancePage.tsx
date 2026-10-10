@@ -176,9 +176,15 @@ export function MyAttendancePage() {
     setOffset(0);
   }
 
+  // A day on an approved full-day leave keeps its leave status — the
+  // employee can only correct the times (the backend enforces this too; an
+  // admin changes the status from Attendance Records, which reverts the leave).
+  const modalLeaveDay = modalDate ? attendance.find((a) => a.date === modalDate && a.status === 'leave') : undefined;
+  const modalLeaveLabel = modalLeaveDay?.leaveTypeName ?? 'Leave';
+
   function openModal(date: string) {
     setModalDate(date);
-    setRequestedStatus('present');
+    setRequestedStatus(attendance.some((a) => a.date === date && a.status === 'leave') ? 'leave' : 'present');
     setReason('');
     setCheckInTime('');
     setCheckOutTime('');
@@ -438,8 +444,17 @@ export function MyAttendancePage() {
               label="What should this day be marked as?"
               value={requestedStatus}
               onChange={(event) => setRequestedStatus(event.target.value as Attendance['status'])}
-              options={STATUS_OPTIONS}
+              options={
+                modalLeaveDay ? [{ value: 'leave', label: `Keep as ${modalLeaveLabel} (fix time only)` }] : STATUS_OPTIONS
+              }
+              disabled={!!modalLeaveDay}
             />
+            {modalLeaveDay && (
+              <p className="-mt-2 text-xs text-ink-muted">
+                This day is an approved {modalLeaveLabel}, so only the times can be corrected. To change the status,
+                ask your admin.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Input
                 id="regularization-check-in"

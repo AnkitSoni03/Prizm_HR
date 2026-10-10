@@ -10,7 +10,12 @@ const { getActiveEmployeeShift } = require('./employeeShift.service');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser } = require('../../utils/notifications');
-const { createLeaveRequest, approveLeaveRequest } = require('../leave/leaveRequest.service');
+const {
+  createLeaveRequest,
+  approveLeaveRequest,
+  revokeLeaveRequest,
+  findApprovedLeavesOnDate,
+} = require('../leave/leaveRequest.service');
 // dateOnly/addDays: business-timezone (IST) date helpers, not the server
 // process's own ambient TZ — see utils/dateRange.js for why that distinction
 // matters (Render's containers default to UTC, unlike a dev machine's IST).
@@ -851,6 +856,27 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
 // leave type on an employee's behalf, not a generic/untyped "on leave".
 const MANUALLY_SETTABLE_STATUSES = ['present', 'half_day', 'absent', 'leave'];
 
+// An admin deliberately changing a day's status overrides any approved leave
+// on it (full-day or half-day): each one is reverted through the normal
+// revokeLeaveRequest path, so the balance is refunded, the employee is
+// notified and the revert is in the approval history. Refused (thrown, and
+// reported per-employee by the caller) when the leave spans several days —
+// reverting it would undo the other days too — or when payroll for the date
+// is already processed (revokeLeaveRequest's own rule). Multi-day leaves are
+// checked before anything is reverted, so an employee is never left half done.
+async function revertLeavesForStatusChange({ companyId, leaves, date, actorUserId, reason }) {
+  const multiDay = leaves.find((leave) => leave.fromDate !== leave.toDate);
+  if (multiDay) {
+    throw new HttpError(
+      409,
+      `${date} is part of a multi-day ${multiDay.leaveType?.name ?? 'leave'} (${multiDay.fromDate} → ${multiDay.toDate}) — revert it from Approvals first`
+    );
+  }
+  for (const leave of leaves) {
+    await revokeLeaveRequest({ companyId, id: leave.id, actorEmployeeId: null, actorUserId, reason });
+  }
+}
+
 // Admin bulk-correction for employees who forgot to mark their own
 // attendance: sets the same status across any number of employees for one
 // date in a single call.
@@ -902,11 +928,64 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
   if (status === 'leave') {
     const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId } });
     if (!leaveType) throw new HttpError(400, 'Leave type not found for this company');
+    // Marking a day as 'leave' is a full day — a half-day type (0.5 per use)
+    // can only be applied for, with a first/second half.
+    if (leaveType.deductFromLeaveTypeId && Number(leaveType.deductionPerUse) === 0.5) {
+      throw new HttpError(400, `${leaveType.name} is a half-day leave and can't be used to mark a full day`);
+    }
 
     let updated = 0;
     const failures = [];
     for (const employee of employees) {
       try {
+        // Already on exactly this full-day leave — no new request (that would
+        // fail the overlap check and charge the balance twice). Just make
+        // sure the day actually shows it: a correction approved before
+        // corrections stopped overriding leave days could have left the row
+        // 'present' while the leave stayed approved.
+        const existingLeaves = await findApprovedLeavesOnDate({ employeeId: employee.id, date });
+        const sameLeave = existingLeaves.find(
+          (leave) =>
+            !leave.halfDaySession &&
+            String(leave.leaveTypeId) === String(leaveTypeId) &&
+            leave.fromDate <= date &&
+            leave.toDate >= date
+        );
+        if (existingLeaves.length === 1 && sameLeave) {
+          const [attendance, created] = await db.Attendance.findOrCreate({
+            where: { employeeId: employee.id, date },
+            defaults: { employeeId: employee.id, date, status: 'leave' },
+          });
+          if (!created && attendance.status === 'leave') continue;
+          if (!created) await attendance.update({ status: 'leave' });
+          await recordApprovalDecision({
+            companyId,
+            requestType: 'attendance_correction',
+            requestId: attendance.id,
+            action: 'corrected',
+            actorUserId,
+            reason: `Marked ${leaveType.name} for ${date}`,
+          });
+          updated++;
+          if (employee.userId) {
+            await notifyUser({
+              companyId,
+              userId: employee.userId,
+              type: 'attendance_corrected',
+              title: 'Your attendance was updated',
+              body: `${date}: marked as ${leaveType.name} by ${actorName}`,
+            });
+          }
+          continue;
+        }
+        await revertLeavesForStatusChange({
+          companyId,
+          leaves: existingLeaves,
+          date,
+          actorUserId,
+          reason: `Changed to ${leaveType.name} by ${actorName} via Attendance Records`,
+        });
+
         const request = await createLeaveRequest({
           companyId,
           employeeId: employee.id,
@@ -940,15 +1019,47 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
     return { updated, total: employees.length, failures };
   }
 
+  // Revert any approved leave first — outside the batch transaction below,
+  // since each revert runs its own. Only when the status really changes: a
+  // half-day leave day already marked 'present' that's set to 'present'
+  // again keeps its half-day leave.
+  const failures = [];
+  const revertedEmployeeIds = new Set();
+  const eligibleEmployees = [];
+  for (const employee of employees) {
+    const leaves = await findApprovedLeavesOnDate({ employeeId: employee.id, date });
+    if (leaves.length > 0) {
+      const current = await db.Attendance.findOne({ where: { employeeId: employee.id, date }, attributes: ['status'] });
+      if (!current || current.status !== status) {
+        try {
+          await revertLeavesForStatusChange({
+            companyId,
+            leaves,
+            date,
+            actorUserId,
+            reason: `Changed to ${status.replace('_', ' ')} by ${actorName} via Attendance Records`,
+          });
+          revertedEmployeeIds.add(String(employee.id));
+        } catch (err) {
+          failures.push({ employeeId: employee.id, name: employee.name || null, error: err.message });
+          continue;
+        }
+      }
+    }
+    eligibleEmployees.push(employee);
+  }
+
   const changedEmployees = [];
   await db.sequelize.transaction(async (t) => {
-    for (const employee of employees) {
+    for (const employee of eligibleEmployees) {
       const [attendance, created] = await db.Attendance.findOrCreate({
         where: { employeeId: employee.id, date },
         defaults: { employeeId: employee.id, date, status },
         transaction: t,
       });
-      const isChange = created || attendance.status !== status;
+      // A reverted leave counts as a change even when the revert itself
+      // already put the row on the requested status (leave → present).
+      const isChange = created || attendance.status !== status || revertedEmployeeIds.has(String(employee.id));
       if (!created && attendance.status !== status) {
         await attendance.update({ status }, { transaction: t });
       }
@@ -993,7 +1104,7 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
     });
   }
 
-  return { updated: changedEmployees.length, total: employees.length, failures: [] };
+  return { updated: changedEmployees.length, total: employees.length, failures };
 }
 
 async function listAttendance({ companyId, employeeId, brandId, from, to, limit, offset }) {

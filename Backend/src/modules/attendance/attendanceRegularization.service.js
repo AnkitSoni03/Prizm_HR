@@ -9,6 +9,19 @@ const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 const { buildBusinessDateTime } = require('../../utils/dateRange');
 const { resolveCheckOutDateTime } = require('../../utils/shiftTime');
+const { findApprovedLeavesOnDate } = require('../leave/leaveRequest.service');
+
+// An approved FULL-day leave (Annual, Short Leave, Unpaid...) owns the day's
+// status: an employee's correction may only fix the punch times, never turn
+// 'leave' into present/absent — that would leave the leave approved and its
+// balance spent while the day no longer shows it. Changing the status of a
+// leave day is an admin action (Attendance Records → Change Status), which
+// reverts the leave and refunds the balance. A half-day leave never set the
+// day's status (the employee works the other half), so it doesn't lock it.
+async function findFullDayLeaveOnDate({ employeeId, date }) {
+  const leaves = await findApprovedLeavesOnDate({ employeeId, date });
+  return leaves.find((leave) => !leave.halfDaySession) || null;
+}
 
 async function listRegularizations({ companyId, brandId, employeeId, status, limit, offset }) {
   const where = {};
@@ -57,6 +70,17 @@ async function createRegularization({
 }) {
   const employee = await db.Employee.findOne({ where: { id: employeeId, companyId } });
   if (!employee) throw new HttpError(404, 'Employee not found');
+
+  const fullDayLeave = await findFullDayLeaveOnDate({ employeeId, date });
+  if (fullDayLeave && requestedStatus !== 'leave') {
+    throw new HttpError(
+      409,
+      `${date} is an approved ${fullDayLeave.leaveType?.name ?? 'leave'} — you can only correct the times. Ask an admin to change the status.`
+    );
+  }
+  if (!fullDayLeave && requestedStatus === 'leave') {
+    throw new HttpError(400, 'To take leave, apply for it from My Leave');
+  }
 
   const [attendance] = await db.Attendance.findOrCreate({
     where: { employeeId, date },
@@ -138,6 +162,10 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
       : regularization.requestedCheckOut;
 
   const before = regularization.attendance;
+  // Re-checked at approval time: the leave may have been approved after the
+  // correction was submitted. While it stands, only the times change.
+  const fullDayLeave = await findFullDayLeaveOnDate({ employeeId: regularization.employeeId, date: attendanceDate });
+  const finalStatus = fullDayLeave ? 'leave' : regularization.requestedStatus === 'leave' ? before.status : regularization.requestedStatus;
   await db.sequelize.transaction(async (t) => {
     // Snapshot first — the update below overwrites these, and
     // revokeRegularization needs them back.
@@ -149,7 +177,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
     };
     await regularization.attendance.update(
       {
-        status: regularization.requestedStatus,
+        status: finalStatus,
         ...(finalCheckIn ? { checkIn: finalCheckIn } : {}),
         ...(finalCheckOut ? { checkOut: finalCheckOut, checkoutMissed: false } : {}),
       },
@@ -162,6 +190,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
         approverUserId,
         requestedCheckIn: finalCheckIn,
         requestedCheckOut: finalCheckOut,
+        requestedStatus: finalStatus,
         ...snapshot,
       },
       { transaction: t }
@@ -180,7 +209,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
   // A regularization can also correct a day's status to present/on_duty on
   // a holiday/weekoff — same comp-off trigger as a normal check-in
   // (PHASE4_MODELS.md), run after commit and non-blocking on failure.
-  if (regularization.requestedStatus === 'present' || regularization.requestedStatus === 'on_duty') {
+  if (finalStatus === 'present' || finalStatus === 'on_duty') {
     try {
       await checkAndCreateCompOffCredit({
         employeeId: regularization.employeeId,
