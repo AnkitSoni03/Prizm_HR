@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Briefcase, Building2, MoreVertical, Plus, Search, ShieldCheck, Users } from 'lucide-react';
+import { Activity, Briefcase, Building2, MoreVertical, Plus, Search, ShieldCheck, UserRound, Users } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
@@ -8,6 +8,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useAuth } from '../../context/auth-context';
+import { BulkAssignHrModal } from '../../components/BulkAssignHrModal';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments, listDesignations } from '../../api/companyAdmin/org';
 import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
@@ -44,6 +45,8 @@ export function EmployeesPage() {
   const { user, hasPermission } = useAuth();
   const brandId = user?.roles.find((role) => role.name === 'Brand Admin')?.brandId ?? null;
   const canCreate = hasPermission('employee:create');
+  const canAssignHr = hasPermission('employee:update');
+  const [isAssignHrOpen, setIsAssignHrOpen] = useState(false);
   const canReadRosterGroups = hasPermission('roster_group:read');
 
   const [ownBrand, setOwnBrand] = useState<Brand | null>(null);
@@ -175,12 +178,20 @@ export function EmployeesPage() {
             />
           </div>
         </div>
-        {canCreate && ownBrand && (
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="h-4 w-4" strokeWidth={1.75} />
-            Add Employee
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canAssignHr && (
+            <Button variant="secondary" onClick={() => setIsAssignHrOpen(true)}>
+              <UserRound className="h-4 w-4" strokeWidth={1.75} />
+              Assign HR
+            </Button>
+          )}
+          {canCreate && ownBrand && (
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Plus className="h-4 w-4" strokeWidth={1.75} />
+              Add Employee
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
@@ -352,6 +363,16 @@ export function EmployeesPage() {
             setSelectedEmployee(null);
           }}
           onPhotoChanged={loadEmployees}
+        />
+      )}
+      {isAssignHrOpen && (
+        <BulkAssignHrModal
+          brandId={brandId ?? undefined}
+          onClose={() => setIsAssignHrOpen(false)}
+          onDone={() => {
+            setIsAssignHrOpen(false);
+            loadEmployees();
+          }}
         />
       )}
     </div>

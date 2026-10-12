@@ -11,6 +11,10 @@ module.exports = (sequelize, DataTypes) => {
       Employee.belongsTo(models.Department, { foreignKey: 'departmentId', as: 'department' });
       Employee.belongsTo(models.Designation, { foreignKey: 'designationId', as: 'designation' });
       Employee.belongsTo(models.Employee, { foreignKey: 'managerId', as: 'manager' });
+      // Assigned HR — a name-only reference; its one effect is deciding this
+      // employee's resignation (modules/org/resignation.service.js).
+      Employee.belongsTo(models.Employee, { foreignKey: 'hrEmployeeId', as: 'hrEmployee' });
+      Employee.hasMany(models.Resignation, { foreignKey: 'employeeId', as: 'resignations' });
       Employee.belongsTo(models.RosterGroup, { foreignKey: 'rosterGroupId', as: 'rosterGroup' });
       // Optional, admin-assigned enrollment in the comp-off benefit — see
       // compOff.service.js::checkAndCreateCompOffCredit, which returns
@@ -68,6 +72,7 @@ module.exports = (sequelize, DataTypes) => {
       departmentId: { type: DataTypes.BIGINT, allowNull: true },
       designationId: { type: DataTypes.BIGINT, allowNull: true },
       managerId: { type: DataTypes.BIGINT, allowNull: true },
+      hrEmployeeId: { type: DataTypes.BIGINT, allowNull: true },
       // Optional add-on: null keeps this employee on company/brand-wide
       // holidays, the company-wide leave policy, and their own
       // employee_shifts default — exactly as before this column existed.

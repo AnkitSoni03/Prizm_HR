@@ -18,6 +18,10 @@ interface GroupManagerPickerProps {
   placeholder?: string;
   disabled?: boolean;
   helperText?: string;
+  // One pick only (e.g. the HR field): picking replaces the selection.
+  single?: boolean;
+  // Tag employees with no ESS login (e.g. an HR who couldn't log in to act).
+  flagNoLogin?: boolean;
 }
 
 // One pickable unit: a Brand, or a direct-mode Company (no Brands).
@@ -68,6 +72,8 @@ export function GroupManagerPicker({
   placeholder = 'No manager',
   disabled = false,
   helperText,
+  single = false,
+  flagNoLogin = false,
 }: GroupManagerPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [units, setUnits] = useState<OrgUnit[] | null>(null);
@@ -150,6 +156,10 @@ export function GroupManagerPicker({
   }, [activeUnit, employeeFilter]);
 
   function toggle(employeeId: string) {
+    if (single) {
+      onChange(selectedIds.includes(employeeId) ? [] : [employeeId]);
+      return;
+    }
     onChange(
       selectedIds.includes(employeeId) ? selectedIds.filter((id_) => id_ !== employeeId) : [...selectedIds, employeeId]
     );
@@ -197,7 +207,7 @@ export function GroupManagerPicker({
                   <span
                     role="button"
                     tabIndex={-1}
-                    aria-label="Remove manager"
+                    aria-label="Remove"
                     onClick={(event) => {
                       event.stopPropagation();
                       toggle(selectedId);
@@ -288,12 +298,17 @@ export function GroupManagerPicker({
                     className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-page"
                   >
                     <input
-                      type="checkbox"
+                      type={single ? 'radio' : 'checkbox'}
+                      name={single ? `${id}-single` : undefined}
                       checked={selectedIds.includes(employee.id)}
                       onChange={() => toggle(employee.id)}
+                      onClick={single && selectedIds.includes(employee.id) ? () => toggle(employee.id) : undefined}
                       className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
                     />
                     <span className="text-ink">{formatEmployeeLabel(employee)}</span>
+                    {flagNoLogin && !employee.userId && (
+                      <span className="ml-auto shrink-0 text-xs text-warning">No login</span>
+                    )}
                   </label>
                 ))}
               </div>

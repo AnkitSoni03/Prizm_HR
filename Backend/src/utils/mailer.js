@@ -62,7 +62,7 @@ function buildLogoUrl() {
 // Wraps every outgoing email with the same logo header, so individual
 // templates (activation, password reset, and any future one) don't each
 // need to duplicate it.
-async function sendMail({ to, subject, html, text }) {
+async function sendMail({ to, subject, html, text, replyTo, fromDisplayName }) {
   const fromName = process.env.MAIL_FROM_NAME || 'HRMS';
   const fromEmail = process.env.MAIL_FROM_EMAIL || process.env.SMTP_USER;
 
@@ -76,8 +76,14 @@ async function sendMail({ to, subject, html, text }) {
   `;
 
   const t = await getTransporter();
+  // fromDisplayName lets an email read as coming from a person ("Ankit
+  // Kumar (via HRMS)") while still being sent by the configured SMTP
+  // account — Gmail won't send as an arbitrary address. Replies go to
+  // replyTo when given (e.g. the resigning employee's own email).
+  const displayName = (fromDisplayName || fromName).replace(/"/g, '');
   await t.sendMail({
-    from: `"${fromName}" <${fromEmail}>`,
+    from: `"${displayName}" <${fromEmail}>`,
+    replyTo: replyTo || undefined,
     to,
     subject,
     html: brandedHtml,

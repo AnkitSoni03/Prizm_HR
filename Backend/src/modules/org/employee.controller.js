@@ -76,6 +76,7 @@ async function create(req, res, next) {
       departmentId,
       designationId,
       managerId,
+      hrEmployeeId,
       rosterGroupId,
       userId,
       dateOfJoining,
@@ -118,6 +119,7 @@ async function create(req, res, next) {
       departmentId,
       designationId,
       managerId,
+      hrEmployeeId,
       rosterGroupId,
       userId,
       dateOfJoining,
@@ -273,6 +275,21 @@ async function assignPowers(req, res, next) {
       auth: req.auth,
     });
     res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function bulkAssignHr(req, res, next) {
+  try {
+    const result = await service.bulkAssignHr({
+      companyId: req.auth.companyId,
+      groupId: req.auth.groupId,
+      employeeIds: req.body.employeeIds,
+      hrEmployeeId: req.body.hrEmployeeId || null,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
+    res.json({ data: result });
   } catch (err) {
     next(err);
   }
@@ -440,6 +457,7 @@ module.exports = {
   setActive,
   assignPowers,
   setManagers,
+  bulkAssignHr,
   getMyManagers,
   getProbationAlerts,
   uploadPhoto,

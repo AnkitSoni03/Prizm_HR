@@ -45,7 +45,9 @@ async function listManagerCompanies({ companyId }) {
   });
 }
 
-const OPTION_ATTRIBUTES = ['id', 'name', 'employeeCode', 'companyId', 'brandId'];
+// userId lets the HR picker flag employees with no ESS login (they could
+// never act on a resignation).
+const OPTION_ATTRIBUTES = ['id', 'name', 'employeeCode', 'companyId', 'brandId', 'userId'];
 const OPTION_INCLUDE = [
   { model: db.Company, as: 'company', attributes: ['id', 'name'] },
   { model: db.Brand, as: 'brand', attributes: ['id', 'name'] },

@@ -39,6 +39,7 @@ export async function createEmployee(input: {
   departmentId: string;
   designationId: string | null;
   managerId: string | null;
+  hrEmployeeId?: string | null;
   rosterGroupId?: string | null;
   dateOfJoining: string;
   dateOfBirth?: string;
@@ -63,6 +64,7 @@ export async function updateEmployee(
     dateOfBirth: string | null;
     gender: 'male' | 'female' | 'other' | null;
     managerId: string | null;
+    hrEmployeeId: string | null;
     workState: string | null;
     weekOffLeaveBlockedDays: number[];
   }>
@@ -161,6 +163,12 @@ export async function assignEmployeePowers(id: string, powers: PowerLevelMap): P
 // with the primary manager, this is the full set a multi-manager leave
 // request needs unanimous approval from — see
 // employee.service.js::setEmployeeManagers.
+// Bulk "Assign HR" from the Employees list (null clears it).
+export async function bulkAssignHr(employeeIds: string[], hrEmployeeId: string | null): Promise<{ updated: number }> {
+  const { data } = await apiClient.put<{ data: { updated: number } }>('/employees/bulk/hr', { employeeIds, hrEmployeeId });
+  return data.data;
+}
+
 export async function setEmployeeManagers(id: string, managerIds: string[]): Promise<Employee> {
   const { data } = await apiClient.put<{ data: Employee }>(`/employees/${id}/managers`, { managerIds });
   return data.data;
@@ -183,6 +191,8 @@ export interface ManagerEmployeeOption {
   employeeCode: string | null;
   companyId: string;
   brandId: string | null;
+  // Null = no ESS login (flagged in the HR picker).
+  userId?: string | null;
   company?: { id: string; name: string } | null;
   brand?: { id: string; name: string } | null;
 }

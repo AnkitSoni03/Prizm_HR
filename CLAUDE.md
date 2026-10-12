@@ -1283,6 +1283,23 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   (`employee.routes.js::holdsOutsidePowers`) so a power can't hand out powers; frontend mirrors it
   via `roleRedirect.ts::hasAdminRole`. Also: `GET /employees/:id` now 404s another Brand's employee
   for a brand-scoped reader. Not live-tested with a holder of the new powers.
+- ✅ Resignations + assigned HR (2026-10-12): new `employees.hr_employee_id` (name-only
+  reference like `manager_id`, any company of the Group, never self — validated with
+  `assertManagersInGroup(..., label: 'HR')`). Grants nothing except: ONLY that HR can
+  accept/reject the employee's resignation (managers' powers are unaffected; someone who is
+  both manager and HR just gets both). New `resignations` table + `modules/org/resignation.*`
+  (`/resignations`: `POST /`, `GET /mine`, `PATCH /:id/withdraw`, `GET /team` (HR + manager
+  view, Group-wide), `GET /` (Company/Brand Admin, view-only), `PATCH /:id/decision`). Submit/
+  withdraw notify managers + assigned HR + `resignation:read` holders (Company Admin, Brand
+  Admin of that brand, HR Manager) on the dashboard AND by email (From "<Employee> (via HRMS)",
+  Reply-To the employee's login email — `mailer.js::sendMail` gained `replyTo`/
+  `fromDisplayName`). Decision notifies the employee (dashboard + email, Reply-To the HR);
+  accept sets `employees.status = 'on_notice'` and optional final last working day; reject
+  requires a reason; audited in `approval_histories` (`request_type 'resignation'`). No HR
+  assigned → still submits, waits; assigning HR later notifies them. Bulk "Assign HR" on
+  Company/Brand Admin Employees pages (`PUT /employees/bulk/hr`). Migrations
+  `20261012090000`–`090200` + seeder `20261012090000`. tsc/eslint/vite build clean; decision
+  rules mock-tested offline — **not live-tested, migrations + seeder not applied** (.env is prod).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

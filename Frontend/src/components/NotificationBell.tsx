@@ -79,6 +79,19 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
 
   if (!notification.requestType) return null;
 
+  // Resignations: the employee's own decision goes to their ESS page; a
+  // submitted/withdrawn one goes to the recipient's resignation list (ESS
+  // "Team" tab for an HR/manager).
+  if (notification.requestType === 'resignation') {
+    if (notification.type === 'resignation_accepted' || notification.type === 'resignation_rejected') {
+      return '/ess/resignation';
+    }
+    if (portal === '/company-admin') return '/company-admin/resignations';
+    if (portal === '/brand-admin') return '/brand-admin/resignations';
+    if (portal === '/ess') return '/ess/resignation?tab=team';
+    return null;
+  }
+
   // Payroll notifications (payslip processed / marked paid) always belong
   // to the recipient's own payslip view — there's no admin-facing "pending"
   // variant for payroll (runs are admin-initiated, not employee-submitted).

@@ -77,6 +77,8 @@ import { LeaveBalancePage } from '../pages/ess/LeaveBalancePage';
 import { MyLeavePage } from '../pages/ess/MyLeavePage';
 import { TeamApprovalsPage } from '../pages/ess/TeamApprovalsPage';
 import { MyOdPage } from '../pages/ess/MyOdPage';
+import { ResignationPage } from '../pages/ess/ResignationPage';
+import { ResignationsPage } from '../pages/company-admin/ResignationsPage';
 import { MyCompOffPage } from '../pages/ess/MyCompOffPage';
 import { MyPayslipsPage } from '../pages/ess/MyPayslipsPage';
 import { HolidaysPage as EssHolidaysPage } from '../pages/ess/HolidaysPage';
@@ -222,6 +224,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="shift:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Shifts">
               <ShiftsRostersPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/company-admin/resignations"
+        element={
+          <ProtectedRoute permission="resignation:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Resignations">
+              <ResignationsPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -459,6 +472,17 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/brand-admin/resignations"
+        element={
+          <ProtectedRoute permission="resignation:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Resignations">
+              <ResignationsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/brand-admin/approvals"
         element={
           <ProtectedRoute permission="leave_request:read">
@@ -631,6 +655,17 @@ export function AppRoutes() {
           >
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Team Approvals">
               <TeamApprovalsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/ess/resignation"
+        element={
+          <ProtectedRoute permission="resignation:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Resignation">
+              <ResignationPage />
             </Layout>
           </ProtectedRoute>
         }

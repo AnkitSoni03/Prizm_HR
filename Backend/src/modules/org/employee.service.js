@@ -157,6 +157,9 @@ async function getEmployeeForRead(id) {
       { model: db.Department, as: 'department', attributes: ['id', 'name'] },
       { model: db.Designation, as: 'designation', attributes: ['id', 'title'] },
       { model: db.Employee, as: 'manager', attributes: ['id', 'name', 'employeeCode'] },
+      // Assigned HR (may be in a sibling company of the Group). The include
+      // runs under the caller's tenant scope like `manager` above.
+      { model: db.Employee, as: 'hrEmployee', attributes: ['id', 'name', 'employeeCode', 'companyId', 'brandId'] },
       // Any managers beyond the primary one above — see
       // utils/managerScope.js::getManagersForEmployee for the full
       // (manager + these) set the multi-manager leave-approval workflow
@@ -289,6 +292,7 @@ async function createEmployee({
   departmentId,
   designationId,
   managerId,
+  hrEmployeeId,
   rosterGroupId,
   userId,
   dateOfJoining,
@@ -322,6 +326,9 @@ async function createEmployee({
   if (designationId) await assertOwnedByBrand(db.Designation, designationId, companyId, brandId, 'Designation');
   // A manager may be in any company of this company's Group (managerScope.js).
   if (managerId) await assertManagersInGroup({ employeeCompanyId: companyId, managerIds: [managerId] });
+  // Assigned HR: name-only reference, any company of the Group (same rule as
+  // managers). Only effect: deciding this employee's resignation.
+  if (hrEmployeeId) await assertManagersInGroup({ employeeCompanyId: companyId, managerIds: [hrEmployeeId], label: 'HR' });
   if (rosterGroupId) await assertOwnedByBrand(db.RosterGroup, rosterGroupId, companyId, brandId, 'Roster Group');
 
   // Roster is no longer a precondition for creating an employee — it can be
@@ -342,6 +349,7 @@ async function createEmployee({
       departmentId: departmentId || null,
       designationId: designationId || null,
       managerId: managerId || null,
+      hrEmployeeId: hrEmployeeId || null,
       rosterGroupId: rosterGroupId || null,
       userId: userId || null,
       dateOfJoining: dateOfJoining || null,
@@ -383,7 +391,7 @@ async function createEmployee({
 // no separate permission code is needed. Optional and harmless to set on any
 // employee — it only ever affects behavior for one on a 0-weekly-off +
 // Week-Off-Leave-enabled roster (see leaveRequest.service.js::createLeaveRequest).
-const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'userId', 'workState', 'weekOffLeaveBlockedDays', 'probationPeriodDays'];
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'hrEmployeeId', 'userId', 'workState', 'weekOffLeaveBlockedDays', 'probationPeriodDays'];
 
 async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
@@ -400,6 +408,13 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
     if (String(patch.managerId) === String(employee.id)) throw new HttpError(400, 'An employee cannot be their own manager');
     await assertManagersInGroup({ employeeCompanyId: employee.companyId, managerIds: [patch.managerId] });
   }
+  if (patch.hrEmployeeId) {
+    if (String(patch.hrEmployeeId) === String(employee.id)) throw new HttpError(400, 'An employee cannot be their own HR');
+    await assertManagersInGroup({ employeeCompanyId: employee.companyId, managerIds: [patch.hrEmployeeId], label: 'HR' });
+  }
+  if (patch.hrEmployeeId === '') patch.hrEmployeeId = null;
+  const hrChanged =
+    patch.hrEmployeeId !== undefined && String(patch.hrEmployeeId ?? '') !== String(employee.hrEmployeeId ?? '');
   if (patch.designationId) await assertOwnedByBrand(db.Designation, patch.designationId, companyId, employee.brandId, 'Designation');
   if (patch.probationPeriodDays !== undefined) {
     patch.probationPeriodDays = normalizeProbationPeriodDays(patch.probationPeriodDays);
@@ -426,6 +441,11 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
 
   if (patch.managerId !== undefined) {
     await syncPendingManagerApprovals({ companyId: employee.companyId, employeeId: employee.id });
+  }
+
+  // A pending resignation now has a (new) HR to decide it — tell them.
+  if (hrChanged && employee.hrEmployeeId) {
+    await require('./resignation.service').notifyHrOfPendingResignation(employee.id);
   }
 
   // Same as createEmployee: if this edit puts the employee inside the
@@ -540,7 +560,7 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
   // paranoid: false — a soft-deleted row is still physically present and
   // will still be swept up by the DB cascade below, so its GCS object (or
   // approval-history trail) must be collected too, not skipped.
-  const [documents, attendanceRows, faceProfile, leaveRequests, odRequests, regularizations, compOffCredits] =
+  const [documents, attendanceRows, faceProfile, leaveRequests, odRequests, regularizations, compOffCredits, resignations] =
     await Promise.all([
       db.EmployeeDocument.findAll({ where: { employeeId: id }, paranoid: false }),
       db.Attendance.findAll({ where: { employeeId: id }, paranoid: false }),
@@ -549,6 +569,7 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
       db.OdRequest.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
       db.AttendanceRegularization.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
       db.CompOffCredit.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
+      db.Resignation.findAll({ where: { employeeId: id }, attributes: ['id'], paranoid: false }),
     ]);
 
   const gcsPaths = [];
@@ -574,6 +595,7 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
           { requestType: 'od_request', requestId: { [Op.in]: odRequests.map((r) => r.id) } },
           { requestType: 'attendance_regularization', requestId: { [Op.in]: regularizations.map((r) => r.id) } },
           { requestType: 'comp_off_credit', requestId: { [Op.in]: compOffCredits.map((r) => r.id) } },
+          { requestType: 'resignation', requestId: { [Op.in]: resignations.map((r) => r.id) } },
         ],
       },
       force: true,
@@ -900,7 +922,43 @@ async function removeEmployeePhoto({ companyId, id, scopedBrandIds }) {
   return withPhotoUrl(employee);
 }
 
+// Bulk "Assign HR" from the Employees list — same employee:update gate and
+// company/brand scoping as a single PATCH, applied to every id. All-or-
+// nothing: any id outside the caller's reach 404s the whole call before
+// anything is written.
+async function bulkAssignHr({ companyId, employeeIds, hrEmployeeId, scopedBrandIds, groupId }) {
+  const ids = [...new Set((Array.isArray(employeeIds) ? employeeIds : []).map(String))];
+  if (ids.length === 0) throw new HttpError(400, 'employeeIds is required');
+  if (ids.length > 1000) throw new HttpError(400, 'Too many employees in one call (max 1000)');
+
+  const employees = [];
+  for (const id of ids) {
+    employees.push(await getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId }));
+  }
+
+  const hrId = hrEmployeeId ? String(hrEmployeeId) : null;
+  if (hrId) {
+    if (ids.includes(hrId)) throw new HttpError(400, 'An employee cannot be their own HR');
+    for (const companyIdOfEmployee of new Set(employees.map((e) => String(e.companyId)))) {
+      await assertManagersInGroup({ employeeCompanyId: companyIdOfEmployee, managerIds: [hrId], label: 'HR' });
+    }
+  }
+
+  const changed = employees.filter((e) => String(e.hrEmployeeId ?? '') !== String(hrId ?? ''));
+  for (const employee of changed) {
+    await employee.update({ hrEmployeeId: hrId });
+  }
+  if (hrId) {
+    const resignationService = require('./resignation.service');
+    for (const employee of changed) {
+      await resignationService.notifyHrOfPendingResignation(employee.id);
+    }
+  }
+  return { updated: changed.length };
+}
+
 module.exports = {
+  bulkAssignHr,
   listEmployees,
   getEmployeeForRead,
   getEmployeeForWrite,

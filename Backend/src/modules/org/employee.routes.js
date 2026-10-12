@@ -122,6 +122,9 @@ router.put('/:id/powers', requirePowerAssignAccess, controller.assignPowers);
 // Same employee:update gate as the powers route above — any admin who can
 // already edit an employee can manage their additional managers too.
 router.put('/:id/managers', requirePermission('employee:update'), controller.setManagers);
+// Bulk "Assign HR" — same employee:update gate; the service applies the
+// caller's company/brand scope to every employee id.
+router.put('/bulk/hr', requirePermission('employee:update'), controller.bulkAssignHr);
 router.patch('/:id/transfer', requirePermission('employee:transfer'), controller.transfer);
 // Gated by the same employee:update permission as the generic PATCH — no
 // separate gate permission, matching the powers/photo precedent above.

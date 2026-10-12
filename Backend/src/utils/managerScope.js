@@ -29,8 +29,8 @@ async function getGroupCompanyIds(companyId) {
 }
 
 // 400s unless every managerId is an employee of a company in
-// employeeCompanyId's Group.
-async function assertManagersInGroup({ employeeCompanyId, managerIds }) {
+// employeeCompanyId's Group. Also used for the assigned HR (label 'HR').
+async function assertManagersInGroup({ employeeCompanyId, managerIds, label = 'Manager' }) {
   const ids = [...new Set((managerIds || []).filter(Boolean).map(String))];
   if (ids.length === 0) return;
   const companyIds = await getGroupCompanyIds(employeeCompanyId);
@@ -41,7 +41,7 @@ async function assertManagersInGroup({ employeeCompanyId, managerIds }) {
     })
   );
   if (found.length !== ids.length) {
-    throw new HttpError(400, 'Manager not found in this group');
+    throw new HttpError(400, `${label} not found in this group`);
   }
 }
 

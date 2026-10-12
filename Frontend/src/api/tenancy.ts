@@ -141,6 +141,10 @@ export interface Employee {
   departmentId: string | null;
   designationId: string | null;
   managerId: string | null;
+  // Assigned HR — name only; their one power is accepting/rejecting this
+  // employee's resignation. hrEmployee is eager-loaded by GET /employees/:id.
+  hrEmployeeId?: string | null;
+  hrEmployee?: { id: string; name: string | null; employeeCode: string | null } | null;
   // Optional add-on: null keeps this employee on company/brand-wide
   // holidays, the company-wide leave policy, and their own employee_shifts
   // default — exactly as if Roster Groups didn't exist.

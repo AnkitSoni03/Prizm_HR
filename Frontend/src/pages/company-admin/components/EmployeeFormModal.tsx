@@ -81,6 +81,7 @@ export function EmployeeFormModal({
   const [designationId, setDesignationId] = useState('');
   const [newDesignationTitle, setNewDesignationTitle] = useState('');
   const [managerIds, setManagerIds] = useState<string[]>([]);
+  const [hrIds, setHrIds] = useState<string[]>([]);
   const [rosterGroupId, setRosterGroupId] = useState('');
   const [dateOfJoining, setDateOfJoining] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
@@ -181,6 +182,7 @@ export function EmployeeFormModal({
         departmentId: resolvedDepartmentId,
         designationId: resolvedDesignationId || null,
         managerId: managerIds[0] || null,
+        hrEmployeeId: hrIds[0] || null,
         rosterGroupId: rosterGroupId || null,
         dateOfJoining,
         dateOfBirth: dateOfBirth || undefined,
@@ -400,6 +402,16 @@ export function EmployeeFormModal({
           onChange={setManagerIds}
           placeholder="No manager"
           helperText="Pick one or more from any company/brand. All must approve."
+        />
+        <GroupManagerPicker
+          id="employee-hr"
+          label="HR (optional)"
+          selectedIds={hrIds}
+          onChange={setHrIds}
+          placeholder="No HR"
+          single
+          flagNoLogin
+          helperText="Name only. This HR accepts or rejects the employee's resignation."
         />
         <Select
           id="employee-roster-group"

@@ -17,7 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       userId: { type: DataTypes.BIGINT, allowNull: false },
       type: { type: DataTypes.STRING, allowNull: false },
       requestType: {
-        type: DataTypes.ENUM('leave_request', 'od_request', 'attendance_regularization', 'comp_off_credit'),
+        type: DataTypes.ENUM('leave_request', 'od_request', 'attendance_regularization', 'comp_off_credit', 'resignation'),
         allowNull: true,
       },
       requestId: { type: DataTypes.BIGINT, allowNull: true },

@@ -3,6 +3,7 @@ import {
   CalendarCheck,
   CalendarClock,
   ClipboardCheck,
+  DoorOpen,
   ClipboardList,
   FileCheck2,
   FileText,
@@ -65,6 +66,7 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Shifts', path: '/company-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Roster', path: '/company-admin/roster-groups', icon: Layers, permission: 'roster_group:read' },
   { label: 'Approvals', path: '/company-admin/approvals', icon: ClipboardCheck },
+  { label: 'Resignations', path: '/company-admin/resignations', icon: DoorOpen, permission: 'resignation:read' },
   { label: 'Attendance Records', path: '/company-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/company-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Holidays', path: '/company-admin/holidays', icon: CalendarClock },
@@ -91,6 +93,7 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Shifts', path: '/brand-admin/shifts-rosters', icon: CalendarCheck },
   { label: 'Roster', path: '/brand-admin/roster-groups', icon: Layers, permission: 'roster_group:read' },
   { label: 'Approvals', path: '/brand-admin/approvals', icon: ClipboardCheck },
+  { label: 'Resignations', path: '/brand-admin/resignations', icon: DoorOpen, permission: 'resignation:read' },
   { label: 'Attendance Records', path: '/brand-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/brand-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
   { label: 'Holidays', path: '/brand-admin/holidays', icon: CalendarClock },
@@ -115,6 +118,7 @@ export const ESS_NAV: NavItem[] = [
   },
   { label: 'My OD', path: '/ess/od', icon: Send },
   { label: 'My Comp-Off', path: '/ess/comp-off', icon: RefreshCw },
+  { label: 'Resignation', path: '/ess/resignation', icon: DoorOpen, permission: 'resignation:read_own' },
   { label: 'Comp Off Setting', path: '/ess/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
   // Power pages — same pages Company Admin uses, shown only to holders of
   // "Manage Employees" / "Assign Leaves" / "Attendance Records & Board".

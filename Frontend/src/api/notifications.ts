@@ -15,7 +15,11 @@ export interface AppNotification {
     | 'document_upload_request'
     | 'holiday_reminder'
     | 'leave_balance_updated'
-    | 'probation_ending';
+    | 'probation_ending'
+    | 'resignation_submitted'
+    | 'resignation_withdrawn'
+    | 'resignation_accepted'
+    | 'resignation_rejected';
   requestType:
     | 'leave_request'
     | 'od_request'
@@ -24,6 +28,7 @@ export interface AppNotification {
     | 'payroll_run'
     | 'employee_document'
     | 'document_upload_request'
+    | 'resignation'
     | null;
   requestId: string | null;
   title: string;

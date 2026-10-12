@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Briefcase, Building2, ChevronDown, ChevronUp, MoreVertical, Pencil, Plus, ShieldCheck, Users } from 'lucide-react';
+import { Activity, Briefcase, Building2, ChevronDown, ChevronUp, MoreVertical, Pencil, Plus, ShieldCheck, UserRound, Users } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
@@ -8,6 +8,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { EmptyStateCard } from '../../components/EmptyStateCard';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useAuth } from '../../context/auth-context';
+import { BulkAssignHrModal } from '../../components/BulkAssignHrModal';
 import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments, listDesignations } from '../../api/companyAdmin/org';
 import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
@@ -220,6 +221,8 @@ interface BrandGroup {
 export function EmployeesPage() {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission('employee:create');
+  const canAssignHr = hasPermission('employee:update');
+  const [isAssignHrOpen, setIsAssignHrOpen] = useState(false);
   const canReadRosterGroups = hasPermission('roster_group:read');
 
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -422,12 +425,20 @@ export function EmployeesPage() {
             />
           </div>
         </div>
-        {canCreate && (
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="h-4 w-4" strokeWidth={1.75} />
-            Add Employee
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canAssignHr && (
+            <Button variant="secondary" onClick={() => setIsAssignHrOpen(true)}>
+              <UserRound className="h-4 w-4" strokeWidth={1.75} />
+              Assign HR
+            </Button>
+          )}
+          {canCreate && (
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Plus className="h-4 w-4" strokeWidth={1.75} />
+              Add Employee
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && <p className="text-sm text-danger">{error}</p>}
@@ -557,6 +568,15 @@ export function EmployeesPage() {
             setSelectedEmployee(null);
           }}
           onPhotoChanged={reloadAll}
+        />
+      )}
+      {isAssignHrOpen && (
+        <BulkAssignHrModal
+          onClose={() => setIsAssignHrOpen(false)}
+          onDone={() => {
+            setIsAssignHrOpen(false);
+            reloadAll();
+          }}
         />
       )}
     </div>

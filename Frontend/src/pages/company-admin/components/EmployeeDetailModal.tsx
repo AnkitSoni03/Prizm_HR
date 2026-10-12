@@ -189,6 +189,8 @@ export function EmployeeDetailModal({
   // primary manager (all `employee` prop has, from the list view); the
   // effect below fills in any additional ones once the full record loads.
   const [managerIds, setManagerIds] = useState<string[]>(employee.managerId ? [employee.managerId] : []);
+  // Assigned HR (one) — name only; decides this employee's resignation.
+  const [hrIds, setHrIds] = useState<string[]>(employee.hrEmployeeId ? [employee.hrEmployeeId] : []);
   const [dateOfJoining, setDateOfJoining] = useState(employee.dateOfJoining ?? '');
   const [dateOfBirth, setDateOfBirth] = useState(employee.dateOfBirth ?? '');
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>(employee.gender ?? '');
@@ -215,6 +217,7 @@ export function EmployeeDetailModal({
         const additional = (full.additionalManagerLinks ?? []).map((link) => link.manager.id);
         const primary = full.managerId ? [full.managerId] : [];
         setManagerIds([...new Set([...primary, ...additional])]);
+        setHrIds(full.hrEmployeeId ? [full.hrEmployeeId] : []);
         setWeekOffLeaveBlockedDays(full.weekOffLeaveBlockedDays ?? []);
         setResolvedShift(full.defaultShift ?? full.todayRoster?.shift ?? null);
       })
@@ -721,6 +724,7 @@ export function EmployeeDetailModal({
         dateOfBirth: dateOfBirth || null,
         gender: gender || null,
         managerId: managerIds[0] || null,
+        hrEmployeeId: hrIds[0] || null,
         workState: workState || null,
         weekOffLeaveBlockedDays,
       });
@@ -1121,6 +1125,18 @@ export function EmployeeDetailModal({
                 disabled={!canUpdate}
                 placeholder="No manager"
                 helperText="Pick one or more from any company/brand. All must approve."
+              />
+              <GroupManagerPicker
+                id="employee-hr-edit"
+                label="HR"
+                selectedIds={hrIds}
+                onChange={setHrIds}
+                excludeEmployeeId={employee.id}
+                disabled={!canUpdate}
+                placeholder="No HR"
+                single
+                flagNoLogin
+                helperText="Name only. This HR accepts or rejects the employee's resignation."
               />
               <Input
                 id="employee-doj-edit"
