@@ -7,9 +7,10 @@ const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const templates = require('./payrollTemplate.service');
 const assignments = require('./salaryAssignment.service');
 const payrolls = require('./employeePayroll.service');
+const bonuses = require('./payrollBonus.service');
 const { payrollManagerRecipients } = require('./payrollAccess');
 const { buildPayslipPdfBuffer } = require('./payslipPdf.service');
-const { BUILT_IN_ITEMS } = require('./payrollRules');
+const { BUILT_IN_ITEMS, BONUS_TYPES } = require('./payrollRules');
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -88,6 +89,24 @@ module.exports = {
     res.status(204).end();
   }),
 
+  // ---- One-time bonuses / extra pay ----
+  listBonuses: wrap(async (req, res) => {
+    const { limit, offset } = parsePagination(req.query);
+    const { rows, count, total } = await bonuses.listBonuses(req.payroll, { ...req.query, limit, offset });
+    res.json({ data: rows, total, types: BONUS_TYPES, pagination: { total: count, limit, offset } });
+  }),
+  createBonus: wrap(async (req, res) => {
+    const { created, skipped } = await bonuses.createBonuses(req.payroll, { body: req.body, userId: req.auth.userId });
+    res.status(201).json({ data: created, skipped });
+  }),
+  updateBonus: wrap(async (req, res) => {
+    res.json({ data: await bonuses.updateBonus(req.payroll, { id: req.params.id, body: req.body, userId: req.auth.userId }) });
+  }),
+  deleteBonus: wrap(async (req, res) => {
+    await bonuses.deleteBonus(req.payroll, { id: req.params.id });
+    res.status(204).end();
+  }),
+
   // ---- Salary assignments ----
   groupEmployees: wrap(async (req, res) => {
     const { limit, offset } = parsePagination(req.query);
@@ -104,6 +123,10 @@ module.exports = {
   }),
   assign: wrap(async (req, res) => {
     res.status(201).json({ data: await assignments.assignSalary(req.payroll, { body: req.body, userId: req.auth.userId }) });
+  }),
+  bulkAssign: wrap(async (req, res) => {
+    const { created, skipped } = await assignments.bulkAssignSalary(req.payroll, { body: req.body, userId: req.auth.userId });
+    res.status(201).json({ data: created, skipped });
   }),
   updateAssignment: wrap(async (req, res) => {
     res.json({ data: await assignments.updateAssignment(req.payroll, { id: req.params.id, body: req.body, userId: req.auth.userId }) });

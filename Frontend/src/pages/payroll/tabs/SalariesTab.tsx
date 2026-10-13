@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, StopCircle } from 'lucide-react';
+import { Pencil, Plus, StopCircle, Users } from 'lucide-react';
 import { Table } from '../../../components/ui/Table';
 import { Pagination } from '../../../components/ui/Pagination';
 import { Select } from '../../../components/ui/Select';
@@ -12,6 +12,7 @@ import { apiErrorMessage } from '../../../utils/apiError';
 import { endAssignment, formatRupees, listAssignments, orgLabel, type SalaryAssignment } from '../../../api/payroll';
 import { PayrollFilters, type PayrollFilterValue } from '../components/PayrollFilters';
 import { AssignSalaryModal } from '../components/AssignSalaryModal';
+import { BulkAssignSalaryModal } from '../components/BulkAssignSalaryModal';
 
 const LIMIT = 50;
 
@@ -25,6 +26,7 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<SalaryAssignment | 'new' | null>(null);
   const [ending, setEnding] = useState<SalaryAssignment | null>(null);
+  const [bulk, setBulk] = useState(false);
 
   async function load() {
     setIsLoading(true);
@@ -71,9 +73,14 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
           />
         </div>
         {canManage && (
-          <Button onClick={() => setEditing('new')}>
-            <Plus className="mr-1.5 h-4 w-4" /> Assign salary
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setBulk(true)}>
+              <Users className="mr-1.5 h-4 w-4" /> Bulk assign
+            </Button>
+            <Button onClick={() => setEditing('new')}>
+              <Plus className="mr-1.5 h-4 w-4" /> Assign salary
+            </Button>
+          </div>
         )}
       </div>
       <PayrollFilters
@@ -167,6 +174,15 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            load();
+          }}
+        />
+      )}
+      {bulk && (
+        <BulkAssignSalaryModal
+          onClose={() => setBulk(false)}
+          onSaved={() => {
+            setBulk(false);
             load();
           }}
         />

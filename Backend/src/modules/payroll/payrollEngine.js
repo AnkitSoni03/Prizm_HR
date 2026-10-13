@@ -205,12 +205,13 @@ async function fyHistory(employee, year, month) {
     where: { employeeId: employee.id },
     attributes: ['periodYear', 'periodMonth', 'grossEarned', 'details'],
   });
+  // Taxable one-time bonuses of earlier months count as income too.
   let ytdGross = 0;
   let ytdTds = 0;
   for (const row of rows) {
     if (getFinancialYearStart(row.periodYear, row.periodMonth) !== fyStart) continue;
     if (monthKey(row.periodYear, row.periodMonth) >= monthKey(year, month)) continue;
-    ytdGross += Number(row.grossEarned) || 0;
+    ytdGross += (Number(row.grossEarned) || 0) + (Number(row.details && row.details.actual && row.details.actual.taxableBonus) || 0);
     const tdsRow = ((row.details && row.details.deductions) || []).find((d) => d.key === 'tds');
     if (tdsRow) ytdTds += Number(tdsRow.amount) || 0;
   }
@@ -252,7 +253,15 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
   const resolved = (a) => {
     const r = rulesFor(a, snapshot);
     templates[String(a.templateId)] = r;
-    const itemsSource = (snapshot && snapshot.customItems) || customItemsRaw;
+    // Every-month items come from the month's frozen snapshot; items limited
+    // to chosen months are always read live (adding / changing one is meant to
+    // change exactly those months), and apply only in those months.
+    const thisMonth = `${year}-${pad(month)}`;
+    const limited = (i) => Array.isArray(i.months) && i.months.length > 0;
+    const itemsSource = [
+      ...((snapshot && snapshot.customItems) || customItemsRaw).filter((i) => !limited(i)),
+      ...customItemsRaw.filter((i) => limited(i) && i.months.includes(thisMonth)),
+    ];
     return { rules: r.rules, customItems: resolveCustomItems(r.rules, itemsSource) };
   };
   const salaryInput = (a) => ({
@@ -265,21 +274,38 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
 
   // Earned amounts add up across the month's salary parts; deductions are
   // then worked out once on the total, under the latest salary's rules.
-  const earned = { basic: 0, hra: 0, gross: 0, ctc: 0 };
+  const earned = { basic: 0, hra: 0, gross: 0, ctc: 0, allowances: {} };
   for (const seg of segments) {
     const part = computeSalary({ ...salaryInput(seg.assignment), paidDays: days.paidBySegment.get(seg.id), monthDays: days.monthDays });
     for (const key of ['basic', 'hra']) earned[key] += part.earnings.find((e) => e.key === key).amount;
+    for (const row of part.earnings.filter((e) => e.key.startsWith('custom_'))) {
+      earned.allowances[row.key] = (earned.allowances[row.key] || 0) + row.amount;
+    }
     earned.gross += part.actual.grossSalary;
     earned.ctc += Number(seg.assignment.monthlyCtc) * part.factor;
   }
 
   const tds = await fyHistory(employee, year, month);
+  const bonuses = await db.PayrollBonus.findAll({
+    where: { employeeId: employee.id, periodYear: year, periodMonth: month },
+    order: [['createdAt', 'ASC']],
+  });
   const salary = computeSalary({
     ...salaryInput(primary),
     paidDays: days.paidDays,
     monthDays: days.monthDays,
     tds,
     earnedOverride: segments.length > 1 ? earned : null,
+    bonuses: bonuses.map((b) => ({
+      id: b.id,
+      type: b.type,
+      title: b.title,
+      amount: b.amount,
+      taxable: b.taxable,
+      calcType: b.calcType,
+      percent: b.percent,
+      basis: b.basis,
+    })),
   });
 
   // Arrears / recovery from earlier months' corrections. A fresh month picks
@@ -301,6 +327,7 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
     deductionsEnabled: primary.deductionsEnabled,
     salaryParts: segments.map((s) => ({ from: s.from, to: s.to, monthlyCtc: Number(s.assignment.monthlyCtc) })),
     earnings: salary.earnings,
+    bonuses: salary.bonuses,
     deductions: salary.deductions,
     employer: salary.employer,
     full: salary.full,
@@ -331,16 +358,31 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
       grossEarned: salary.actual.grossSalary,
       totalDeductions: salary.actual.totalDeductions,
       totalEmployer: salary.actual.totalEmployer,
+      bonusTotal: salary.actual.bonusTotal,
       carryAdjustment,
       netPay,
       details,
       rulesSnapshot: snapshot || { templates, customItems: customItemsRaw },
     },
     carries,
+    // A % bonus's amount follows the month's salary — written back to the
+    // bonus row after saving (syncBonusAmounts) so lists show the real figure.
+    bonusSync: bonuses
+      .filter((b) => b.calcType === 'percent')
+      .map((b) => ({ bonus: b, amount: (salary.bonuses.find((r) => r.id === String(b.id)) || { amount: 0 }).amount })),
   };
 }
 
-const COMPARED = ['monthDays', 'paidDays', 'lopDays', 'monthlyCtc', 'grossFull', 'grossEarned', 'totalDeductions', 'totalEmployer', 'carryAdjustment', 'netPay'];
+async function syncBonusAmounts(result) {
+  for (const { bonus, amount } of (result && result.bonusSync) || []) {
+    if (Math.abs(Number(bonus.amount) - amount) >= 0.01) {
+      // eslint-disable-next-line no-await-in-loop
+      await bonus.update({ amount });
+    }
+  }
+}
+
+const COMPARED = ['monthDays', 'paidDays', 'lopDays', 'monthlyCtc', 'grossFull', 'grossEarned', 'totalDeductions', 'totalEmployer', 'bonusTotal', 'carryAdjustment', 'netPay'];
 
 // Generates a month for one employee if it doesn't exist yet. Returns the row
 // (existing or new), or null when there's nothing to pay.
@@ -376,6 +418,7 @@ async function generateEmployeeMonth({ employeeId, year, month }) {
       return created;
     });
 
+    if (row) await syncBonusAmounts(result);
     if (row && employee.userId) {
       await notifyUser({
         companyId: employee.companyId,
@@ -411,7 +454,8 @@ async function recalculatePayroll(payrollId) {
 
     const changed =
       COMPARED.some((k) => Math.abs(Number(row[k]) - Number(result.values[k])) > 0.001) ||
-      JSON.stringify(row.details.lopDates) !== JSON.stringify(result.values.details.lopDates);
+      JSON.stringify(row.details.lopDates) !== JSON.stringify(result.values.details.lopDates) ||
+      JSON.stringify(row.details.bonuses || []) !== JSON.stringify(result.values.details.bonuses);
 
     await db.sequelize.transaction(async (t) => {
       const updates = { ...result.values, needsRecalc: false };
@@ -448,6 +492,7 @@ async function recalculatePayroll(payrollId) {
       }
     });
 
+    await syncBonusAmounts(result);
     if (changed && employee.userId) {
       const label = monthLabel(row.periodYear, row.periodMonth);
       await notifyUser({

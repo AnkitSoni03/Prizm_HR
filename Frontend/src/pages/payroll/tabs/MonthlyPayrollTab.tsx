@@ -36,7 +36,7 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
   const [period, setPeriod] = useState(lastMonth());
   const [filters, setFilters] = useState<PayrollFilterValue>({ companyId: '', brandId: '', search: '' });
   const [rows, setRows] = useState<EmployeePayroll[]>([]);
-  const [totals, setTotals] = useState({ gross: 0, deductions: 0, employer: 0, net: 0 });
+  const [totals, setTotals] = useState({ gross: 0, deductions: 0, employer: 0, bonus: 0, net: 0 });
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -137,8 +137,9 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
         attendance for it changes later.
       </p>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Tile label="Gross" value={formatRupees(totals.gross)} />
+        <Tile label="Bonuses" value={formatRupees(totals.bonus)} />
         <Tile label="Deductions" value={formatRupees(totals.deductions)} />
         <Tile label="Employer share" value={formatRupees(totals.employer)} />
         <Tile label="In-hand total" value={formatRupees(totals.net)} />
@@ -166,6 +167,7 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
           { key: 'days', header: 'Paid / LOP days', render: (r) => `${r.paidDays} / ${r.lopDays}` },
           { key: 'ctc', header: 'CTC', render: (r) => formatRupees(r.monthlyCtc) },
           { key: 'gross', header: 'Gross', render: (r) => formatRupees(r.grossEarned) },
+          { key: 'bonus', header: 'Bonus', render: (r) => (Number(r.bonusTotal) > 0 ? <span className="text-success">+{formatRupees(r.bonusTotal)}</span> : '—') },
           { key: 'ded', header: 'Deductions', render: (r) => formatRupees(r.totalDeductions) },
           {
             key: 'net',

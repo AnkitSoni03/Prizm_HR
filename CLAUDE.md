@@ -1340,6 +1340,28 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   - Tested offline with mocks (engine 11, sandwich 6, recalculation/arrears/PDF 5); tsc/eslint/
     vite build clean. **Not live-tested — migrations `20261013090000`–`090800` + seeder not
     applied** (.env points at prod).
+- ✅ Payroll bonuses + recurring allowances (2026-10-13): (1) **One-time pay** — new `payroll_bonuses`
+  (tenant-scoped; type bonus/incentive/overtime/reimbursement/other, amount, `taxable`, month) via
+  `/payroll/bonuses` (view: `payroll:read` scope; write: payroll managers) and a Payroll → Bonuses tab.
+  Amount fixed, or `calc_type 'percent'` = % of that month's full monthly Basic/Gross/CTC (resolved per
+  employee at add time, re-resolved by the engine and written back via `syncBonusAmounts`).
+  Paid in full on top of the month's salary (outside CTC): no LOP cut, no PF/ESI/PT; taxable ones
+  count for TDS, the extra tax taken in that month (`payrollRules.js::computeSalary` `bonuses`).
+  Bulk add: `employeeIds[]` (≤2000, `pages/payroll/components/EmployeeMultiPicker.tsx`); employees
+  outside the Group / without a salary that month are skipped and returned as `skipped`. Each needs a salary assignment overlapping the month. Add/edit/delete on a generated month →
+  `queuePayrollRecalc` → arrears/recovery next month. `employee_payrolls.bonus_total` (in net_pay
+  already; list totals) and `details.bonuses`; fyHistory adds `details.actual.taxableBonus` to YTD.
+  Shown to the employee even before the payslip is released. (2) **Allowances** — custom item kind
+  `'earning'` (fixed or % of Basic/Gross/CTC): inside CTC, taken out of the Special allowance (in-hand
+  unchanged), prorated by paid days, toggles per template/employee but NOT affected by the "no
+  deductions" master switch. (3) **Bulk salary assign** — `POST /payroll/assignments/bulk` `{ templateId, ctcPeriod,
+  effectiveFrom, deductionsEnabled, disabledItems, items: [{ employeeId, ctcAmount }] }` (≤2000), one transaction
+  per employee (`createAssignmentFor`), failures skipped + returned; past months synced one employee at a time
+  (`syncSalaryMonths`). UI: Salaries → Bulk assign (`BulkAssignSalaryModal.tsx`). (4) **Chosen months** — a custom item's `months` (`['2026-10',…]`, null = every month) limits it to
+  those months; month-limited items are read live (not from `rules_snapshot`) and create/edit/delete marks
+  those months for recalculation. New bonuses take `periods[]` (one row per employee per month).
+  Migrations `20261014090000`–`090400` (`090300` months, `090400` adds the % bonus columns where `090100` ran
+  without them). Mock-tested; **not applied** (.env is prod).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

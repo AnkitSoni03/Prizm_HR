@@ -155,10 +155,10 @@ function buildDocument(payroll) {
       e(
         View,
         { style: styles.columns },
-        table('Earnings', d.earnings || [], {
-          label: 'Gross salary',
+        table('Earnings', [...(d.earnings || []), ...(d.bonuses || []).map((b) => ({ ...b, rule: 'One-time, this month' }))], {
+          label: (d.bonuses || []).length > 0 ? 'Total earnings' : 'Gross salary',
           full: d.full && d.full.grossSalary,
-          amount: payroll.grossEarned,
+          amount: (Number(payroll.grossEarned) || 0) + (Number(payroll.bonusTotal) || 0),
         }),
         e(View, { style: styles.columnGap }),
         table(

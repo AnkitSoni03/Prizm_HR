@@ -8,7 +8,7 @@ const { addDays, dateOnly } = require('../../utils/dateRange');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { BUILT_IN_ITEMS, customItemKey } = require('./payrollRules');
 const { employeeScopeWhere } = require('./payrollAccess');
-const { catchUpEmployee, queuePayrollRecalc, previousMonth, monthBounds } = require('./payrollEngine');
+const { catchUpEmployee, queuePayrollRecalc, recalculatePayroll, previousMonth, monthBounds } = require('./payrollEngine');
 
 // Every query here runs with the tenant hook off — managers work across all
 // companies of their Group, and viewers are bounded by employeeScopeWhere.
@@ -143,6 +143,44 @@ function isDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+// Creates the salary row for one employee inside its own transaction; an
+// active salary is superseded (ends the day before the new one starts).
+async function createAssignmentFor({ access, employee, input, effectiveFrom, userId }) {
+  return db.sequelize.transaction(async (t) => {
+    const active = await db.SalaryAssignment.findOne({
+      where: { employeeId: employee.id, status: 'active' },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (active) {
+      if (effectiveFrom <= active.effectiveFrom) {
+        throw new HttpError(
+          400,
+          `The current salary started on ${active.effectiveFrom} — a new one must start after that (to fix the current one, edit it instead)`
+        );
+      }
+      await active.update(
+        { status: 'superseded', effectiveTo: addDays(effectiveFrom, -1), updatedByUserId: userId },
+        { transaction: t }
+      );
+    }
+    return db.SalaryAssignment.create(
+      {
+        ...input,
+        companyId: employee.companyId,
+        groupId: access.groupId,
+        employeeId: employee.id,
+        effectiveFrom,
+        effectiveTo: null,
+        status: 'active',
+        createdByUserId: userId,
+        updatedByUserId: userId,
+      },
+      { transaction: t }
+    );
+  });
+}
+
 // New salary (or a revision): if the employee already has an active salary,
 // it ends the day before the new one starts. Completed months from the start
 // date onwards are generated straight away (or recalculated if they exist).
@@ -155,44 +193,97 @@ async function assignSalary(access, { body, userId }) {
       throw new HttpError(404, 'Employee not found in your Group');
     }
     const input = await cleanInput(access.groupId, body);
-
-    return db.sequelize.transaction(async (t) => {
-      const active = await db.SalaryAssignment.findOne({
-        where: { employeeId: employee.id, status: 'active' },
-        transaction: t,
-        lock: t.LOCK.UPDATE,
-      });
-      if (active) {
-        if (body.effectiveFrom <= active.effectiveFrom) {
-          throw new HttpError(
-            400,
-            `The current salary started on ${active.effectiveFrom} — a new one must start after that (to fix the current one, edit it instead)`
-          );
-        }
-        await active.update(
-          { status: 'superseded', effectiveTo: addDays(body.effectiveFrom, -1), updatedByUserId: userId },
-          { transaction: t }
-        );
-      }
-      return db.SalaryAssignment.create(
-        {
-          ...input,
-          companyId: employee.companyId,
-          groupId: access.groupId,
-          employeeId: employee.id,
-          effectiveFrom: body.effectiveFrom,
-          effectiveTo: null,
-          status: 'active',
-          createdByUserId: userId,
-          updatedByUserId: userId,
-        },
-        { transaction: t }
-      );
-    });
+    return createAssignmentFor({ access, employee, input, effectiveFrom: body.effectiveFrom, userId });
   });
 
   await afterSalaryChange(result.employeeId, body.effectiveFrom, null);
   return result;
+}
+
+const MAX_BULK = 2000;
+
+// The same template / start date / deduction switches for many employees,
+// each with their own CTC: body.items = [{ employeeId, ctcAmount }]. One
+// employee's problem (not in the Group, no CTC, a start date before their
+// current salary's) skips just them and is reported back.
+async function bulkAssignSalary(access, { body, userId }) {
+  if (!isDate(body.effectiveFrom)) throw new HttpError(400, 'Choose the date this salary starts from');
+  const items = Array.isArray(body.items) ? body.items : [];
+  const seen = new Set();
+  const unique = items.filter((i) => {
+    const id = i && i.employeeId !== undefined && i.employeeId !== null ? String(i.employeeId) : '';
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  if (unique.length === 0) throw new HttpError(400, 'Choose at least one employee');
+  if (unique.length > MAX_BULK) throw new HttpError(400, `Choose at most ${MAX_BULK} employees at a time`);
+
+  const { created, skipped } = await asGroup(async () => {
+    // Template, switches and items are checked once; CTC per employee below.
+    const shared = await cleanInput(access.groupId, { ...body, ctcAmount: 1 });
+    delete shared.ctcAmount;
+    delete shared.monthlyCtc;
+    const { ctcPeriod } = shared;
+
+    const companyIds = (await db.Company.findAll({ where: { groupId: access.groupId }, attributes: ['id'] })).map((c) => c.id);
+    const employees = await db.Employee.findAll({
+      where: { id: { [Op.in]: unique.map((i) => String(i.employeeId)) }, companyId: { [Op.in]: companyIds } },
+      attributes: EMPLOYEE_ATTRS,
+    });
+    const byId = new Map(employees.map((e) => [String(e.id), e]));
+
+    const createdRows = [];
+    const skippedRows = [];
+    for (const item of unique) {
+      const id = String(item.employeeId);
+      const employee = byId.get(id);
+      const skip = (reason) =>
+        skippedRows.push({
+          employeeId: id,
+          name: employee ? employee.name : null,
+          employeeCode: employee ? employee.employeeCode : null,
+          reason,
+        });
+      if (!employee) {
+        skip('Not found in your Group');
+        continue;
+      }
+      const ctcAmount = Number(item.ctcAmount);
+      if (!Number.isFinite(ctcAmount) || ctcAmount <= 0) {
+        skip('No CTC entered');
+        continue;
+      }
+      const input = {
+        ...shared,
+        ctcAmount,
+        monthlyCtc: Math.round((ctcPeriod === 'yearly' ? ctcAmount / 12 : ctcAmount) * 100) / 100,
+      };
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        createdRows.push(await createAssignmentFor({ access, employee, input, effectiveFrom: body.effectiveFrom, userId }));
+      } catch (err) {
+        if (!(err instanceof HttpError)) throw err;
+        skip(err.message);
+      }
+    }
+    return { created: createdRows, skipped: skippedRows };
+  });
+
+  // Past months: one employee after another, never hundreds at once.
+  if (created.length > 0) {
+    setImmediate(async () => {
+      for (const a of created) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await syncSalaryMonths(a.employeeId, body.effectiveFrom);
+        } catch (err) {
+          console.error(`Payroll catch-up failed for employee ${a.employeeId}:`, err);
+        }
+      }
+    });
+  }
+  return { created, skipped };
 }
 
 async function getAssignment(access, id) {
@@ -222,6 +313,29 @@ async function endAssignment(access, { id, endDate, userId }) {
   await asGroup(() => assignment.update({ status: 'ended', effectiveTo: endDate, updatedByUserId: userId }));
   await afterSalaryChange(assignment.employeeId, endDate, null);
   return assignment;
+}
+
+// Awaitable version of afterSalaryChange for bulk work: recalculates the
+// already-generated months from `fromDate`, then generates missing ones.
+async function syncSalaryMonths(employeeId, fromDate) {
+  const { year, month } = previousMonth();
+  const lastEnd = monthBounds(year, month).end;
+  if (fromDate > lastEnd) return;
+  const [fy, fm] = fromDate.split('-').map(Number);
+  const rows = await asGroup(() =>
+    db.EmployeePayroll.findAll({
+      where: {
+        employeeId,
+        [Op.or]: [{ periodYear: { [Op.gt]: fy } }, { periodYear: fy, periodMonth: { [Op.gte]: fm } }],
+      },
+      attributes: ['id'],
+    })
+  );
+  for (const row of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    await recalculatePayroll(row.id);
+  }
+  await catchUpEmployee({ employeeId, fromDate });
 }
 
 async function afterSalaryChange(employeeId, fromDate, toDate) {
@@ -256,6 +370,7 @@ module.exports = {
   listAssignments,
   listEmployeeHistory,
   assignSalary,
+  bulkAssignSalary,
   updateAssignment,
   endAssignment,
   getMySalary,

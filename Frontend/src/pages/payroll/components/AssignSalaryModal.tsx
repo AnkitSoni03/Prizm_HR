@@ -8,6 +8,7 @@ import { apiErrorMessage } from '../../../utils/apiError';
 import {
   assignSalary,
   formatRupees,
+  isItemOnInTemplate,
   listCustomItems,
   listGroupEmployees,
   listScopeCompanies,
@@ -17,7 +18,6 @@ import {
   type BuiltInItem,
   type GroupEmployee,
   type PayrollCustomItem,
-  type PayrollRules,
   type PayrollTemplate,
   type SalaryAssignment,
   type SalaryBreakdown,
@@ -35,25 +35,6 @@ interface Props {
 function firstOfThisMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-}
-
-// Whether a deduction/contribution key is switched on in the template.
-function enabledInTemplate(rules: PayrollRules, key: string): boolean {
-  const map: Record<string, { enabled: boolean } | undefined> = {
-    pf: rules.deductions.pf,
-    esi: rules.deductions.esi,
-    pt: rules.deductions.pt,
-    lwf: rules.deductions.lwf,
-    tds: rules.deductions.tds,
-    employer_pf: rules.employer.pf,
-    edli: rules.employer.edli,
-    pf_admin: rules.employer.pfAdmin,
-    gratuity: rules.employer.gratuity,
-    employer_esi: rules.employer.esi,
-    employer_lwf: rules.employer.lwf,
-  };
-  if (key.startsWith('custom_')) return rules.customItems[key.slice(7)]?.enabled !== false;
-  return !!map[key]?.enabled;
 }
 
 export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
@@ -108,8 +89,11 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
       ...builtIn,
       ...custom.map((c) => ({ key: `custom_${c.id}`, kind: c.kind, label: c.name })),
     ];
-    return all.filter((i) => enabledInTemplate(template.rules, i.key));
+    return all.filter((i) => isItemOnInTemplate(template.rules, i.key));
   }, [template, builtIn, custom]);
+  // Allowances are pay, so the "Apply deductions" switch doesn't touch them.
+  const allowanceItems = items.filter((i) => i.kind === 'earning');
+  const deductionItems = items.filter((i) => i.kind !== 'earning');
 
   const amount = Number(ctcAmount);
   const canPreview = !!templateId && amount > 0;
@@ -228,8 +212,8 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
           />
           {deductionsEnabled && template && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {items.length === 0 && <p className="text-sm text-ink-muted">This template has no deductions switched on.</p>}
-              {items.map((item) => (
+              {deductionItems.length === 0 && <p className="text-sm text-ink-muted">This template has no deductions switched on.</p>}
+              {deductionItems.map((item) => (
                 <Toggle
                   key={item.key}
                   checked={!disabledItems.includes(item.key)}
@@ -241,6 +225,24 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
             </div>
           )}
         </div>
+
+        {template && allowanceItems.length > 0 && (
+          <div className="rounded-xl border border-border p-3">
+            <p className="text-sm font-medium text-ink">Allowances</p>
+            <p className="mb-2 text-xs text-ink-muted">Part of CTC. Turning one off moves its amount back into the Special allowance.</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {allowanceItems.map((item) => (
+                <Toggle
+                  key={item.key}
+                  checked={!disabledItems.includes(item.key)}
+                  onChange={(on) => toggleItem(item.key, on)}
+                  label={item.label}
+                  description="Allowance"
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         <Input label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
 

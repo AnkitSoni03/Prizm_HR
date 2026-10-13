@@ -10,6 +10,7 @@ import {
   createTemplate,
   getTemplateDefaults,
   listCustomItems,
+  monthKeyLabel,
   previewSalary,
   updateTemplate,
   type PayrollCustomItem,
@@ -234,9 +235,10 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
 
         {customItems.length > 0 && (
           <section>
-            <h3 className="mb-2 text-sm font-semibold text-ink">Extra deductions (added for the whole Group)</h3>
+            <h3 className="text-sm font-semibold text-ink">Extra allowances &amp; deductions (added for the whole Group)</h3>
+            <p className="mb-2 text-xs text-ink-muted">Off until you switch them on here — only employees on this template get the ones you turn on.</p>
             <div className="space-y-2">
-              {customItems.map((item) => {
+              {[...customItems].sort((a, b) => Number(b.kind === 'earning') - Number(a.kind === 'earning')).map((item) => {
                 const cfg = rules.customItems[item.id] ?? { enabled: true };
                 const setCfg = (patch: { enabled?: boolean; value?: number }) =>
                   setRules({ ...rules, customItems: { ...rules.customItems, [item.id]: { ...cfg, ...patch } } });
@@ -245,7 +247,15 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
                   <RuleCard
                     key={item.id}
                     title={item.name}
-                    description={item.kind === 'deduction' ? 'Employee deduction' : 'Employer contribution'}
+                    description={
+                      `${
+                        item.kind === 'earning'
+                          ? 'Allowance — taken out of the Special allowance'
+                          : item.kind === 'deduction'
+                            ? 'Employee deduction'
+                            : 'Employer contribution'
+                      }${item.months && item.months.length > 0 ? ` · only in ${item.months.map(monthKeyLabel).join(', ')}` : ''}`
+                    }
                     enabled={cfg.enabled !== false}
                     disabled={ro}
                     onToggle={(v) => setCfg({ enabled: v })}

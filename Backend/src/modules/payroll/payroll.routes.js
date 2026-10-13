@@ -30,6 +30,7 @@ router.get('/assignments/employee/:employeeId', requirePayrollView, c.employeeHi
 router.get('/months', requirePayrollView, c.listPayrolls);
 router.get('/months/:id', requirePayrollView, c.getPayroll);
 router.get('/months/:id/pdf', requirePayrollView, c.payrollPdf);
+router.get('/bonuses', requirePayrollView, c.listBonuses);
 router.post('/preview', requirePayrollView, c.preview);
 
 // ---- Managers only ----
@@ -42,8 +43,12 @@ router.put('/custom-items/:id', requirePayrollManage, c.updateCustomItem);
 router.delete('/custom-items/:id', requirePayrollManage, c.deleteCustomItem);
 router.get('/employees', requirePayrollManage, c.groupEmployees);
 router.post('/assignments', requirePayrollManage, c.assign);
+router.post('/assignments/bulk', requirePayrollManage, c.bulkAssign);
 router.put('/assignments/:id', requirePayrollManage, c.updateAssignment);
 router.post('/assignments/:id/end', requirePayrollManage, c.endAssignment);
+router.post('/bonuses', requirePayrollManage, c.createBonus);
+router.put('/bonuses/:id', requirePayrollManage, c.updateBonus);
+router.delete('/bonuses/:id', requirePayrollManage, c.deleteBonus);
 router.post('/months/generate', requirePayrollManage, c.generate);
 router.post('/months/:id/recalculate', requirePayrollManage, c.recalculate);
 router.get('/payslip-requests', requirePayrollManage, c.listPayslipRequests);

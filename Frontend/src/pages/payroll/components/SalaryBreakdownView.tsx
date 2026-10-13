@@ -1,7 +1,7 @@
 import { formatRupees, type SalaryLine, type SalaryBreakdown } from '../../../api/payroll';
 
 interface Props {
-  breakdown: Pick<SalaryBreakdown, 'earnings' | 'deductions' | 'employer' | 'pfSplit' | 'wageRule' | 'warnings'> & {
+  breakdown: Pick<SalaryBreakdown, 'earnings' | 'bonuses' | 'deductions' | 'employer' | 'pfSplit' | 'wageRule' | 'warnings'> & {
     full?: SalaryBreakdown['full'];
     actual?: SalaryBreakdown['actual'];
   };
@@ -61,12 +61,19 @@ export function SalaryBreakdownView({ breakdown, monthlyCtc, mode }: Props) {
   const totals = mode === 'full' ? breakdown.full : breakdown.actual;
   const pf = breakdown.pfSplit ? (mode === 'full' ? breakdown.pfSplit.full : breakdown.pfSplit.actual) : null;
   const inHand = totals?.inHand ?? 0;
+  // One-time extras only exist for a real month, never in the CTC structure.
+  const bonuses = mode === 'month' ? breakdown.bonuses ?? [] : [];
+  const bonusTotal = bonuses.reduce((s, b) => s + b.amount, 0);
 
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="CTC / month" value={formatRupees(monthlyCtc)} />
-        <Stat label="Gross salary" value={formatRupees(totals?.grossSalary)} />
+        {bonusTotal > 0 ? (
+          <Stat label="Gross + one-time pay" value={formatRupees((totals?.grossSalary ?? 0) + bonusTotal)} />
+        ) : (
+          <Stat label="Gross salary" value={formatRupees(totals?.grossSalary)} />
+        )}
         <Stat label="Deductions" value={formatRupees(totals?.totalDeductions)} />
         <Stat label="In-hand" value={formatRupees(inHand)} strong />
       </div>
@@ -84,6 +91,16 @@ export function SalaryBreakdownView({ breakdown, monthlyCtc, mode }: Props) {
           mode={mode}
           tone="bg-primary-light text-primary"
         />
+        {bonuses.length > 0 && (
+          <Section
+            title="One-time pay this month (outside CTC)"
+            rows={bonuses.map((b) => ({ ...b, rule: b.taxable === false ? 'Not taxable' : 'Taxable', full: undefined }))}
+            total={bonusTotal}
+            totalLabel="Total one-time pay"
+            mode={mode}
+            tone="bg-success/10 text-success"
+          />
+        )}
         <Section
           title="Employee deductions"
           rows={breakdown.deductions}

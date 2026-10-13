@@ -48,7 +48,8 @@ export interface PayrollTemplate {
   activeEmployees: number;
 }
 
-export type CustomItemKind = 'deduction' | 'employer_contribution';
+// 'earning' = a recurring allowance inside CTC (taken out of the Special allowance).
+export type CustomItemKind = 'deduction' | 'employer_contribution' | 'earning';
 export interface PayrollCustomItem {
   id: string;
   name: string;
@@ -56,6 +57,8 @@ export interface PayrollCustomItem {
   calcType: 'percent' | 'fixed';
   basis: 'basic' | 'gross' | 'ctc' | null;
   value: string | number;
+  // null = every month; ['2026-10', '2026-12'] = only those months.
+  months?: string[] | null;
   isActive: boolean;
 }
 
@@ -73,11 +76,25 @@ export interface SalaryLine {
   amount: number;
 }
 
+export interface BonusLine extends SalaryLine {
+  type?: BonusType;
+  taxable?: boolean;
+}
+
 export interface SalaryBreakdown {
   monthlyCtc: number;
   full: { grossSalary: number; totalDeductions: number; totalEmployer: number; inHand: number };
-  actual: { grossSalary: number; totalDeductions: number; totalEmployer: number; inHand: number };
+  actual: {
+    grossSalary: number;
+    bonusTotal?: number;
+    taxableBonus?: number;
+    totalEarnings?: number;
+    totalDeductions: number;
+    totalEmployer: number;
+    inHand: number;
+  };
   earnings: SalaryLine[];
+  bonuses?: BonusLine[];
   deductions: SalaryLine[];
   employer: SalaryLine[];
   pfSplit: {
@@ -126,6 +143,7 @@ export interface PayrollDetails {
   deductionsEnabled?: boolean;
   salaryParts?: { from: string; to: string; monthlyCtc: number }[];
   earnings?: SalaryLine[];
+  bonuses?: BonusLine[];
   deductions: SalaryLine[];
   employer?: SalaryLine[];
   full?: SalaryBreakdown['full'];
@@ -151,6 +169,7 @@ export interface EmployeePayroll {
   grossEarned?: number;
   totalDeductions: number;
   totalEmployer?: number;
+  bonusTotal?: number;
   carryAdjustment: number;
   netPay: number;
   originalNet?: number;
@@ -192,6 +211,8 @@ export const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 export const periodLabel = (year: number, month: number) => `${MONTH_NAMES[month - 1]} ${year}`;
+// '2026-10' → 'Oct 2026'
+export const monthKeyLabel = (key: string) => `${MONTH_NAMES[Number(key.slice(5, 7)) - 1].slice(0, 3)} ${key.slice(0, 4)}`;
 export const formatRupees = (value: number | string | null | undefined) =>
   `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -262,6 +283,81 @@ export async function deleteCustomItem(id: string) {
   await apiClient.delete(`/payroll/custom-items/${id}`);
 }
 
+// ---- One-time bonuses / extra pay ----
+export type BonusType = 'bonus' | 'incentive' | 'overtime' | 'reimbursement' | 'other';
+export const BONUS_TYPES: { key: BonusType; label: string; taxable: boolean }[] = [
+  { key: 'bonus', label: 'Bonus', taxable: true },
+  { key: 'incentive', label: 'Incentive', taxable: true },
+  { key: 'overtime', label: 'Overtime', taxable: true },
+  { key: 'reimbursement', label: 'Reimbursement', taxable: false },
+  { key: 'other', label: 'Other', taxable: true },
+];
+export const bonusTypeLabel = (type: string) => BONUS_TYPES.find((t) => t.key === type)?.label ?? type;
+
+export interface PayrollBonus {
+  id: string;
+  employeeId: string;
+  periodYear: number;
+  periodMonth: number;
+  type: BonusType;
+  title: string | null;
+  // 'percent' = percent % of the month's full monthly Basic / Gross / CTC;
+  // amount is then the worked-out figure for this employee.
+  calcType: 'fixed' | 'percent';
+  percent: number | null;
+  basis: 'basic' | 'gross' | 'ctc' | null;
+  amount: number;
+  taxable: boolean;
+  note: string | null;
+  createdAt: string;
+  employee?: EmployeeRef;
+  createdByUser?: { id: string; email: string } | null;
+}
+export interface BonusInput {
+  employeeId?: string;
+  // Bulk add: the same bonus for every employee listed.
+  employeeIds?: string[];
+  // Several months at once: one bonus per month (other months untouched).
+  periods?: { year: number; month: number }[];
+  year?: number;
+  month?: number;
+  type: BonusType;
+  title?: string | null;
+  calcType: 'fixed' | 'percent';
+  amount?: number;
+  percent?: number;
+  basis?: 'basic' | 'gross' | 'ctc';
+  taxable: boolean;
+  note?: string | null;
+}
+export async function listBonuses(params: {
+  year?: number;
+  month?: number;
+  type?: string;
+  companyId?: string;
+  brandId?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const { data } = await apiClient.get<Paged<PayrollBonus> & { total: number }>('/payroll/bonuses', { params });
+  return data;
+}
+export type SkippedBonus = SkippedEmployee;
+// Employees outside the Group or without a salary in that month are skipped
+// (and listed) rather than failing the whole bulk add.
+export async function createBonus(body: BonusInput) {
+  const { data } = await apiClient.post<{ data: PayrollBonus[]; skipped: SkippedBonus[] }>('/payroll/bonuses', body);
+  return data;
+}
+export async function updateBonus(id: string, body: Partial<BonusInput>) {
+  const { data } = await apiClient.put<{ data: PayrollBonus }>(`/payroll/bonuses/${id}`, body);
+  return data.data;
+}
+export async function deleteBonus(id: string) {
+  await apiClient.delete(`/payroll/bonuses/${id}`);
+}
+
 // ---- Salary assignments ----
 export interface GroupEmployee extends EmployeeRef {
   salaryAssignments: { id: string; templateId: string; monthlyCtc: string; effectiveFrom: string }[];
@@ -300,6 +396,21 @@ export async function assignSalary(body: AssignmentInput) {
   const { data } = await apiClient.post<{ data: SalaryAssignment }>('/payroll/assignments', body);
   return data.data;
 }
+export interface SkippedEmployee {
+  employeeId: string;
+  name: string | null;
+  employeeCode?: string | null;
+  reason: string;
+}
+// Same template / start date / switches for many employees, each with their
+// own CTC. Anyone who can't take it (no CTC, start date before their current
+// salary's, …) is skipped and listed; the rest are saved.
+export async function bulkAssignSalary(
+  body: Omit<AssignmentInput, 'employeeId' | 'ctcAmount'> & { items: { employeeId: string; ctcAmount: number }[] }
+) {
+  const { data } = await apiClient.post<{ data: SalaryAssignment[]; skipped: SkippedEmployee[] }>('/payroll/assignments/bulk', body);
+  return data;
+}
 export async function updateAssignment(id: string, body: Partial<AssignmentInput>) {
   const { data } = await apiClient.put<{ data: SalaryAssignment }>(`/payroll/assignments/${id}`, body);
   return data.data;
@@ -320,7 +431,7 @@ export async function listPayrolls(params: {
   offset?: number;
 }) {
   const { data } = await apiClient.get<
-    Paged<EmployeePayroll> & { totals: { gross: number; deductions: number; employer: number; net: number } }
+    Paged<EmployeePayroll> & { totals: { gross: number; deductions: number; employer: number; bonus: number; net: number } }
   >('/payroll/months', { params });
   return data;
 }
@@ -378,6 +489,25 @@ export async function requestPayslips(periods: { year: number; month: number }[]
 }
 export async function cancelMyPayslipRequest(id: string) {
   await apiClient.patch(`/payroll/me/payslip-requests/${id}/cancel`);
+}
+
+// Whether a deduction / contribution / allowance key is switched on in a template.
+export function isItemOnInTemplate(rules: PayrollRules, key: string): boolean {
+  const map: Record<string, { enabled: boolean } | undefined> = {
+    pf: rules.deductions.pf,
+    esi: rules.deductions.esi,
+    pt: rules.deductions.pt,
+    lwf: rules.deductions.lwf,
+    tds: rules.deductions.tds,
+    employer_pf: rules.employer.pf,
+    edli: rules.employer.edli,
+    pf_admin: rules.employer.pfAdmin,
+    gratuity: rules.employer.gratuity,
+    employer_esi: rules.employer.esi,
+    employer_lwf: rules.employer.lwf,
+  };
+  if (key.startsWith('custom_')) return rules.customItems[key.slice(7)]?.enabled !== false;
+  return !!map[key]?.enabled;
 }
 
 // "Company › Brand" label for an employee row.

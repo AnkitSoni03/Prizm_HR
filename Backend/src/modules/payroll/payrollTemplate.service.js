@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { runAsCompany } = require('../../config/tenant-context');
+const { processPendingRecalcs } = require('./payrollEngine');
 const {
   DEFAULT_RULES,
   BUILT_IN_ITEMS,
@@ -15,7 +16,8 @@ const {
 } = require('./payrollRules');
 
 // Templates and custom items are group-level (no company_id, not
-// tenant-scoped); every query filters on group_id.
+// tenant-scoped); every query filters on group_id. A custom item is a
+// deduction, an employer contribution, or a recurring allowance ('earning').
 
 async function listCustomItems(groupId) {
   if (!groupId) return [];
@@ -25,8 +27,8 @@ async function listCustomItems(groupId) {
 function validateCustomItem(body) {
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   if (!name) throw new HttpError(400, 'Name is required');
-  if (!['deduction', 'employer_contribution'].includes(body.kind)) {
-    throw new HttpError(400, "kind must be 'deduction' or 'employer_contribution'");
+  if (!['deduction', 'employer_contribution', 'earning'].includes(body.kind)) {
+    throw new HttpError(400, "kind must be 'deduction', 'employer_contribution' or 'earning'");
   }
   if (!['percent', 'fixed'].includes(body.calcType)) throw new HttpError(400, "calcType must be 'percent' or 'fixed'");
   const value = Number(body.value);
@@ -41,18 +43,61 @@ function validateCustomItem(body) {
     calcType: body.calcType,
     basis: body.calcType === 'percent' ? body.basis : null,
     value,
+    months: cleanMonths(body.months),
     isActive: body.isActive !== false,
   };
 }
 
+// null / empty = every month; otherwise only those 'YYYY-MM' months.
+function cleanMonths(months) {
+  if (months === undefined || months === null) return null;
+  if (!Array.isArray(months)) throw new HttpError(400, 'months must be a list like ["2026-10"]');
+  const clean = [...new Set(months.map(String))].sort();
+  if (clean.length === 0) return null;
+  if (clean.length > 60) throw new HttpError(400, 'Choose at most 60 months');
+  const bad = clean.find((m) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(m));
+  if (bad) throw new HttpError(400, `"${bad}" is not a month (use YYYY-MM)`);
+  return clean;
+}
+
+// An item limited to some months changes the payroll of exactly those
+// months — any of them already generated is recalculated (the difference
+// reaches the next salary as arrears / recovery).
+function recalcItemMonths(groupId, ...monthLists) {
+  const months = [...new Set(monthLists.flat().filter(Boolean))];
+  if (months.length === 0) return;
+  setImmediate(async () => {
+    try {
+      await runAsCompany(null, () =>
+        db.EmployeePayroll.update(
+          { needsRecalc: true },
+          {
+            where: {
+              groupId,
+              [Op.or]: months.map((m) => ({ periodYear: Number(m.slice(0, 4)), periodMonth: Number(m.slice(5, 7)) })),
+            },
+          }
+        )
+      );
+      await processPendingRecalcs();
+    } catch (err) {
+      console.error('Payroll recalculation after an item change failed:', err);
+    }
+  });
+}
+
 async function createCustomItem({ groupId, body, userId }) {
-  return db.PayrollCustomItem.create({ ...validateCustomItem(body), groupId, createdByUserId: userId });
+  const item = await db.PayrollCustomItem.create({ ...validateCustomItem(body), groupId, createdByUserId: userId });
+  recalcItemMonths(groupId, item.months);
+  return item;
 }
 
 async function updateCustomItem({ groupId, id, body }) {
   const item = await db.PayrollCustomItem.findOne({ where: { id, groupId } });
   if (!item) throw new HttpError(404, 'Item not found');
+  const before = item.months;
   await item.update(validateCustomItem({ ...item.get({ plain: true }), ...body }));
+  recalcItemMonths(groupId, before, item.months);
   return item;
 }
 
@@ -60,6 +105,7 @@ async function deleteCustomItem({ groupId, id }) {
   const item = await db.PayrollCustomItem.findOne({ where: { id, groupId } });
   if (!item) throw new HttpError(404, 'Item not found');
   await item.destroy();
+  recalcItemMonths(groupId, item.months);
 }
 
 async function listTemplates(groupId) {
@@ -162,7 +208,10 @@ async function previewSalary({ groupId, body }) {
   else rules = normalizeRules(body.rules);
   const monthlyCtc = body.ctcPeriod === 'yearly' ? Number(body.ctcAmount) / 12 : Number(body.ctcAmount ?? body.monthlyCtc);
   if (!Number.isFinite(monthlyCtc) || monthlyCtc <= 0) throw new HttpError(400, 'Enter a CTC amount');
-  const items = (await listCustomItems(groupId)).filter((i) => i.isActive).map((i) => i.get({ plain: true }));
+  // The regular monthly structure — items limited to some months are left out.
+  const items = (await listCustomItems(groupId))
+    .filter((i) => i.isActive && !(Array.isArray(i.months) && i.months.length > 0))
+    .map((i) => i.get({ plain: true }));
   return computeSalary({
     monthlyCtc,
     rules,

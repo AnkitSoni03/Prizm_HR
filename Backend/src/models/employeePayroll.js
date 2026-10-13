@@ -46,6 +46,7 @@ module.exports = (sequelize, DataTypes) => {
       totalDeductions: decimal('totalDeductions'),
       totalEmployer: decimal('totalEmployer'),
       carryAdjustment: decimal('carryAdjustment', [14, 2], { defaultValue: 0 }),
+      bonusTotal: decimal('bonusTotal', [14, 2], { defaultValue: 0 }),
       netPay: decimal('netPay'),
       originalNet: decimal('originalNet'),
       details: { type: DataTypes.JSONB, allowNull: false },

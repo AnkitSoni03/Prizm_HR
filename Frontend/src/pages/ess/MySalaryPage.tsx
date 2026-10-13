@@ -146,6 +146,11 @@ export function MySalaryPage() {
               },
               { key: 'days', header: 'Paid / LOP days', render: (r) => `${r.paidDays} / ${r.lopDays}` },
               { key: 'ded', header: 'Deductions', render: (r) => formatRupees(r.totalDeductions) },
+              {
+                key: 'bonus',
+                header: 'Bonus',
+                render: (r) => (Number(r.bonusTotal) > 0 ? <span className="text-success">+{formatRupees(r.bonusTotal)}</span> : '—'),
+              },
               { key: 'net', header: 'In-hand', render: (r) => <span className="font-semibold text-ink">{formatRupees(r.netPay)}</span> },
               {
                 key: 'slip',

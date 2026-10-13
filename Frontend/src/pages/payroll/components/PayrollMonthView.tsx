@@ -28,6 +28,7 @@ export function PayrollMonthView({ payroll }: { payroll: EmployeePayroll }) {
         <SalaryBreakdownView
           breakdown={{
             earnings: d.earnings ?? [],
+            bonuses: d.bonuses ?? [],
             deductions: d.deductions,
             employer: d.employer ?? [],
             pfSplit: d.pfSplit ?? null,
@@ -40,6 +41,20 @@ export function PayrollMonthView({ payroll }: { payroll: EmployeePayroll }) {
           mode="month"
         />
       ) : (
+        <>
+        {(d.bonuses ?? []).length > 0 && (
+          <div className="rounded-xl border border-border">
+            <p className="rounded-t-xl bg-success/10 px-3 py-2 text-sm font-semibold text-success">One-time pay this month</p>
+            <div className="divide-y divide-border text-sm">
+              {(d.bonuses ?? []).map((row) => (
+                <div key={row.key} className="flex justify-between px-3 py-2 text-ink">
+                  <span>{row.name}</span>
+                  <span className="text-success">+{formatRupees(row.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="rounded-xl border border-border">
           <p className="rounded-t-xl bg-danger/10 px-3 py-2 text-sm font-semibold text-danger">Deductions</p>
           <div className="divide-y divide-border text-sm">
@@ -56,6 +71,7 @@ export function PayrollMonthView({ payroll }: { payroll: EmployeePayroll }) {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {carries.length > 0 && (

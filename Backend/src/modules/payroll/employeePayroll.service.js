@@ -48,6 +48,7 @@ async function listPayrolls(access, { year, month, companyId, brandId, search, l
         [db.sequelize.fn('SUM', db.sequelize.col('EmployeePayroll.gross_earned')), 'gross'],
         [db.sequelize.fn('SUM', db.sequelize.col('EmployeePayroll.total_deductions')), 'deductions'],
         [db.sequelize.fn('SUM', db.sequelize.col('EmployeePayroll.total_employer')), 'employer'],
+        [db.sequelize.fn('SUM', db.sequelize.col('EmployeePayroll.bonus_total')), 'bonus'],
         [db.sequelize.fn('SUM', db.sequelize.col('EmployeePayroll.net_pay')), 'net'],
       ],
       raw: true,
@@ -58,6 +59,7 @@ async function listPayrolls(access, { year, month, companyId, brandId, search, l
         gross: Number(totals?.gross) || 0,
         deductions: Number(totals?.deductions) || 0,
         employer: Number(totals?.employer) || 0,
+        bonus: Number(totals?.bonus) || 0,
         net: Number(totals?.net) || 0,
       },
     };
@@ -98,7 +100,7 @@ async function generateMonth(access, { year, month }) {
 // ---- Employee's own view ----------------------------------------------------
 
 // Before the payslip is released (payslip request approved) an employee sees
-// only what reaches them: deductions and in-hand. The full structure
+// only what reaches them: deductions, one-time extras and in-hand. The full structure
 // (earnings split, employer contributions, PF passbook) comes with the slip.
 function toEmployeeView(row) {
   const plain = row.get ? row.get({ plain: true }) : row;
@@ -113,6 +115,7 @@ function toEmployeeView(row) {
     paidDays: plain.paidDays,
     lopDays: plain.lopDays,
     totalDeductions: plain.totalDeductions,
+    bonusTotal: plain.bonusTotal,
     carryAdjustment: plain.carryAdjustment,
     netPay: plain.netPay,
     revision: plain.revision,
@@ -121,6 +124,7 @@ function toEmployeeView(row) {
     payslipReleased: false,
     details: {
       deductions: (d.deductions || []).map(({ key, name, amount }) => ({ key, name, amount })),
+      bonuses: (d.bonuses || []).map(({ key, name, type, amount }) => ({ key, name, type, amount })),
       carries: d.carries || [],
       lopDates: d.lopDates || [],
       days: d.days || null,
