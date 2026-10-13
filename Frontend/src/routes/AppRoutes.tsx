@@ -19,7 +19,7 @@ import {
   ShiftsRostersPage as EssShiftsPage,
 } from '../pages/company-admin/ShiftsRostersPage';
 import { ApprovalsPage } from '../pages/company-admin/ApprovalsPage';
-import { PayrollPage, PayrollPage as BrandAdminPayrollPage } from '../pages/company-admin/PayrollPage';
+import { PayrollPage } from '../pages/payroll/PayrollPage';
 import {
   AttendanceRecordsPage as CompanyAdminAttendanceRecordsPage,
   AttendanceRecordsPage as BrandAdminAttendanceRecordsPage,
@@ -80,7 +80,7 @@ import { MyOdPage } from '../pages/ess/MyOdPage';
 import { ResignationPage } from '../pages/ess/ResignationPage';
 import { ResignationsPage } from '../pages/company-admin/ResignationsPage';
 import { MyCompOffPage } from '../pages/ess/MyCompOffPage';
-import { MyPayslipsPage } from '../pages/ess/MyPayslipsPage';
+import { MySalaryPage } from '../pages/ess/MySalaryPage';
 import { HolidaysPage as EssHolidaysPage } from '../pages/ess/HolidaysPage';
 import { MyProfilePage } from '../pages/ess/MyProfilePage';
 import { DocumentVerificationPage } from '../pages/ess/DocumentVerificationPage';
@@ -342,7 +342,7 @@ export function AppRoutes() {
       <Route
         path="/company-admin/payroll"
         element={
-          <ProtectedRoute permission="payroll_settings:read">
+          <ProtectedRoute permission="payroll:read">
             <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Payroll">
               <PayrollPage />
             </Layout>
@@ -411,6 +411,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Attendance Board">
               <CompanyAdminAttendanceBoardPage groupMode />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/group-admin/payroll"
+        element={
+          <ProtectedRoute permission="payroll:manage">
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Payroll">
+              <PayrollPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -584,9 +595,9 @@ export function AppRoutes() {
       <Route
         path="/brand-admin/payroll"
         element={
-          <ProtectedRoute permission="payroll_settings:read">
+          <ProtectedRoute permission="payroll:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Payroll">
-              <BrandAdminPayrollPage />
+              <PayrollPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -694,11 +705,11 @@ export function AppRoutes() {
       />
 
       <Route
-        path="/ess/payslips"
+        path="/ess/salary"
         element={
-          <ProtectedRoute permission="payslip:read_own">
-            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Payslips">
-              <MyPayslipsPage />
+          <ProtectedRoute permission="payroll:read_own">
+            <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="My Salary">
+              <MySalaryPage />
             </Layout>
           </ProtectedRoute>
         }
@@ -741,11 +752,11 @@ export function AppRoutes() {
         }
       />
 
-      {/* "Manage & Run Payroll" power — the same page Company Admin uses. */}
+      {/* "Manage Payroll" power (Group level) — the same page Group Admin uses. */}
       <Route
         path="/ess/payroll"
         element={
-          <ProtectedRoute permission="payroll_settings:read">
+          <ProtectedRoute permission="payroll:manage">
             <Layout navItems={ESS_NAV} portalLabel="Employee Self-Service" title="Payroll">
               <PayrollPage />
             </Layout>

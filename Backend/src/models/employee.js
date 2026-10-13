@@ -43,9 +43,8 @@ module.exports = (sequelize, DataTypes) => {
       Employee.hasMany(models.LeaveRequest, { foreignKey: 'approverId', as: 'approvedLeaveRequests' });
       Employee.hasMany(models.CompOffCredit, { foreignKey: 'employeeId', as: 'compOffCredits' });
       Employee.hasMany(models.CompOffCredit, { foreignKey: 'approverId', as: 'approvedCompOffCredits' });
-      Employee.hasMany(models.EmployeeSalaryStructure, { foreignKey: 'employeeId', as: 'salaryStructures' });
-      Employee.hasMany(models.Payslip, { foreignKey: 'employeeId', as: 'payslips' });
-      Employee.hasMany(models.PayrollAdjustment, { foreignKey: 'employeeId', as: 'payrollAdjustments' });
+      Employee.hasMany(models.SalaryAssignment, { foreignKey: 'employeeId', as: 'salaryAssignments' });
+      Employee.hasMany(models.EmployeePayroll, { foreignKey: 'employeeId', as: 'payrolls' });
       // Additional managers beyond the primary manager_id above — see
       // utils/managerScope.js::getManagersForEmployee, which unions both
       // into the full manager set the multi-manager leave-approval workflow

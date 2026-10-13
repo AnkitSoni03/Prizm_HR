@@ -145,7 +145,7 @@ const QUICK_ACTIONS_BASE: QuickAction[] = [
   { label: 'Apply Leave', to: '/ess/leave', icon: CalendarClock },
   { label: 'Apply OD', to: '/ess/od', icon: Send },
   { label: 'My Comp-Off', to: '/ess/comp-off', icon: RefreshCw },
-  { label: 'My Payslips', to: '/ess/payslips', icon: Wallet },
+  { label: 'My Salary', to: '/ess/salary', icon: Wallet },
   { label: 'Raise Regularization', to: '/ess/attendance?tab=requests', icon: CalendarCheck },
   { label: 'Team Approvals', to: '/ess/team-approvals', icon: Users },
   { label: 'Company Policies', to: '/ess/policies', icon: FileText },

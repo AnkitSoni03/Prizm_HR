@@ -66,7 +66,7 @@ const DEFAULT_LEAVE_TYPES = [
   // consumption path — without this row, an employee with an approved
   // comp-off credit has no leave type to spend it against (MyCompOffPage.tsx
   // shows "Comp-off isn't configured as a leave type for your company yet."
-  // and disables the button). isPaid: true so payrollRun.service.js's
+  // and disables the button). isPaid: true so payroll's (payrollEngine.js)
   // paid-leave lookup doesn't treat a redeemed comp-off day as unpaid — the
   // employee already worked the day it compensates.
   { code: 'CO', name: 'Comp Off', isPaid: true },

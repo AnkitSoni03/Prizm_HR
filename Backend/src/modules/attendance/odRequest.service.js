@@ -18,6 +18,7 @@ const {
   notifyManagers,
   MANAGER_INCLUDE,
 } = require('../../utils/managerApprovals');
+const { queuePayrollRecalc } = require('../payroll/payrollEngine');
 
 const MANAGER_APPROVAL_INCLUDE = { model: db.OdRequestApproval, as: 'managerApprovals', include: [MANAGER_INCLUDE] };
 
@@ -176,6 +177,7 @@ async function applyOdApprovalSideEffects({ companyId, request, actorEmployeeId,
     }
     writtenAttendance.push({ attendanceId: attendance.id, dateStr: date });
   }
+  queuePayrollRecalc({ employeeId: request.employeeId, fromDate: request.fromDate, toDate: request.toDate, transaction: t });
   return writtenAttendance;
 }
 
@@ -420,28 +422,12 @@ async function decideOdRequestAsManager({ companyId, id, managerEmployeeId, appr
 // leaveRequest.service.js::revokeLeaveRequest). A comp-off credit earned from
 // a reverted (non-punched) day is rejected with the revert reason; if one
 // was already spent on a leave the revert is refused — revert that leave
-// first. Also refused once a processed/paid payroll run covers the dates.
+// first.
 async function revokeOdRequest({ companyId, id, actorEmployeeId, actorUserId, reason }) {
   if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to revert an OD request');
 
   const request = await getOdRequestForDecision({ companyId, id });
   if (request.status !== 'approved') throw new HttpError(409, 'Only an approved OD request can be reverted');
-
-  const lockedRun = await db.PayrollRun.findOne({
-    where: {
-      companyId: request.employee.companyId,
-      status: { [Op.in]: ['processed', 'paid'] },
-      payPeriodStart: { [Op.lte]: request.toDate },
-      payPeriodEnd: { [Op.gte]: request.fromDate },
-    },
-    attributes: ['id', 'periodMonth', 'periodYear'],
-  });
-  if (lockedRun) {
-    throw new HttpError(
-      409,
-      `Payroll for ${lockedRun.periodMonth}/${lockedRun.periodYear} is already processed for these dates — this OD can no longer be reverted`
-    );
-  }
 
   const rows = await db.Attendance.findAll({
     where: {
@@ -519,6 +505,7 @@ async function revokeOdRequest({ companyId, id, actorEmployeeId, actorUserId, re
     title: 'Your approved OD was reverted',
     body: `${request.fromDate} → ${request.toDate}: ${reason.trim()}`,
   });
+  queuePayrollRecalc({ employeeId: request.employeeId, fromDate: request.fromDate, toDate: request.toDate });
 
   return request;
 }

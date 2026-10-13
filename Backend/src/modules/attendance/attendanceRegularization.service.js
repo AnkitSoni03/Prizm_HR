@@ -11,6 +11,7 @@ const { withEmployeePhoto } = require('../../utils/employeePhoto');
 const { buildBusinessDateTime } = require('../../utils/dateRange');
 const { resolveCheckOutDateTime } = require('../../utils/shiftTime');
 const { findApprovedLeavesOnDate } = require('../leave/leaveRequest.service');
+const { queuePayrollRecalc } = require('../payroll/payrollEngine');
 
 // An approved FULL-day leave (Annual, Short Leave, Unpaid...) owns the day's
 // status: an employee's correction may only fix the punch times, never turn
@@ -231,6 +232,7 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
     title: 'Your attendance regularization was approved',
     body: regularization.attendance?.date,
   });
+  queuePayrollRecalc({ employeeId: regularization.employeeId, fromDate: attendanceDate });
 
   return regularization;
 }
@@ -282,7 +284,6 @@ function sameInstant(a, b) {
 //   - it was approved before that snapshot existed (nothing to restore to);
 //   - the attendance row has changed since (another regularization, a punch,
 //     an admin correction) — restoring would silently wipe that later change;
-//   - a processed/paid payroll run covers the date;
 //   - a comp-off earned from the regularized day was already used for leave.
 // A comp-off credit earned from the day is rejected when the restored status
 // no longer counts as worked (present/on_duty). A reason is mandatory.
@@ -322,22 +323,6 @@ async function revokeRegularization({ companyId, id, actorEmployeeId, actorUserI
     throw new HttpError(
       409,
       'This day\'s attendance has changed since the regularization was approved — correct it from Attendance Records instead'
-    );
-  }
-
-  const lockedRun = await db.PayrollRun.findOne({
-    where: {
-      companyId: regularization.employee.companyId,
-      status: { [Op.in]: ['processed', 'paid'] },
-      payPeriodStart: { [Op.lte]: attendance.date },
-      payPeriodEnd: { [Op.gte]: attendance.date },
-    },
-    attributes: ['id', 'periodMonth', 'periodYear'],
-  });
-  if (lockedRun) {
-    throw new HttpError(
-      409,
-      `Payroll for ${lockedRun.periodMonth}/${lockedRun.periodYear} is already processed for this date — this regularization can no longer be reverted`
     );
   }
 
@@ -393,6 +378,7 @@ async function revokeRegularization({ companyId, id, actorEmployeeId, actorUserI
     title: 'Your approved attendance regularization was reverted',
     body: `${attendance.date}: ${reason.trim()}`,
   });
+  queuePayrollRecalc({ employeeId: regularization.employeeId, fromDate: attendance.date });
 
   return regularization;
 }

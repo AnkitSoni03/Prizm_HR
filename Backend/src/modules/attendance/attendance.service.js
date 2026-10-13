@@ -10,6 +10,7 @@ const { getActiveEmployeeShift } = require('./employeeShift.service');
 const { checkAndCreateCompOffCredit } = require('../leave/compOff.service');
 const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const { notifyUser } = require('../../utils/notifications');
+const { queuePayrollRecalc } = require('../payroll/payrollEngine');
 const {
   createLeaveRequest,
   approveLeaveRequest,
@@ -861,8 +862,7 @@ const MANUALLY_SETTABLE_STATUSES = ['present', 'half_day', 'absent', 'leave'];
 // revokeLeaveRequest path, so the balance is refunded, the employee is
 // notified and the revert is in the approval history. Refused (thrown, and
 // reported per-employee by the caller) when the leave spans several days —
-// reverting it would undo the other days too — or when payroll for the date
-// is already processed (revokeLeaveRequest's own rule). Multi-day leaves are
+// reverting it would undo the other days too — Multi-day leaves are
 // checked before anything is reverted, so an employee is never left half done.
 async function revertLeavesForStatusChange({ companyId, leaves, date, actorUserId, reason }) {
   const multiDay = leaves.find((leave) => leave.fromDate !== leave.toDate);
@@ -1087,6 +1087,7 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
   // the same detection, so this manual-correction path shouldn't be the one
   // place that silently skips it.
   for (const { employee, attendanceId } of changedEmployees) {
+    queuePayrollRecalc({ employeeId: employee.id, fromDate: date });
     if (status === 'present') {
       try {
         await checkAndCreateCompOffCredit({ employeeId: employee.id, attendanceId, dateStr: date });

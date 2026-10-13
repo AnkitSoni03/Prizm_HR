@@ -108,9 +108,8 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
   // real enforcement boundary for a brand-scoped caller (Brand Admin): an
   // explicit brandId is already validated by the middleware to be one of
   // theirs, but an *omitted* brandId used to fall through to every employee
-  // in the company — real gap, since callers like the Payroll page's
-  // employee picker (pages/company-admin/PayrollPage.tsx, reused as-is by
-  // Brand Admin) never pass a brandId at all.
+  // in the company — real gap, since some pickers never pass a brandId at
+  // all.
   if (scopedBrandIds) where.brandId = brandId || scopedBrandIds;
   if (departmentId) where.departmentId = departmentId;
   if (rosterGroupId) where.rosterGroupId = rosterGroupId;
@@ -528,8 +527,8 @@ async function transferEmployee({ companyId, id, brandId, departmentId, scopedBr
 // employee_id FK on attendance, attendance_regularizations, od_requests,
 // leave_requests, leave_balances, comp_off_credits, employee_documents,
 // document_upload_requests, employee_face_profiles, employee_shifts,
-// employee_salary_structures (and its components), payslips (and its
-// components), and payroll_adjustments are all ON DELETE CASCADE — one
+// salary_assignments, employee_payrolls, payroll_carry_adjustments,
+// payslip_requests and leave_sandwich_days are all ON DELETE CASCADE — one
 // `DELETE FROM employees` removes every one of those rows in a single
 // statement (see the migrations for each table). Everything that only
 // *references* this employee from the outside is ON DELETE SET NULL and

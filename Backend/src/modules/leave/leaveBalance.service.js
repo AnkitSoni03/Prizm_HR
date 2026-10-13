@@ -316,7 +316,7 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
 // monthly" vs "Annual Leave: full 25 given upfront") — resolved live from
 // the employee's own Roster's LeavePolicy, same source getOrCreateBalance
 // itself used to compute `allotted`. Not a snapshot on the balance row
-// itself (unlike payroll's payslip_components) — if an admin changes a
+// itself (unlike payroll's monthly snapshot) — if an admin changes a
 // policy's accrual after the balance was created, this shows the CURRENT
 // accrual, which only matters cosmetically since it's purely informational.
 //

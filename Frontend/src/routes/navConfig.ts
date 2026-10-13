@@ -74,7 +74,7 @@ export const COMPANY_ADMIN_NAV: NavItem[] = [
   { label: 'Leave Policy Settings', path: '/company-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
   { label: 'Company Policies', path: '/company-admin/policies', icon: FileText },
   { label: 'Comp Off Setting', path: '/company-admin/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
-  { label: 'Payroll', path: '/company-admin/payroll', icon: Wallet, permission: 'payroll_settings:read' },
+  { label: 'Payroll', path: '/company-admin/payroll', icon: Wallet, permission: 'payroll:read' },
   { label: 'Settings', path: '/company-admin/settings', icon: Settings },
 ];
 
@@ -83,6 +83,7 @@ export const GROUP_ADMIN_NAV: NavItem[] = [
   { label: 'Companies', path: '/group-admin/companies', icon: Building2 },
   { label: 'Attendance Records', path: '/group-admin/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/group-admin/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
+  { label: 'Payroll', path: '/group-admin/payroll', icon: Wallet, permission: 'payroll:manage' },
   { label: 'Settings', path: '/group-admin/settings', icon: Settings },
 ];
 
@@ -101,7 +102,7 @@ export const BRAND_ADMIN_NAV: NavItem[] = [
   { label: 'Leave Policy Settings', path: '/brand-admin/leave-policies', icon: ClipboardList, permission: 'leave_policy:read' },
   { label: 'Company Policies', path: '/brand-admin/policies', icon: FileText },
   { label: 'Comp Off Setting', path: '/brand-admin/comp-off-settings', icon: RefreshCw, permission: 'comp_off_policy:read' },
-  { label: 'Payroll', path: '/brand-admin/payroll', icon: Wallet, permission: 'payroll_settings:read' },
+  { label: 'Payroll', path: '/brand-admin/payroll', icon: Wallet, permission: 'payroll:read' },
   { label: 'Settings', path: '/brand-admin/settings', icon: Settings },
 ];
 
@@ -130,8 +131,8 @@ export const ESS_NAV: NavItem[] = [
   },
   { label: 'Attendance Records', path: '/ess/attendance-records', icon: CalendarCheck, permission: 'attendance:read' },
   { label: 'Attendance Board', path: '/ess/attendance-board', icon: LayoutGrid, permission: 'attendance:read' },
-  { label: 'My Payslips', path: '/ess/payslips', icon: Wallet },
-  { label: 'Payroll', path: '/ess/payroll', icon: Wallet, permission: 'payroll_settings:read' },
+  { label: 'My Salary', path: '/ess/salary', icon: Wallet, permission: 'payroll:read_own' },
+  { label: 'Payroll', path: '/ess/payroll', icon: Wallet, permission: 'payroll:manage' },
   { label: 'Yearly Holidays', path: '/ess/holidays', icon: CalendarClock, actingPermissions: ['holiday:create'] },
   { label: 'Company Policies', path: '/ess/policies', icon: FileText, actingPermissions: ['company_policy:create'] },
   {

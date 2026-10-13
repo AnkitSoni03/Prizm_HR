@@ -1,8 +1,6 @@
 // Options for the "Work State" select on Employee forms — used for
-// Professional Tax slab lookup (see Backend/src/config/statutoryDefaults.js).
-// Kept in sync by convention, not enforcement: an employee's workState that
-// doesn't match any entry here (or is left blank) just falls back to the
-// backend's 'default' PT slab, so this list isn't a hard dependency.
+// Professional Tax slab lookup (see Backend/src/modules/payroll/payrollRules.js
+// PT_SLABS). A state with no slab there (Delhi, Haryana, …) levies no PT.
 export const INDIAN_STATES = [
   'Andhra Pradesh',
   'Arunachal Pradesh',

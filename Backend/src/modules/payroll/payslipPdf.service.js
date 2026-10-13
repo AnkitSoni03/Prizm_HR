@@ -5,53 +5,51 @@ const { Document, Page, View, Text, StyleSheet, renderToBuffer } = require('@rea
 
 const e = React.createElement;
 
+// The formal payslip an employee gets once their payslip request is
+// approved — the full salary structure (earnings split, deductions, employer
+// contributions, PF passbook) for one month. Amounts use "Rs." — the
+// built-in Helvetica has no ₹ glyph.
+
 const COLORS = {
   primary: '#3354a4',
   primaryLight: 'rgba(51, 84, 164, 0.08)',
   border: '#d9dee6',
   ink: '#1f2937',
   inkMuted: '#6b7280',
+  soft: '#f7f8fa',
 };
 
 const styles = StyleSheet.create({
-  page: { padding: 32, fontSize: 10, color: COLORS.ink, fontFamily: 'Helvetica' },
-  header: { marginBottom: 16 },
+  page: { padding: 32, fontSize: 9.5, color: COLORS.ink, fontFamily: 'Helvetica' },
   companyName: { fontSize: 16, fontWeight: 700, color: COLORS.primary },
   companySub: { fontSize: 9, color: COLORS.inkMuted, marginTop: 2 },
-  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 },
   title: { fontSize: 12, fontWeight: 700 },
-  status: { fontSize: 9, color: COLORS.inkMuted, textTransform: 'uppercase' },
-  employeeBlock: {
+  revised: { fontSize: 8, color: COLORS.inkMuted },
+  infoGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     borderTop: `1px solid ${COLORS.border}`,
     borderBottom: `1px solid ${COLORS.border}`,
-    paddingVertical: 8,
-    marginTop: 12,
+    paddingVertical: 6,
+    marginTop: 10,
   },
-  employeeLabel: { fontSize: 8, color: COLORS.inkMuted, textTransform: 'uppercase' },
-  employeeValue: { fontSize: 10, marginTop: 2 },
-  daysRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#f7f8fa',
-    borderRadius: 6,
-    paddingVertical: 8,
-    marginTop: 12,
-  },
+  infoCell: { width: '33.33%', paddingVertical: 3 },
+  label: { fontSize: 7.5, color: COLORS.inkMuted, textTransform: 'uppercase' },
+  value: { fontSize: 9.5, marginTop: 1 },
+  daysRow: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: COLORS.soft, borderRadius: 6, paddingVertical: 7, marginTop: 10 },
   daysCell: { alignItems: 'center' },
-  section: { marginTop: 14 },
-  sectionTitle: { fontSize: 9, fontWeight: 700, color: COLORS.inkMuted, textTransform: 'uppercase', marginBottom: 4 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTop: `1px solid ${COLORS.border}`,
-    marginTop: 2,
-    paddingTop: 4,
-  },
-  totalLabel: { fontWeight: 700 },
-  totalValue: { fontWeight: 700 },
+  columns: { flexDirection: 'row', marginTop: 12 },
+  column: { flex: 1 },
+  columnGap: { width: 16 },
+  sectionTitle: { fontSize: 8.5, fontWeight: 700, color: COLORS.inkMuted, textTransform: 'uppercase', marginBottom: 4 },
+  tableHead: { flexDirection: 'row', borderBottom: `1px solid ${COLORS.border}`, paddingBottom: 3, marginBottom: 2 },
+  row: { flexDirection: 'row', paddingVertical: 2 },
+  cellName: { flex: 1 },
+  cellAmount: { width: 62, textAlign: 'right' },
+  muted: { color: COLORS.inkMuted, fontSize: 7.5 },
+  totalRow: { flexDirection: 'row', borderTop: `1px solid ${COLORS.border}`, marginTop: 2, paddingTop: 3 },
+  bold: { fontWeight: 700 },
   netPayBox: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -59,44 +57,67 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingVertical: 10,
     paddingHorizontal: 10,
-    marginTop: 16,
+    marginTop: 14,
   },
   netPayLabel: { fontSize: 12, fontWeight: 700, color: COLORS.primary },
-  netPayValue: { fontSize: 12, fontWeight: 700, color: COLORS.primary },
-  employerBox: { backgroundColor: '#f7f8fa', borderRadius: 6, padding: 8, marginTop: 6 },
-  footnote: { fontSize: 8, color: COLORS.inkMuted, marginTop: 6 },
+  section: { marginTop: 14 },
+  box: { backgroundColor: COLORS.soft, borderRadius: 6, padding: 8 },
+  footnote: { fontSize: 7.5, color: COLORS.inkMuted, marginTop: 4 },
 });
-
-function formatAmount(value) {
-  return Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-function buildDocument(payslip) {
-  const company = payslip.company;
-  const employee = payslip.employee;
-  const run = payslip.payrollRun;
-  const components = payslip.components || [];
+function rs(value) {
+  return `Rs. ${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
 
-  const earnings = components.filter((c) => c.category === 'earning' || c.category === 'reimbursement');
-  const deductions = components.filter((c) => c.category === 'deduction');
-  const employerContributions = components.filter((c) => c.category === 'employer_contribution');
+function info(label, value) {
+  return e(View, { style: styles.infoCell }, e(Text, { style: styles.label }, label), e(Text, { style: styles.value }, value || '—'));
+}
 
-  const periodLabel = run ? `${MONTH_NAMES[run.periodMonth - 1]} ${run.periodYear}` : '—';
-
-  const rows = (items, prefix = '') =>
-    items.map((c) =>
+function table(title, rows, total, { showFull = true } = {}) {
+  return e(
+    View,
+    { style: styles.column },
+    e(Text, { style: styles.sectionTitle }, title),
+    e(
+      View,
+      { style: styles.tableHead },
+      e(Text, { style: [styles.cellName, styles.muted] }, 'Component'),
+      showFull && e(Text, { style: [styles.cellAmount, styles.muted] }, 'Monthly'),
+      e(Text, { style: [styles.cellAmount, styles.muted] }, 'This month')
+    ),
+    ...rows.map((r, i) =>
       e(
         View,
-        { key: c.id, style: styles.row },
-        e(Text, null, c.name),
-        e(Text, null, `${prefix}${formatAmount(c.amount)}`)
+        { key: `${r.key}-${i}`, style: styles.row },
+        e(View, { style: styles.cellName }, e(Text, null, r.name), r.rule ? e(Text, { style: styles.muted }, r.rule) : null),
+        showFull && e(Text, { style: styles.cellAmount }, r.full === undefined ? '' : rs(r.full)),
+        e(Text, { style: styles.cellAmount }, rs(r.amount))
       )
-    );
+    ),
+    e(
+      View,
+      { style: styles.totalRow },
+      e(Text, { style: [styles.cellName, styles.bold] }, total.label),
+      showFull && e(Text, { style: [styles.cellAmount, styles.bold] }, total.full === undefined ? '' : rs(total.full)),
+      e(Text, { style: [styles.cellAmount, styles.bold] }, rs(total.amount))
+    )
+  );
+}
+
+function buildDocument(payroll) {
+  const d = payroll.details || {};
+  const employee = payroll.employee || {};
+  const company = employee.company || {};
+  const period = `${MONTH_NAMES[payroll.periodMonth - 1]} ${payroll.periodYear}`;
+  const carries = d.carries || [];
+  const deductions = [...(d.deductions || [])];
+  const salaryNet = (d.actual && d.actual.inHand) || 0;
+  const pf = d.pfSplit && d.pfSplit.actual;
 
   return e(
     Document,
@@ -104,97 +125,110 @@ function buildDocument(payslip) {
     e(
       Page,
       { size: 'A4', style: styles.page },
+      e(Text, { style: styles.companyName }, company.name || d.companyName || ''),
+      company.legalName ? e(Text, { style: styles.companySub }, company.legalName) : null,
       e(
         View,
-        { style: styles.header },
-        e(Text, { style: styles.companyName }, company?.name ?? ''),
-        company?.legalName && e(Text, { style: styles.companySub }, company.legalName),
-        company?.gstNumber && e(Text, { style: styles.companySub }, `GSTIN: ${company.gstNumber}`),
-        e(
-          View,
-          { style: styles.titleRow },
-          e(Text, { style: styles.title }, `Payslip for ${periodLabel}`),
-          run && e(Text, { style: styles.status }, run.status)
-        )
+        { style: styles.titleRow },
+        e(Text, { style: styles.title }, `Payslip for ${period}`),
+        payroll.revisedAt
+          ? e(Text, { style: styles.revised }, `Revised on ${new Date(payroll.revisedAt).toLocaleDateString('en-IN')}`)
+          : null
       ),
       e(
         View,
-        { style: styles.employeeBlock },
-        e(
-          View,
-          null,
-          e(Text, { style: styles.employeeLabel }, 'Employee'),
-          e(Text, { style: styles.employeeValue }, `${employee?.name ?? ''} (${employee?.employeeCode ?? ''})`)
-        ),
-        e(
-          View,
-          null,
-          e(Text, { style: styles.employeeLabel }, 'Designation'),
-          e(Text, { style: styles.employeeValue }, employee?.designation?.title ?? '—')
-        ),
-        e(
-          View,
-          null,
-          e(Text, { style: styles.employeeLabel }, 'Department'),
-          e(Text, { style: styles.employeeValue }, employee?.department?.name ?? '—')
-        )
+        { style: styles.infoGrid },
+        info('Employee', employee.name),
+        info('Employee code', employee.employeeCode),
+        info('Designation', employee.designation && employee.designation.title),
+        info('Department', employee.department && employee.department.name),
+        info('Brand', employee.brand && employee.brand.name),
+        info('Monthly CTC', rs(payroll.monthlyCtc))
       ),
       e(
         View,
         { style: styles.daysRow },
-        e(View, { style: styles.daysCell }, e(Text, { style: styles.employeeLabel }, 'Working Days'), e(Text, { style: styles.employeeValue }, String(payslip.workingDays))),
-        e(View, { style: styles.daysCell }, e(Text, { style: styles.employeeLabel }, 'LOP Days'), e(Text, { style: styles.employeeValue }, String(payslip.lopDays))),
-        e(View, { style: styles.daysCell }, e(Text, { style: styles.employeeLabel }, 'Payable Days'), e(Text, { style: styles.employeeValue }, String(payslip.payableDays)))
+        e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, 'Days in month'), e(Text, { style: styles.value }, String(payroll.monthDays))),
+        e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, 'Paid days'), e(Text, { style: styles.value }, String(payroll.paidDays))),
+        e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, 'Loss of pay days'), e(Text, { style: styles.value }, String(payroll.lopDays)))
       ),
       e(
         View,
-        { style: styles.section },
-        e(Text, { style: styles.sectionTitle }, 'Earnings'),
-        ...rows(earnings),
-        e(
-          View,
-          { style: styles.totalRow },
-          e(Text, { style: styles.totalLabel }, 'Gross Earnings'),
-          e(Text, { style: styles.totalValue }, formatAmount(payslip.grossEarnings))
+        { style: styles.columns },
+        table('Earnings', d.earnings || [], {
+          label: 'Gross salary',
+          full: d.full && d.full.grossSalary,
+          amount: payroll.grossEarned,
+        }),
+        e(View, { style: styles.columnGap }),
+        table(
+          'Deductions',
+          deductions.length > 0 ? deductions : [{ key: 'none', name: 'No deductions', amount: 0 }],
+          { label: 'Total deductions', full: d.full && d.full.totalDeductions, amount: payroll.totalDeductions }
         )
       ),
-      deductions.length > 0 &&
-        e(
+      carries.length > 0
+        ? e(
           View,
           { style: styles.section },
-          e(Text, { style: styles.sectionTitle }, 'Deductions'),
-          ...rows(deductions, '−'),
+          e(Text, { style: styles.sectionTitle }, 'Adjustments from earlier months'),
           e(
             View,
-            { style: styles.totalRow },
-            e(Text, { style: styles.totalLabel }, 'Total Deductions'),
-            e(Text, { style: styles.totalValue }, `−${formatAmount(payslip.totalDeductions)}`)
+            { style: styles.box },
+            ...carries.map((c) =>
+              e(
+                View,
+                { key: c.id, style: styles.row },
+                e(Text, { style: styles.cellName }, `${c.amount >= 0 ? 'Arrears' : 'Recovery'} for ${MONTH_NAMES[c.sourceMonth - 1]} ${c.sourceYear}`),
+                e(Text, { style: styles.cellAmount }, `${c.amount >= 0 ? '+' : '-'}${rs(Math.abs(c.amount))}`)
+              )
+            ),
+            e(Text, { style: styles.footnote }, `Salary for this month after deductions: ${rs(salaryNet)}`)
           )
-        ),
+        )
+        : null,
       e(
         View,
         { style: styles.netPayBox },
-        e(Text, { style: styles.netPayLabel }, 'Net Pay'),
-        e(Text, { style: styles.netPayValue }, formatAmount(payslip.netPay))
+        e(Text, { style: styles.netPayLabel }, 'Net pay (in-hand)'),
+        e(Text, { style: styles.netPayLabel }, rs(payroll.netPay))
       ),
-      employerContributions.length > 0 &&
-        e(
+      (d.employer || []).length > 0
+        ? e(
           View,
           { style: styles.section },
-          e(Text, { style: styles.sectionTitle }, 'Employer Contributions'),
-          e(View, { style: styles.employerBox }, ...rows(employerContributions)),
+          e(Text, { style: styles.sectionTitle }, 'Employer contributions (part of CTC, not paid as salary)'),
+          e(View, { style: styles.box }, table('', d.employer, { label: 'Total employer share', full: d.full && d.full.totalEmployer, amount: payroll.totalEmployer }))
+        )
+        : null,
+      pf
+        ? e(
+          View,
+          { style: styles.section },
+          e(Text, { style: styles.sectionTitle }, 'PF account credit (as in the EPF passbook)'),
           e(
-            Text,
-            { style: styles.footnote },
-            'Paid by the company on top of your salary — does not affect your net pay.'
+            View,
+            { style: styles.box },
+            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, 'Employee share → EPF'), e(Text, { style: styles.cellAmount }, rs(pf.employeeEpf))),
+            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, 'Employer share → EPF'), e(Text, { style: styles.cellAmount }, rs(pf.employerEpf))),
+            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, `Employer share → EPS pension (${d.pfSplit.epsRate}%)`), e(Text, { style: styles.cellAmount }, rs(pf.eps))),
+            e(
+              View,
+              { style: styles.totalRow },
+              e(Text, { style: [styles.cellName, styles.bold] }, 'Total PF contribution'),
+              e(Text, { style: [styles.cellAmount, styles.bold] }, rs(pf.employeeEpf + pf.employerEpf + pf.eps))
+            )
           )
         )
+        : null,
+      e(Text, { style: [styles.footnote, { marginTop: 16 }] }, 'This is a computer-generated payslip and does not need a signature.')
     )
   );
 }
 
-async function buildPayslipPdfBuffer(payslip) {
-  return renderToBuffer(buildDocument(payslip));
+async function buildPayslipPdfBuffer(payroll) {
+  const plain = payroll.get ? payroll.get({ plain: true }) : payroll;
+  return renderToBuffer(buildDocument(plain));
 }
 
 module.exports = { buildPayslipPdfBuffer };

@@ -1300,6 +1300,46 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   Company/Brand Admin Employees pages (`PUT /employees/bulk/hr`). Migrations
   `20261012090000`–`090200` + seeder `20261012090000`. tsc/eslint/vite build clean; decision
   rules mock-tested offline — **not live-tested, migrations + seeder not applied** (.env is prod).
+- ✅ Payroll rebuilt at Group level (2026-10-13) — **supersedes every earlier Payroll entry above**
+  (Phase-5 v1, PF/ESI/PT, TDS): the old company-level module, its 8 tables and data are deleted
+  (migration `20261013090000`, explicitly requested). New `modules/payroll/`:
+  - **Who**: Group Admin + the "Manage Payroll" power (`run_payroll`, now **Group level only**,
+    code `payroll:manage`) manage; Company Admin / HR Manager / Brand Admin view only
+    (`payroll:read`, own company / brand); every employee `payroll:read_own`. Access is resolved
+    in `payrollAccess.js` (a `payroll:manage` grant only counts on a group-scoped UserRole). Seeder
+    `20261013090000` revokes all old payroll codes and moves existing group-level power holders over.
+  - **Salary templates** (`payroll_templates`, group-level, not tenant-scoped, several per Group):
+    `rules` JSONB = Basic % of CTC, HRA % of Basic, Special = balancing figure, every employee
+    deduction (PF/ESI/PT/LWF/TDS) and employer contribution (PF+EPS split, EDLI, PF admin,
+    gratuity, ESI, LWF) with its own on/off toggle and editable %/cap, plus the optional sandwich
+    rule. Math in pure `payrollRules.js::computeSalary` — gross = CTC − employer share (employer
+    ESI solved algebraically); matches the reference sheet exactly (₹30k CTC → ₹27,328 gross →
+    ₹25,528 in-hand). PT slabs built in (Delhi etc. = no PT); TDS = new regime FY25-26 slabs
+    (₹12L rebate + marginal relief). Group-wide extra items in `payroll_custom_items`.
+  - **Assignment** (`salary_assignments`, versioned like the old structures): template + CTC
+    (monthly or yearly) + `deductions_enabled` master switch (off = in-hand = CTC) +
+    `disabled_items` per employee. Revision supersedes; in-place edit = correction.
+  - **Monthly payroll** (`employee_payrolls`): generated only after a month ends —
+    `jobs/payrollGeneration.job.js` daily 00:30 (idempotent, so the 1st is covered), plus
+    catch-up when a salary is assigned with a past date. Paid = present/OD/half-day/paid leave/
+    holiday/week-off; LOP = unpaid leave (half-day = 0.5), unmarked working day (absent),
+    sandwich-LOP; days before joining / after an accepted resignation's last day are unpaid but
+    not LOP. Template is snapshotted at first generation (`rules_snapshot`).
+  - **Corrections**: leave approve/revoke, OD approve/revoke, regularization approve/revoke and
+    bulk attendance changes call `queuePayrollRecalc` (after commit); the month is recalculated
+    (`revision`, `revised_at`, employee notified) and the net difference vs `original_net` goes
+    to `payroll_carry_adjustments` → applied as arrears/recovery in the next generated month. The
+    old "can't revert, payroll processed" locks in leave/OD/regularization are removed.
+  - **Sandwich rule** (`sandwichRule.js`, `leave_sandwich_days`): at leave approval, non-working
+    days between two approved full-day leaves are charged 1/day to the leave balance, or LOP when
+    none is left / leaves are unpaid; reverting either leave refunds and removes them.
+  - **Employee**: ESS "My Salary" (`/ess/salary`) shows deductions + in-hand per month; the full
+    structure + PDF only after a payslip request (`payslip_requests`) is approved by a payroll
+    manager (sets `payslip_released`). Admin pages: `pages/payroll/PayrollPage.tsx` at
+    `/group-admin/payroll`, `/ess/payroll`, `/company-admin/payroll`, `/brand-admin/payroll`.
+  - Tested offline with mocks (engine 11, sandwich 6, recalculation/arrears/PDF 5); tsc/eslint/
+    vite build clean. **Not live-tested — migrations `20261013090000`–`090800` + seeder not
+    applied** (.env points at prod).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

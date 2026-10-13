@@ -12,6 +12,15 @@ const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 const { withEmployeePhoto } = require('../../utils/employeePhoto');
 const { getManagersForEmployee } = require('../../utils/managerScope');
 const { notifyManagers } = require('../../utils/managerApprovals');
+const { applySandwichOnApproval, reverseSandwichForLeave } = require('../payroll/sandwichRule');
+const { queuePayrollRecalc } = require('../payroll/payrollEngine');
+
+// Already-generated payroll months covering these dates get recalculated
+// once the transaction commits (best-effort, see payrollEngine.js).
+function recalcPayrollFor(request, extraDates, transaction) {
+  const dates = [request.fromDate, request.toDate, ...extraDates].sort();
+  queuePayrollRecalc({ employeeId: request.employeeId, fromDate: dates[0], toDate: dates[dates.length - 1], transaction });
+}
 
 const MANAGER_APPROVAL_INCLUDE = {
   model: db.LeaveRequestApproval,
@@ -421,9 +430,14 @@ async function applyLeaveApprovalSideEffects({ companyId, request, actorEmployee
     await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
   }
 
+  // Optional sandwich rule (salary template) — holidays/week-offs between
+  // this leave and another approved one count as leave too.
+  const sandwichDates = await applySandwichOnApproval({ request, transaction: t });
+  recalcPayrollFor(request, sandwichDates, t);
+
   // A half-day leave leaves the attendance row alone — the employee works
   // the other half and punches in as normal; payroll accounts for the leave
-  // half itself (payrollRun.service.js::computeSegmentPayability).
+  // half itself (modules/payroll/payrollEngine.js).
   if (request.halfDaySession) return;
 
   for (const date of datesBetween(request.fromDate, request.toDate)) {
@@ -707,30 +721,13 @@ async function decideLeaveRequestAsManager({ companyId, id, managerEmployeeId, a
 // (employee_id, date) index, so a soft-deleted row would block the
 // employee's next check-in on that date. A reason is mandatory.
 //
-// Refused once a processed/paid payroll run covers any of the leave's dates —
-// that payslip already paid (or docked) those days, and changing them under
-// it would silently put payroll and attendance out of step.
+// A month whose payroll is already generated is recalculated afterwards
+// (modules/payroll/payrollEngine.js) — the difference carries into the next payroll.
 async function revokeLeaveRequest({ companyId, id, actorEmployeeId, actorUserId, reason }) {
   if (!reason || !reason.trim()) throw new HttpError(400, 'A reason is required to revert a leave request');
 
   const request = await getLeaveRequestForDecision({ companyId, id });
   if (request.status !== 'approved') throw new HttpError(409, 'Only an approved leave request can be reverted');
-
-  const lockedRun = await db.PayrollRun.findOne({
-    where: {
-      companyId: request.employee.companyId,
-      status: { [Op.in]: ['processed', 'paid'] },
-      payPeriodStart: { [Op.lte]: request.toDate },
-      payPeriodEnd: { [Op.gte]: request.fromDate },
-    },
-    attributes: ['id', 'periodMonth', 'periodYear'],
-  });
-  if (lockedRun) {
-    throw new HttpError(
-      409,
-      `Payroll for ${lockedRun.periodMonth}/${lockedRun.periodYear} is already processed for these dates — this leave can no longer be reverted`
-    );
-  }
 
   await db.sequelize.transaction(async (t) => {
     if (request.compOffCreditId) {
@@ -750,6 +747,9 @@ async function revokeLeaveRequest({ companyId, id, actorEmployeeId, actorUserId,
       const used = Number(balance.used) - Number(request.days);
       await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
     }
+
+    const sandwichDates = await reverseSandwichForLeave({ request, transaction: t });
+    recalcPayrollFor(request, sandwichDates, t);
 
     // A half-day leave never wrote 'leave' attendance rows (see
     // applyLeaveApprovalSideEffects), so there's nothing to put back.

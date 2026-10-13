@@ -12,6 +12,7 @@ const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
 const { sendRosterExpiryReminders } = require('./jobs/rosterExpiryReminder.job');
 const { markMissedCheckouts } = require('./jobs/missedCheckout.job');
 const { sendProbationReminders } = require('./jobs/probationReminder.job');
+const { runPayrollGeneration, processPendingRecalcs } = require('./jobs/payrollGeneration.job');
 const { verifyMailerConnection } = require('./utils/mailer');
 
 const PORT = process.env.PORT || 5000;
@@ -56,6 +57,14 @@ function startLeaveJobs() {
   // until the Employment Type is changed (utils/probation.js).
   cron.schedule('0 9 * * *', () => {
     sendProbationReminders().catch((err) => console.error('probation-reminder job failed:', err));
+  });
+  // Last month's payroll — created on the 1st, re-checked daily (idempotent).
+  cron.schedule('30 0 * * *', () => {
+    runPayrollGeneration().catch((err) => console.error('payroll-generation job failed:', err));
+  });
+  // Months flagged by a late correction that weren't recalculated right away.
+  cron.schedule('*/15 * * * *', () => {
+    processPendingRecalcs().catch((err) => console.error('payroll-recalc job failed:', err));
   });
 }
 

@@ -69,7 +69,7 @@ const POWER_CATALOG = [
     // department:read/brand:read are needed for that (Company Admin/HR
     // Manager already hold these broadly as part of their role, which is
     // why this gap pattern keeps recurring for narrowly-scoped Employee
-    // powers — see the run_payroll bundle below for the same shape).
+    // powers — see assign_comp_off below for the same shape).
     permissionCodes: [
       'employee_document:read', 'employee_document:verify',
       'employee:read', 'department:read', 'brand:read', 'designation:read',
@@ -88,7 +88,7 @@ const POWER_CATALOG = [
     // is about creating credits, not deciding ones already pending).
     // employee:read/department:read/brand:read are needed to browse/filter
     // the employee directory to pick who to credit, same recurring gap as
-    // document_verification/run_payroll below. comp_off:read lets the
+    // document_verification below. comp_off:read lets the
     // holder see the Comp-Off Credits list to check what's already been
     // granted. comp_off_policy:* is the separate "Comp Off Setting" page
     // (policy CRUD + per-employee enrollment, which drives *automatic*
@@ -146,22 +146,17 @@ const POWER_CATALOG = [
   },
   {
     key: 'run_payroll',
-    label: 'Manage & Run Payroll',
-    // Payroll runs are company-wide (no brand dimension), so a Brand-level
-    // grant would be meaningless here.
-    levels: ['company', 'group'],
-    description: 'Configure salary structures, add adjustments, and process/pay monthly payroll runs.',
-    // employee:read is needed to browse/pick employees when assigning a
-    // salary structure, same rationale as the document_verification bundle
-    // above.
-    permissionCodes: [
-      'payroll_settings:read', 'payroll_settings:update',
-      'salary_component:create', 'salary_component:read', 'salary_component:update', 'salary_component:delete',
-      'salary_structure:create', 'salary_structure:read', 'salary_structure:update',
-      'payroll_adjustment:create', 'payroll_adjustment:read', 'payroll_adjustment:update', 'payroll_adjustment:delete',
-      'payroll_run:create', 'payroll_run:read', 'payroll_run:process', 'payroll_run:pay', 'payroll_run:cancel',
-      'payslip:read', 'employee:read', 'brand:read',
-    ],
+    label: 'Manage Payroll',
+    // Payroll is group-level (modules/payroll/): salary templates,
+    // deductions and salary assignment span every company of the Group, so
+    // only a Group-level grant makes sense — and only a Group Admin / Super
+    // Admin can grant Group level (utils/powerAuthority.js).
+    levels: ['group'],
+    description:
+      'Create salary templates and deductions, assign salary (CTC) to employees of the Group, and approve payslip requests.',
+    // The payroll pages use their own employee/company pickers
+    // (/payroll/employees, /payroll/companies), so nothing else is needed.
+    permissionCodes: ['payroll:manage'],
   },
 ];
 

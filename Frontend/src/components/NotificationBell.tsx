@@ -92,11 +92,16 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return null;
   }
 
-  // Payroll notifications (payslip processed / marked paid) always belong
-  // to the recipient's own payslip view — there's no admin-facing "pending"
-  // variant for payroll (runs are admin-initiated, not employee-submitted).
-  if (notification.requestType === 'payroll_run') {
-    return '/ess/payslips';
+  // Salary generated / revised → the employee's own salary page.
+  if (notification.requestType === 'payroll') return '/ess/salary';
+
+  // Payslip requests: a decision goes to the employee's own salary page; a
+  // new request goes to whichever payroll page the recipient manages.
+  if (notification.requestType === 'payslip_request') {
+    if (notification.type === 'approval_decision') return '/ess/salary';
+    if (portal === '/group-admin') return '/group-admin/payroll?tab=requests';
+    if (portal === '/ess') return '/ess/payroll?tab=requests';
+    return null;
   }
 
   // A document's own owner always has their upload/verified/rejected status
