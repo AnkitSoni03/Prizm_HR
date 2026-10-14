@@ -9,7 +9,16 @@ import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { useToast } from '../../../context/toast-context';
 import { apiErrorMessage } from '../../../utils/apiError';
-import { endAssignment, formatRupees, listAssignments, orgLabel, type SalaryAssignment } from '../../../api/payroll';
+import {
+  endAssignment,
+  formatRupees,
+  listAssignments,
+  orgLabel,
+  periodLabel,
+  type EmployeePayroll,
+  type SalaryAssignment,
+} from '../../../api/payroll';
+import { ExtrasChips } from '../components/EmployeeExtras';
 import { PayrollFilters, type PayrollFilterValue } from '../components/PayrollFilters';
 import { AssignSalaryModal } from '../components/AssignSalaryModal';
 import { BulkAssignSalaryModal } from '../components/BulkAssignSalaryModal';
@@ -122,6 +131,7 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
             ),
           },
           { key: 'from', header: 'Period', render: (r) => `${r.effectiveFrom} → ${r.effectiveTo ?? 'now'}` },
+          { key: 'extras', header: 'Extras', render: (r) => <ExtrasChips extras={r.extras} /> },
           {
             key: 'ded',
             header: 'Deductions',
@@ -201,20 +211,36 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
   );
 }
 
+function todayStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 function EndSalaryModal({ assignment, onClose, onDone }: { assignment: SalaryAssignment; onClose: () => void; onDone: () => void }) {
   const showToast = useToast();
   const [endDate, setEndDate] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [final, setFinal] = useState<EmployeePayroll | null>(null);
+  const today = todayStr();
 
   async function handleSave() {
-    if (!endDate) return setError('Choose the last salary date.');
+    if (!endDate) return setError('Choose the last working day.');
     setIsSaving(true);
     setError(null);
     try {
-      await endAssignment(String(assignment.id), endDate);
-      showToast('Salary ended.', 'success');
-      onDone();
+      const result = await endAssignment(String(assignment.id), endDate);
+      if (result.finalPayroll) {
+        setFinal(result.finalPayroll);
+      } else {
+        showToast(
+          endDate > today
+            ? `Salary ends on ${endDate}. The final salary is made the day after.`
+            : 'Salary ended. The months it touches are recalculated.',
+          'success'
+        );
+        onDone();
+      }
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not end the salary.'));
     } finally {
@@ -222,13 +248,57 @@ function EndSalaryModal({ assignment, onClose, onDone }: { assignment: SalaryAss
     }
   }
 
+  if (final) {
+    return (
+      <Modal title="Final salary ready" onClose={onDone} compact>
+        <div className="space-y-3">
+          <p className="text-sm text-ink-muted">
+            {assignment.employee?.name}&apos;s salary for {periodLabel(final.periodYear, final.periodMonth)}, up to {final.finalDate}:
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-xl border border-border px-3 py-2">
+              <p className="text-xs text-ink-muted">Paid / LOP days</p>
+              <p className="font-semibold text-ink">{final.paidDays} / {final.lopDays}</p>
+            </div>
+            <div className="rounded-xl border border-border px-3 py-2">
+              <p className="text-xs text-ink-muted">Gross</p>
+              <p className="font-semibold text-ink">{formatRupees(final.grossEarned)}</p>
+            </div>
+            <div className="rounded-xl border border-border px-3 py-2">
+              <p className="text-xs text-ink-muted">Deductions</p>
+              <p className="font-semibold text-ink">{formatRupees(final.totalDeductions)}</p>
+            </div>
+            <div className="rounded-xl border border-success/30 bg-success/10 px-3 py-2">
+              <p className="text-xs text-success">In-hand</p>
+              <p className="font-semibold text-success">{formatRupees(final.netPay)}</p>
+            </div>
+          </div>
+          <p className="text-xs text-ink-muted">
+            Full details, the payslip and Share are in Monthly Payroll → {periodLabel(final.periodYear, final.periodMonth)}. It is
+            refreshed by itself if attendance or leave up to the last day changes.
+          </p>
+          <div className="flex justify-end">
+            <Button onClick={onDone}>Done</Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal title="End salary" onClose={onClose} compact>
       <div className="space-y-3">
         <p className="text-sm text-ink-muted">
-          {assignment.employee?.name} is paid up to and including this date. Later months are not generated.
+          {assignment.employee?.name} is paid up to and including this date — by attendance, like any month. Days after it are not
+          paid (and not counted as LOP). Later months are not generated.
         </p>
-        <Input label="Last salary date" type="date" value={endDate} min={assignment.effectiveFrom} onChange={(e) => setEndDate(e.target.value)} />
+        <Input label="Last working day" type="date" value={endDate} min={assignment.effectiveFrom} onChange={(e) => setEndDate(e.target.value)} />
+        {endDate && endDate <= today && (
+          <p className="text-xs text-ink-muted">That month&apos;s final salary is made right away.</p>
+        )}
+        {endDate && endDate > today && (
+          <p className="text-xs text-ink-muted">A future date — the final salary is made automatically the day after it.</p>
+        )}
         {error && <p className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>

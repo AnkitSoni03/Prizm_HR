@@ -15,7 +15,6 @@ import {
   previewSalary,
   type BuiltInItem,
   type GroupEmployee,
-  type PayrollCustomItem,
   type PayrollTemplate,
   type SalaryBreakdown,
   type SkippedEmployee,
@@ -42,7 +41,6 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
   const [selected, setSelected] = useState<Map<string, GroupEmployee>>(new Map());
   const [templates, setTemplates] = useState<PayrollTemplate[]>([]);
   const [builtIn, setBuiltIn] = useState<BuiltInItem[]>([]);
-  const [custom, setCustom] = useState<PayrollCustomItem[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [ctcPeriod, setCtcPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [effectiveFrom, setEffectiveFrom] = useState(firstOfThisMonth());
@@ -61,7 +59,6 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
     listCustomItems()
       .then((r) => {
         setBuiltIn(r.builtInItems);
-        setCustom(r.data.filter((i) => i.isActive));
       })
       .catch(() => undefined);
   }, []);
@@ -69,11 +66,9 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
   const template = templates.find((t) => String(t.id) === templateId);
   const items = useMemo(() => {
     if (!template) return [];
-    const all = [...builtIn, ...custom.map((c) => ({ key: `custom_${c.id}`, kind: c.kind, label: c.name }))];
-    return all.filter((i) => isItemOnInTemplate(template.rules, i.key));
-  }, [template, builtIn, custom]);
-  const allowanceItems = items.filter((i) => i.kind === 'earning');
-  const deductionItems = items.filter((i) => i.kind !== 'earning');
+    return builtIn.filter((i) => isItemOnInTemplate(template.rules, i.key));
+  }, [template, builtIn]);
+  const deductionItems = items;
 
   // Sample breakdown for the "same CTC" figure, so the template can be checked.
   const sample = Number(sameCtc);
@@ -220,19 +215,6 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
                   onChange={(on) => toggleItem(item.key, on)}
                   label={item.label}
                   description={item.kind === 'deduction' ? 'Employee deduction' : 'Employer contribution'}
-                />
-              ))}
-            </div>
-          )}
-          {template && allowanceItems.length > 0 && (
-            <div className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-2">
-              {allowanceItems.map((item) => (
-                <Toggle
-                  key={item.key}
-                  checked={!disabledItems.includes(item.key)}
-                  onChange={(on) => toggleItem(item.key, on)}
-                  label={item.label}
-                  description="Allowance"
                 />
               ))}
             </div>

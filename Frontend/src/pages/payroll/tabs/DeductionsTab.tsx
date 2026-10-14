@@ -13,13 +13,16 @@ import { apiErrorMessage } from '../../../utils/apiError';
 import {
   createCustomItem,
   deleteCustomItem,
+  listCustomItemEmployees,
   listCustomItems,
   updateCustomItem,
   monthKeyLabel,
   type BuiltInItem,
+  type GroupEmployee,
   type PayrollCustomItem,
 } from '../../../api/payroll';
 import { MonthMultiPicker } from '../components/MonthMultiPicker';
+import { EmployeeMultiPicker } from '../components/EmployeeMultiPicker';
 
 function describe(item: PayrollCustomItem) {
   if (item.calcType === 'fixed') return `₹${Number(item.value)} per month`;
@@ -32,9 +35,9 @@ const KIND_LABEL: Record<PayrollCustomItem['kind'], string> = {
   employer_contribution: 'Employer contribution',
 };
 
-// Extra allowances / deductions / employer contributions the Group adds on
-// top of the built-in ones — every template gets them (switchable per
-// template and per employee).
+// Extra allowances / deductions / employer contributions on top of the
+// template. Each applies only to the employees chosen on it (and, if set,
+// only in chosen months) — everyone else is paid by their template alone.
 export function DeductionsTab({ canManage }: { canManage: boolean }) {
   const confirm = useConfirm();
   const showToast = useToast();
@@ -65,7 +68,7 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
   async function handleDelete(item: PayrollCustomItem) {
     const ok = await confirm({
       title: `Delete ${item.kind === 'earning' ? 'allowance' : 'item'}`,
-      message: `Delete "${item.name}"? It stops applying from the next generated month.`,
+      message: `Delete "${item.name}"? It stops applying to its ${item.employeeCount ?? 0} employee(s) from the next generated month.`,
       confirmLabel: 'Delete',
       variant: 'danger',
     });
@@ -85,8 +88,9 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ink-muted">
-          Your own extra items — they show up in every template, where each can be switched off. An allowance is part of CTC and is
-          taken out of the Special allowance, so in-hand stays the same. For a one-time bonus, use the Bonuses tab.
+          Your own extra items — each one applies only to the employees you choose on it. Everyone else is paid by their salary
+          template alone. An allowance is part of CTC and is taken out of the Special allowance, so in-hand stays the same. For a
+          one-time bonus, use the Bonuses tab.
         </p>
         {canManage && (
           <Button onClick={() => setOpen('new')}>
@@ -106,7 +110,17 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
             header: 'Type',
             render: (r) => <Badge tone={r.kind === 'earning' ? 'success' : r.kind === 'deduction' ? 'danger' : 'warning'}>{KIND_LABEL[r.kind]}</Badge>,
           },
-          { key: 'value', header: 'Default', render: describe },
+          { key: 'value', header: 'Amount', render: describe },
+          {
+            key: 'employees',
+            header: 'Employees',
+            render: (r) =>
+              r.employeeCount ? (
+                <span className="text-ink">{r.employeeCount}</span>
+              ) : (
+                <span className="text-ink-muted">None chosen</span>
+              ),
+          },
           {
             key: 'months',
             header: 'Applies in',
@@ -144,9 +158,9 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
         <CustomItemFormModal
           item={open === 'new' ? null : open}
           onClose={() => setOpen(null)}
-          onSaved={(created) => {
+          onSaved={() => {
             setOpen(null);
-            if (created) showToast('Added. Switch it on in the salary templates where it applies (Salary Templates → edit).', 'info');
+            showToast('Saved.', 'success');
             load();
           }}
         />
@@ -162,7 +176,7 @@ function CustomItemFormModal({
 }: {
   item: PayrollCustomItem | null;
   onClose: () => void;
-  onSaved: (created: boolean) => void;
+  onSaved: () => void;
 }) {
   const [name, setName] = useState(item?.name ?? '');
   const [kind, setKind] = useState<PayrollCustomItem['kind']>(item?.kind ?? 'deduction');
@@ -172,10 +186,21 @@ function CustomItemFormModal({
   const [isActive, setIsActive] = useState(item?.isActive ?? true);
   const [limited, setLimited] = useState(!!(item?.months && item.months.length > 0));
   const [months, setMonths] = useState<string[]>(item?.months ?? []);
+  const [employees, setEmployees] = useState<Map<string, GroupEmployee>>(new Map());
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(!!item);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  useEffect(() => {
+    if (!item) return;
+    listCustomItemEmployees(String(item.id))
+      .then((list) => setEmployees(new Map(list.map((e) => [String(e.id), { ...e, salaryAssignments: [] } as GroupEmployee]))))
+      .catch(() => setError('Could not load the employees of this item.'))
+      .finally(() => setIsLoadingEmployees(false));
+  }, [item]);
+
   async function handleSave() {
+    if (employees.size === 0) return setError('Choose at least one employee.');
     if (limited && months.length === 0) return setError('Choose at least one month, or set it to every month.');
     setIsSaving(true);
     setError(null);
@@ -188,10 +213,11 @@ function CustomItemFormModal({
         value: Number(value),
         months: limited ? months : null,
         isActive,
+        employeeIds: [...employees.keys()],
       };
       if (item) await updateCustomItem(String(item.id), body);
       else await createCustomItem(body);
-      onSaved(!item);
+      onSaved();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save.'));
     } finally {
@@ -200,7 +226,7 @@ function CustomItemFormModal({
   }
 
   return (
-    <Modal title={item ? 'Edit item' : 'Add allowance or deduction'} onClose={onClose}>
+    <Modal title={item ? 'Edit item' : 'Add allowance or deduction'} onClose={onClose} widthClassName="max-w-3xl">
       <div className="space-y-3">
         <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'earning' ? 'e.g. Conveyance, Medical allowance' : 'e.g. Canteen, Loan EMI'} />
         <Select
@@ -237,6 +263,15 @@ function CustomItemFormModal({
           )}
         </div>
         <Input label={calcType === 'fixed' ? 'Amount (₹ per month)' : 'Percentage (%)'} type="number" min={0} step="0.01" value={value} onChange={(e) => setValue(e.target.value)} />
+
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-ink">Employees</p>
+          <p className="text-xs text-ink-muted">
+            Only these employees get it. Pick one, several, or use “select all” after filtering by company / brand.
+          </p>
+          {isLoadingEmployees ? <p className="text-sm text-ink-muted">Loading…</p> : <EmployeeMultiPicker selected={employees} onChange={setEmployees} />}
+        </div>
+
         <Select
           label="Applies in"
           value={limited ? 'some' : 'every'}
@@ -246,13 +281,15 @@ function CustomItemFormModal({
             { value: 'some', label: 'Only the months I choose' },
           ]}
         />
-        {limited && (
+        {limited ? (
           <MonthMultiPicker
             label="Months"
             value={months}
             onChange={setMonths}
             hint="Only these months’ salary changes — no other month. A chosen month that’s already generated is recalculated, and the difference is settled in the next salary."
           />
+        ) : (
+          <p className="text-xs text-ink-muted">Every month applies from the next payroll generated — months already generated stay as they are.</p>
         )}
         <Toggle checked={isActive} onChange={setIsActive} label="Active" />
         {error && <p className="text-sm text-danger">{error}</p>}

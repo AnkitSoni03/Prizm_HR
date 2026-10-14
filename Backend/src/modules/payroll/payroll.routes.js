@@ -16,15 +16,13 @@ router.use(requireAuth);
 router.get('/me', requirePermission('payroll:read_own'), c.mySalary);
 router.get('/me/months/:id', requirePermission('payroll:read_own'), c.myPayroll);
 router.get('/me/months/:id/pdf', requirePermission('payroll:read_own'), c.myPayrollPdf);
-router.get('/me/payslip-requests', requirePermission('payroll:read_own'), c.myPayslipRequests);
-router.post('/me/payslip-requests', requirePermission('payroll:read_own'), c.createMyPayslipRequest);
-router.patch('/me/payslip-requests/:id/cancel', requirePermission('payroll:read_own'), c.cancelMyPayslipRequest);
 
 // ---- Shared read access ----
 router.get('/access', requirePayrollView, c.access);
 router.get('/companies', requirePayrollView, c.companies);
 router.get('/templates', requirePayrollView, c.listTemplates);
 router.get('/custom-items', requirePayrollView, c.listCustomItems);
+router.get('/custom-items/:id/employees', requirePayrollView, c.customItemEmployees);
 router.get('/assignments', requirePayrollView, c.listAssignments);
 router.get('/assignments/employee/:employeeId', requirePayrollView, c.employeeHistory);
 router.get('/months', requirePayrollView, c.listPayrolls);
@@ -51,7 +49,6 @@ router.put('/bonuses/:id', requirePayrollManage, c.updateBonus);
 router.delete('/bonuses/:id', requirePayrollManage, c.deleteBonus);
 router.post('/months/generate', requirePayrollManage, c.generate);
 router.post('/months/:id/recalculate', requirePayrollManage, c.recalculate);
-router.get('/payslip-requests', requirePayrollManage, c.listPayslipRequests);
-router.patch('/payslip-requests/:id/decision', requirePayrollManage, c.decidePayslipRequest);
+router.post('/months/share', requirePayrollManage, c.share);
 
 module.exports = router;

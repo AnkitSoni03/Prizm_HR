@@ -3,12 +3,10 @@
 const { HttpError } = require('../../utils/errors');
 const { parsePagination } = require('../../utils/pagination');
 const { notifyUser } = require('../../utils/notifications');
-const { recordApprovalDecision } = require('../../utils/approvalHistory');
 const templates = require('./payrollTemplate.service');
 const assignments = require('./salaryAssignment.service');
 const payrolls = require('./employeePayroll.service');
 const bonuses = require('./payrollBonus.service');
-const { payrollManagerRecipients } = require('./payrollAccess');
 const { buildPayslipPdfBuffer } = require('./payslipPdf.service');
 const { BUILT_IN_ITEMS, BONUS_TYPES } = require('./payrollRules');
 
@@ -58,7 +56,7 @@ module.exports = {
     res.json({ data: await templates.listTemplates(req.payroll.groupId) });
   }),
   templateDefaults: wrap(async (req, res) => {
-    res.json({ data: await templates.getTemplateDefaults(req.payroll.groupId) });
+    res.json({ data: await templates.getTemplateDefaults() });
   }),
   createTemplate: wrap(async (req, res) => {
     res.status(201).json({ data: await templates.createTemplate({ groupId: req.payroll.groupId, body: req.body, userId: req.auth.userId }) });
@@ -78,11 +76,14 @@ module.exports = {
   listCustomItems: wrap(async (req, res) => {
     res.json({ data: await templates.listCustomItems(req.payroll.groupId), builtInItems: BUILT_IN_ITEMS });
   }),
+  customItemEmployees: wrap(async (req, res) => {
+    res.json({ data: await templates.listCustomItemEmployees({ groupId: req.payroll.groupId, id: req.params.id }) });
+  }),
   createCustomItem: wrap(async (req, res) => {
     res.status(201).json({ data: await templates.createCustomItem({ groupId: req.payroll.groupId, body: req.body, userId: req.auth.userId }) });
   }),
   updateCustomItem: wrap(async (req, res) => {
-    res.json({ data: await templates.updateCustomItem({ groupId: req.payroll.groupId, id: req.params.id, body: req.body }) });
+    res.json({ data: await templates.updateCustomItem({ groupId: req.payroll.groupId, id: req.params.id, body: req.body, userId: req.auth.userId }) });
   }),
   deleteCustomItem: wrap(async (req, res) => {
     await templates.deleteCustomItem({ groupId: req.payroll.groupId, id: req.params.id });
@@ -154,36 +155,28 @@ module.exports = {
     res.json({ data: await payrolls.generateMonth(req.payroll, req.body) });
   }),
 
-  // ---- Payslip requests (managers) ----
-  listPayslipRequests: wrap(async (req, res) => {
-    const { limit, offset } = parsePagination(req.query);
-    const { rows, count } = await payrolls.listPayslipRequests(req.payroll, { ...req.query, limit, offset });
-    res.json({ data: rows, pagination: { total: count, limit, offset } });
-  }),
-  decidePayslipRequest: wrap(async (req, res) => {
-    const { decision, reason } = req.body;
-    const request = await payrolls.decidePayslipRequest(req.payroll, { id: req.params.id, decision, reason, userId: req.auth.userId });
-    const months = request.periods.map(periodLabel).join(', ');
-    await recordApprovalDecision({
-      companyId: request.companyId,
-      requestType: 'payslip_request',
-      requestId: request.id,
-      action: decision,
-      actorUserId: req.auth.userId,
-      reason: decision === 'rejected' ? reason : null,
-    }).catch((err) => console.error('Failed to record payslip decision:', err));
-    if (request.employee && request.employee.userId) {
-      await notifyUser({
-        companyId: request.employee.companyId,
-        userId: request.employee.userId,
-        type: 'approval_decision',
-        requestType: 'payslip_request',
-        requestId: request.id,
-        title: decision === 'approved' ? 'Your payslip is ready' : 'Your payslip request was rejected',
-        body: decision === 'approved' ? `${months} — open My Salary to view or download it` : `${months}: ${String(reason).trim()}`,
-      });
+  // ---- Sharing with employees ----
+  share: wrap(async (req, res) => {
+    const share = req.body.share !== false;
+    const rows = await payrolls.sharePayrolls(req.payroll, { ...req.body, share });
+    if (share) {
+      await Promise.all(
+        rows
+          .filter((r) => r.employee && r.employee.userId)
+          .map((r) =>
+            notifyUser({
+              companyId: r.employee.companyId,
+              userId: r.employee.userId,
+              type: 'payroll_generated',
+              requestType: 'payroll',
+              requestId: r.id,
+              title: `Your ${periodLabel({ year: r.periodYear, month: r.periodMonth })} payslip is ready`,
+              body: `In-hand ₹${Number(r.netPay).toLocaleString('en-IN')} — open My Salary to view or download it`,
+            }).catch((err) => console.error('Failed to notify payslip share:', err))
+          )
+      );
     }
-    res.json({ data: request });
+    res.json({ data: { updated: rows.length } });
   }),
 
   // ---- Employee's own ----
@@ -212,40 +205,6 @@ module.exports = {
   }),
   myPayrollPdf: wrap(async (req, res) => {
     const row = await payrolls.getMyPayroll(requireEmployee(req), req.params.id);
-    if (!row.payslipReleased) throw new HttpError(403, 'Request this payslip first — it becomes available once approved');
     await sendPdf(res, row);
-  }),
-  myPayslipRequests: wrap(async (req, res) => {
-    res.json({ data: await payrolls.listMyPayslipRequests(requireEmployee(req)) });
-  }),
-  createMyPayslipRequest: wrap(async (req, res) => {
-    const { request, employee } = await payrolls.createPayslipRequest({
-      employeeId: requireEmployee(req),
-      periods: req.body.periods,
-      note: req.body.note,
-    });
-    const recipients = await payrollManagerRecipients(request.groupId);
-    const label = employee.name || employee.employeeCode || 'An employee';
-    await Promise.all(
-      recipients
-        .filter((r) => String(r.userId) !== String(req.auth.userId))
-        .map((r) =>
-          notifyUser({
-            // A Group Admin has no company — the notification is filed under
-            // the employee's; the bell reads a company-less user's by user id.
-            companyId: r.companyId || request.companyId,
-            userId: r.userId,
-            type: 'approval_pending',
-            requestType: 'payslip_request',
-            requestId: request.id,
-            title: `${label} requested a payslip`,
-            body: request.periods.map(periodLabel).join(', '),
-          })
-        )
-    );
-    res.status(201).json({ data: request });
-  }),
-  cancelMyPayslipRequest: wrap(async (req, res) => {
-    res.json({ data: await payrolls.cancelMyPayslipRequest(requireEmployee(req), req.params.id) });
   }),
 };

@@ -57,6 +57,9 @@ module.exports = (sequelize, DataTypes) => {
       needsRecalc: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       payslipReleased: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       releasedAt: { type: DataTypes.DATE, allowNull: true },
+      // Final settlement: the salary ends inside this month (paid up to final_date).
+      isFinal: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      finalDate: { type: DataTypes.DATEONLY, allowNull: true },
     },
     {
       sequelize,

@@ -7,6 +7,7 @@ const { runAsCompany } = require('../../config/tenant-context');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { employeeScopeWhere } = require('./payrollAccess');
 const { BONUS_TYPES, normalizeRules, resolveCustomItems, computeSalary } = require('./payrollRules');
+const { memberItemIds } = require('./customItemMembers');
 const { monthBounds, queuePayrollRecalc, recalculatePayroll } = require('./payrollEngine');
 
 const MAX_BULK = 2000;
@@ -130,14 +131,17 @@ async function resolvePercentAmounts({ groupId, employeeIds, year, month, percen
   });
   const latest = new Map();
   for (const a of assignments) latest.set(String(a.employeeId), a);
-  const items = (await db.PayrollCustomItem.findAll({ where: { groupId, isActive: true } })).map((i) => i.get({ plain: true }));
+  const items = (await db.PayrollCustomItem.findAll({ where: { groupId, isActive: true } }))
+    .map((i) => i.get({ plain: true }))
+    .filter((i) => !(Array.isArray(i.months) && i.months.length > 0));
+  const members = await memberItemIds([...latest.keys()]);
   const out = new Map();
   for (const [employeeId, a] of latest) {
     const rules = normalizeRules(a.template ? a.template.rules : {});
     const salary = computeSalary({
       monthlyCtc: Number(a.monthlyCtc),
       rules,
-      customItems: resolveCustomItems(rules, items),
+      customItems: resolveCustomItems(rules, items.filter((i) => (members.get(employeeId) || new Set()).has(String(i.id)))),
       deductionsEnabled: a.deductionsEnabled,
       disabledItems: a.disabledItems || [],
     });

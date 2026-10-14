@@ -95,13 +95,10 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
   // Salary generated / revised → the employee's own salary page.
   if (notification.requestType === 'payroll') return '/ess/salary';
 
-  // Payslip requests: a decision goes to the employee's own salary page; a
-  // new request goes to whichever payroll page the recipient manages.
+  // Old payslip-request notifications (the request flow is retired —
+  // payroll managers now share payslips themselves).
   if (notification.requestType === 'payslip_request') {
-    if (notification.type === 'approval_decision') return '/ess/salary';
-    if (portal === '/group-admin') return '/group-admin/payroll?tab=requests';
-    if (portal === '/ess') return '/ess/payroll?tab=requests';
-    return null;
+    return notification.type === 'approval_decision' ? '/ess/salary' : null;
   }
 
   // A document's own owner always has their upload/verified/rejected status

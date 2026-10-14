@@ -6,9 +6,9 @@ const { HttpError } = require('../../utils/errors');
 const { runAsCompany } = require('../../config/tenant-context');
 const { addDays, dateOnly } = require('../../utils/dateRange');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
-const { BUILT_IN_ITEMS, customItemKey } = require('./payrollRules');
+const { BUILT_IN_ITEMS } = require('./payrollRules');
 const { employeeScopeWhere } = require('./payrollAccess');
-const { catchUpEmployee, queuePayrollRecalc, recalculatePayroll, previousMonth, monthBounds } = require('./payrollEngine');
+const { catchUpEmployee, queuePayrollRecalc, recalculatePayroll, previousMonth, monthBounds, generateEmployeeMonth, isMonthComplete } = require('./payrollEngine');
 
 // Every query here runs with the tenant hook off — managers work across all
 // companies of their Group, and viewers are bounded by employeeScopeWhere.
@@ -84,7 +84,7 @@ async function listAssignments(access, { companyId, brandId, templateId, search,
     const where = { groupId: access.groupId };
     if (status && status !== 'all') where.status = status;
     if (templateId) where.templateId = templateId;
-    return db.SalaryAssignment.findAndCountAll({
+    const { rows, count } = await db.SalaryAssignment.findAndCountAll({
       where,
       include: [EMPLOYEE_INCLUDE(employeeWhere), { model: db.PayrollTemplate, as: 'template', attributes: ['id', 'name'], paranoid: false }],
       order: [['effectiveFrom', 'DESC'], ['id', 'DESC']],
@@ -92,7 +92,59 @@ async function listAssignments(access, { companyId, brandId, templateId, search,
       offset,
       distinct: true,
     });
+    const extras = await employeeExtras(access.groupId, rows.map((r) => r.employeeId));
+    return {
+      rows: rows.map((r) => ({ ...r.get({ plain: true }), extras: extras.get(String(r.employeeId)) })),
+      count,
+    };
   });
+}
+
+// What each employee gets on top of their template: the extra items they
+// were chosen for (active ones) and their bonuses from this month on.
+async function employeeExtras(groupId, employeeIds) {
+  const ids = [...new Set(employeeIds.map(String))];
+  const out = new Map(ids.map((id) => [id, { items: [], bonuses: [] }]));
+  if (ids.length === 0) return out;
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const [members, bonuses] = await Promise.all([
+    db.PayrollCustomItemEmployee.findAll({
+      where: { groupId, employeeId: { [Op.in]: ids } },
+      include: [
+        {
+          model: db.PayrollCustomItem,
+          as: 'item',
+          where: { isActive: true },
+          attributes: ['id', 'name', 'kind', 'calcType', 'basis', 'value', 'months'],
+        },
+      ],
+    }),
+    db.PayrollBonus.findAll({
+      where: {
+        groupId,
+        employeeId: { [Op.in]: ids },
+        [Op.or]: [{ periodYear: { [Op.gt]: year } }, { periodYear: year, periodMonth: { [Op.gte]: month } }],
+      },
+      attributes: ['id', 'employeeId', 'type', 'title', 'calcType', 'percent', 'basis', 'amount', 'periodYear', 'periodMonth'],
+      order: [['periodYear', 'ASC'], ['periodMonth', 'ASC']],
+    }),
+  ]);
+  for (const m of members) {
+    const i = m.item;
+    out.get(String(m.employeeId)).items.push({
+      id: String(i.id),
+      name: i.name,
+      kind: i.kind,
+      calcType: i.calcType,
+      basis: i.basis,
+      value: Number(i.value),
+      months: i.months,
+    });
+  }
+  for (const b of bonuses) out.get(String(b.employeeId)).bonuses.push(b.get({ plain: true }));
+  return out;
 }
 
 async function listEmployeeHistory(access, employeeId) {
@@ -106,10 +158,9 @@ async function listEmployeeHistory(access, employeeId) {
   });
 }
 
-async function validItemKeys(groupId) {
-  const items = await db.PayrollCustomItem.findAll({ where: { groupId }, attributes: ['id'] });
-  return new Set([...BUILT_IN_ITEMS.map((i) => i.key), ...items.map((i) => customItemKey(i.id))]);
-}
+// Only built-in items can be switched off per salary — extra items apply to
+// the employees chosen on the item itself.
+const VALID_ITEM_KEYS = new Set(BUILT_IN_ITEMS.map((i) => i.key));
 
 async function cleanInput(groupId, body, { partial = false } = {}) {
   const out = {};
@@ -129,9 +180,8 @@ async function cleanInput(groupId, body, { partial = false } = {}) {
   }
   if (!partial || body.deductionsEnabled !== undefined) out.deductionsEnabled = body.deductionsEnabled !== false;
   if (!partial || body.disabledItems !== undefined) {
-    const valid = await validItemKeys(groupId);
-    const list = Array.isArray(body.disabledItems) ? body.disabledItems : [];
-    const bad = list.find((k) => !valid.has(k));
+    const list = (Array.isArray(body.disabledItems) ? body.disabledItems : []).filter((k) => !String(k).startsWith('custom_'));
+    const bad = list.find((k) => !VALID_ITEM_KEYS.has(k));
     if (bad) throw new HttpError(400, `Unknown deduction "${bad}"`);
     out.disabledItems = [...new Set(list)];
   }
@@ -312,7 +362,18 @@ async function endAssignment(access, { id, endDate, userId }) {
   }
   await asGroup(() => assignment.update({ status: 'ended', effectiveTo: endDate, updatedByUserId: userId }));
   await afterSalaryChange(assignment.employeeId, endDate, null);
-  return assignment;
+  // Final settlement: when the last date is today or earlier and its month is
+  // still running, that month's salary (up to the last date) is made now.
+  // A later last date is settled by the daily job the day after it.
+  let finalPayroll = null;
+  const [y, m] = endDate.split('-').map(Number);
+  if (endDate <= dateOnly(new Date()) && !isMonthComplete(y, m)) {
+    finalPayroll = await generateEmployeeMonth({ employeeId: assignment.employeeId, year: y, month: m });
+    if (finalPayroll) {
+      finalPayroll = await asGroup(() => db.EmployeePayroll.findByPk(finalPayroll.id, { attributes: { exclude: ['rulesSnapshot'] } }));
+    }
+  }
+  return { assignment, finalPayroll };
 }
 
 // Awaitable version of afterSalaryChange for bulk work: recalculates the

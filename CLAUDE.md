@@ -1362,6 +1362,39 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   those months for recalculation. New bonuses take `periods[]` (one row per employee per month).
   Migrations `20261014090000`–`090400` (`090300` months, `090400` adds the % bonus columns where `090100` ran
   without them). Mock-tested; **not applied** (.env is prod).
+- ✅ Payslips shared by managers, not requested (2026-10-15) — **replaces the payslip-request flow** above:
+  employees see NOTHING of a month (list, detail, PDF) until a payroll manager reviews it and shares it
+  (`employee_payrolls.payslip_released`, reused). `POST /payroll/months/share` `{ ids[] | year+month
+  (+companyId/brandId filter), share }` — share notifies each employee ("payslip is ready"); `share:false`
+  hides it again. Monthly Payroll tab: "Share with all", row checkboxes → Share / Stop sharing,
+  Shared/Not shared badge, Share toggle in the detail modal. Generation no longer notifies the employee;
+  a recalculation notifies only if the month is shared. Payslip-request routes, tab and ESS UI removed;
+  `payslip_requests` table/model left dormant (no migration).
+- ✅ Extra items chosen per employee, not per template (2026-10-15): a custom item (allowance /
+  deduction / employer contribution) applies ONLY to the employees chosen on it — new
+  `payroll_custom_item_employees` (group-level, paranoid, partial unique on item+employee), picked
+  in the item's form (`EmployeeMultiPicker`, bulk). Templates' `rules.customItems` and
+  `salary_assignments.disabled_items` `custom_*` keys are ignored/removed (template form and assign
+  modals no longer show them); explicitly chosen items also ignore the "no deductions" switch.
+  Not chosen = template-only payroll. Engine (`customItemMembers.js::memberItemIds`): snapshot now
+  stores only the employee's every-month items (`itemsPerEmployee: true`; older snapshots narrowed
+  by membership). Every-month item changes apply from the next generated month; month-limited ones
+  recalc those months for old+new members. Preview takes `employeeId`. Migration
+  `20261015090000` seeds membership from current templates/salaries and narrows existing
+  snapshots so no salary changes. Mock-tested; **not applied** (.env is prod).
+  Also: Employee Salaries list returns `extras` (chosen items + bonuses from this month on) shown as
+  chips and in the edit popup; preview with `employeeId` returns `months[]` = estimated in-hand for
+  coming months that have a month-limited item or bonus.
+- ✅ Final settlement salary (2026-10-15): ending a salary (Employee Salaries → End, "last working
+  day") with a date ≤ today in the running month generates that month right away, paid up to that
+  date by attendance (days after = not paid, not LOP) — `generateEmployeeMonth` allows a running month
+  when `finalDateFor()` (last assignment ends inside the month, nothing after) has passed.
+  `employee_payrolls.is_final` / `final_date` (migration `20261015090100`) set by
+  `computeEmployeeMonth` (also true for a resignation's last day). Daily job
+  `generateFinalSettlements()`: future last dates are settled the day after; final months whose last
+  day was today/yesterday are recalculated (late punches). `POST /assignments/:id/end` now returns
+  `{ assignment, finalPayroll }`; UI shows the result + "Final · till" badge in Monthly Payroll.
+  Leave encashment / gratuity / notice recovery NOT included. Mock-tested; **not applied**.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

@@ -3,11 +3,13 @@
 const { Model } = require('sequelize');
 
 // Group-level, not tenant-scoped (see payrollTemplate.js). kind 'earning' =
-// a recurring allowance inside CTC (migration 20261014090000).
+// a recurring allowance inside CTC (migration 20261014090000). Applies only
+// to the employees chosen on it (payroll_custom_item_employees).
 module.exports = (sequelize, DataTypes) => {
   class PayrollCustomItem extends Model {
     static associate(models) {
       PayrollCustomItem.belongsTo(models.Group, { foreignKey: 'groupId', as: 'group' });
+      PayrollCustomItem.hasMany(models.PayrollCustomItemEmployee, { foreignKey: 'customItemId', as: 'members' });
     }
   }
 

@@ -5,10 +5,10 @@ const { Document, Page, View, Text, StyleSheet, renderToBuffer } = require('@rea
 
 const e = React.createElement;
 
-// The formal payslip an employee gets once their payslip request is
-// approved — the full salary structure (earnings split, deductions, employer
-// contributions, PF passbook) for one month. Amounts use "Rs." — the
-// built-in Helvetica has no ₹ glyph.
+// The formal payslip (shared with the employee by a payroll manager) — the
+// full salary structure (earnings split, deductions, employer contributions,
+// PF passbook) for one month. The built-in Helvetica only has Latin-1-ish
+// glyphs (no ₹, no arrows), so every text goes through pdfText().
 
 const COLORS = {
   primary: '#3354a4',
@@ -48,6 +48,7 @@ const styles = StyleSheet.create({
   cellName: { flex: 1 },
   cellAmount: { width: 62, textAlign: 'right' },
   muted: { color: COLORS.inkMuted, fontSize: 7.5 },
+  final: { fontSize: 9, color: '#b42318', marginTop: 4, fontWeight: 700 },
   totalRow: { flexDirection: 'row', borderTop: `1px solid ${COLORS.border}`, marginTop: 2, paddingTop: 3 },
   bold: { fontWeight: 700 },
   netPayBox: {
@@ -70,19 +71,42 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+// Characters the built-in font can't draw are swapped for plain ones.
+function pdfText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/₹\s*/g, 'Rs. ')
+    .replace(/[→⇒➜]/g, 'to')
+    .replace(/[–—]/g, '-')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...')
+    .replace(/×/g, 'x')
+    .replace(/[^\x20-\x7E\u00A0-\u00FF]/g, '');
+}
+
+function dmy(date) {
+  if (!date) return '';
+  const [y, m, d] = String(date).slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
 function rs(value) {
   return `Rs. ${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
 function info(label, value) {
-  return e(View, { style: styles.infoCell }, e(Text, { style: styles.label }, label), e(Text, { style: styles.value }, value || '—'));
+  return e(View, { style: styles.infoCell }, e(Text, { style: styles.label }, label), e(Text, { style: styles.value }, pdfText(value) || '-'));
 }
 
-function table(title, rows, total, { showFull = true } = {}) {
+// `inColumn` = one of the two side-by-side tables (flex: 1 in a row); a
+// full-width table must not get flex: 1 — inside a column box it collapses
+// to zero height and its rows overlap whatever comes next.
+function table(title, rows, total, { showFull = true, inColumn = true } = {}) {
   return e(
     View,
-    { style: styles.column },
-    e(Text, { style: styles.sectionTitle }, title),
+    { style: inColumn ? styles.column : null },
+    title ? e(Text, { style: styles.sectionTitle }, title) : null,
     e(
       View,
       { style: styles.tableHead },
@@ -94,7 +118,7 @@ function table(title, rows, total, { showFull = true } = {}) {
       e(
         View,
         { key: `${r.key}-${i}`, style: styles.row },
-        e(View, { style: styles.cellName }, e(Text, null, r.name), r.rule ? e(Text, { style: styles.muted }, r.rule) : null),
+        e(View, { style: styles.cellName }, e(Text, null, pdfText(r.name)), r.rule ? e(Text, { style: styles.muted }, pdfText(r.rule)) : null),
         showFull && e(Text, { style: styles.cellAmount }, r.full === undefined ? '' : rs(r.full)),
         e(Text, { style: styles.cellAmount }, rs(r.amount))
       )
@@ -102,7 +126,7 @@ function table(title, rows, total, { showFull = true } = {}) {
     e(
       View,
       { style: styles.totalRow },
-      e(Text, { style: [styles.cellName, styles.bold] }, total.label),
+      e(Text, { style: [styles.cellName, styles.bold] }, pdfText(total.label)),
       showFull && e(Text, { style: [styles.cellAmount, styles.bold] }, total.full === undefined ? '' : rs(total.full)),
       e(Text, { style: [styles.cellAmount, styles.bold] }, rs(total.amount))
     )
@@ -118,6 +142,10 @@ function buildDocument(payroll) {
   const deductions = [...(d.deductions || [])];
   const salaryNet = (d.actual && d.actual.inHand) || 0;
   const pf = d.pfSplit && d.pfSplit.actual;
+  // Days before joining / after the last working day: not paid, not LOP.
+  const notOnPayroll = Math.max(0, Number(payroll.monthDays) - Number(payroll.paidDays) - Number(payroll.lopDays));
+  const dayCell = (label, value) =>
+    e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, label), e(Text, { style: styles.value }, String(value)));
 
   return e(
     Document,
@@ -125,8 +153,8 @@ function buildDocument(payroll) {
     e(
       Page,
       { size: 'A4', style: styles.page },
-      e(Text, { style: styles.companyName }, company.name || d.companyName || ''),
-      company.legalName ? e(Text, { style: styles.companySub }, company.legalName) : null,
+      e(Text, { style: styles.companyName }, pdfText(company.name || d.companyName || '')),
+      company.legalName && company.legalName !== company.name ? e(Text, { style: styles.companySub }, pdfText(company.legalName)) : null,
       e(
         View,
         { style: styles.titleRow },
@@ -135,6 +163,9 @@ function buildDocument(payroll) {
           ? e(Text, { style: styles.revised }, `Revised on ${new Date(payroll.revisedAt).toLocaleDateString('en-IN')}`)
           : null
       ),
+      payroll.isFinal
+        ? e(Text, { style: styles.final }, `Final settlement - salary paid up to ${dmy(payroll.finalDate)} (last working day)`)
+        : null,
       e(
         View,
         { style: styles.infoGrid },
@@ -148,9 +179,10 @@ function buildDocument(payroll) {
       e(
         View,
         { style: styles.daysRow },
-        e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, 'Days in month'), e(Text, { style: styles.value }, String(payroll.monthDays))),
-        e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, 'Paid days'), e(Text, { style: styles.value }, String(payroll.paidDays))),
-        e(View, { style: styles.daysCell }, e(Text, { style: styles.label }, 'Loss of pay days'), e(Text, { style: styles.value }, String(payroll.lopDays)))
+        dayCell('Days in month', payroll.monthDays),
+        dayCell('Paid days', payroll.paidDays),
+        dayCell('Loss of pay days', payroll.lopDays),
+        notOnPayroll > 0 ? dayCell(payroll.isFinal ? 'After last day / before joining' : 'Not on payroll', notOnPayroll) : null
       ),
       e(
         View,
@@ -198,7 +230,11 @@ function buildDocument(payroll) {
           View,
           { style: styles.section },
           e(Text, { style: styles.sectionTitle }, 'Employer contributions (part of CTC, not paid as salary)'),
-          e(View, { style: styles.box }, table('', d.employer, { label: 'Total employer share', full: d.full && d.full.totalEmployer, amount: payroll.totalEmployer }))
+          e(
+            View,
+            { style: styles.box },
+            table('', d.employer, { label: 'Total employer share', full: d.full && d.full.totalEmployer, amount: payroll.totalEmployer }, { inColumn: false })
+          )
         )
         : null,
       pf
@@ -209,9 +245,9 @@ function buildDocument(payroll) {
           e(
             View,
             { style: styles.box },
-            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, 'Employee share → EPF'), e(Text, { style: styles.cellAmount }, rs(pf.employeeEpf))),
-            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, 'Employer share → EPF'), e(Text, { style: styles.cellAmount }, rs(pf.employerEpf))),
-            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, `Employer share → EPS pension (${d.pfSplit.epsRate}%)`), e(Text, { style: styles.cellAmount }, rs(pf.eps))),
+            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, 'Employee share to EPF'), e(Text, { style: styles.cellAmount }, rs(pf.employeeEpf))),
+            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, 'Employer share to EPF'), e(Text, { style: styles.cellAmount }, rs(pf.employerEpf))),
+            e(View, { style: styles.row }, e(Text, { style: styles.cellName }, `Employer share to EPS pension (${d.pfSplit.epsRate}%)`), e(Text, { style: styles.cellAmount }, rs(pf.eps))),
             e(
               View,
               { style: styles.totalRow },

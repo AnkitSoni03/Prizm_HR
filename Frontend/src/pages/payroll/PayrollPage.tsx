@@ -8,7 +8,6 @@ import { MonthlyPayrollTab } from './tabs/MonthlyPayrollTab';
 import { SalariesTab } from './tabs/SalariesTab';
 import { TemplatesTab } from './tabs/TemplatesTab';
 import { DeductionsTab } from './tabs/DeductionsTab';
-import { PayslipRequestsTab } from './tabs/PayslipRequestsTab';
 import { BonusesTab } from './tabs/BonusesTab';
 
 // Group-level payroll. One page for every portal: Group Admin and the
@@ -37,7 +36,6 @@ export function PayrollPage() {
     { key: 'templates', label: 'Salary Templates' },
     { key: 'bonuses', label: 'Bonuses' },
     { key: 'deductions', label: 'Allowances & Deductions' },
-    ...(access.canManage ? [{ key: 'requests', label: 'Payslip Requests' }] : []),
   ];
   const requested = searchParams.get('tab');
   const active = items.some((i) => i.key === requested) ? (requested as string) : 'months';
@@ -55,7 +53,6 @@ export function PayrollPage() {
       {active === 'templates' && <TemplatesTab canManage={access.canManage} />}
       {active === 'bonuses' && <BonusesTab canManage={access.canManage} />}
       {active === 'deductions' && <DeductionsTab canManage={access.canManage} />}
-      {active === 'requests' && access.canManage && <PayslipRequestsTab />}
     </div>
   );
 }

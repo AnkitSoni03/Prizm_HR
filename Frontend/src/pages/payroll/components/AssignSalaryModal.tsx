@@ -17,13 +17,13 @@ import {
   updateAssignment,
   type BuiltInItem,
   type GroupEmployee,
-  type PayrollCustomItem,
   type PayrollTemplate,
   type SalaryAssignment,
   type SalaryBreakdown,
   type ScopeCompany,
 } from '../../../api/payroll';
 import { SalaryBreakdownView } from './SalaryBreakdownView';
+import { ExtrasDetails, InHandByMonth } from './EmployeeExtras';
 
 interface Props {
   // Set = correcting that salary in place; null = a new salary / revision.
@@ -46,7 +46,6 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
   const [employeeId, setEmployeeId] = useState(assignment?.employeeId ?? '');
   const [templates, setTemplates] = useState<PayrollTemplate[]>([]);
   const [builtIn, setBuiltIn] = useState<BuiltInItem[]>([]);
-  const [custom, setCustom] = useState<PayrollCustomItem[]>([]);
   const [templateId, setTemplateId] = useState(assignment?.templateId ? String(assignment.templateId) : '');
   const [ctcPeriod, setCtcPeriod] = useState<'monthly' | 'yearly'>(assignment?.ctcPeriod ?? 'monthly');
   const [ctcAmount, setCtcAmount] = useState(assignment ? String(Number(assignment.ctcAmount)) : '');
@@ -64,7 +63,6 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
     listCustomItems()
       .then((r) => {
         setBuiltIn(r.builtInItems);
-        setCustom(r.data.filter((i) => i.isActive));
       })
       .catch(() => undefined);
     if (!isEdit) listScopeCompanies().then(setCompanies).catch(() => undefined);
@@ -85,15 +83,10 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
   const template = templates.find((t) => String(t.id) === templateId);
   const items = useMemo(() => {
     if (!template) return [];
-    const all = [
-      ...builtIn,
-      ...custom.map((c) => ({ key: `custom_${c.id}`, kind: c.kind, label: c.name })),
-    ];
-    return all.filter((i) => isItemOnInTemplate(template.rules, i.key));
-  }, [template, builtIn, custom]);
-  // Allowances are pay, so the "Apply deductions" switch doesn't touch them.
-  const allowanceItems = items.filter((i) => i.kind === 'earning');
-  const deductionItems = items.filter((i) => i.kind !== 'earning');
+    return builtIn.filter((i) => isItemOnInTemplate(template.rules, i.key));
+  }, [template, builtIn]);
+  const deductionItems = items;
+  const previewEmployeeId = employee ? String(employee.id) : undefined;
 
   const amount = Number(ctcAmount);
   const canPreview = !!templateId && amount > 0;
@@ -107,6 +100,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
         deductionsEnabled,
         disabledItems,
         workState: employee?.workState ?? null,
+        employeeId: previewEmployeeId,
       })
         .then((p) => {
           setPreview(p);
@@ -115,7 +109,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
         .catch((err) => setPreviewError(apiErrorMessage(err, 'Could not calculate the preview.')));
     }, 350);
     return () => clearTimeout(handle);
-  }, [templateId, ctcPeriod, amount, deductionsEnabled, disabledItems, employee?.workState]);
+  }, [templateId, ctcPeriod, amount, deductionsEnabled, disabledItems, employee?.workState, previewEmployeeId]);
 
   function toggleItem(key: string, on: boolean) {
     setDisabledItems((list) => (on ? list.filter((k) => k !== key) : [...new Set([...list, key])]));
@@ -226,23 +220,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
           )}
         </div>
 
-        {template && allowanceItems.length > 0 && (
-          <div className="rounded-xl border border-border p-3">
-            <p className="text-sm font-medium text-ink">Allowances</p>
-            <p className="mb-2 text-xs text-ink-muted">Part of CTC. Turning one off moves its amount back into the Special allowance.</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {allowanceItems.map((item) => (
-                <Toggle
-                  key={item.key}
-                  checked={!disabledItems.includes(item.key)}
-                  onChange={(on) => toggleItem(item.key, on)}
-                  label={item.label}
-                  description="Allowance"
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        {isEdit && <ExtrasDetails extras={assignment?.extras} />}
 
         <Input label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
 
@@ -252,6 +230,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
           </h3>
           {(!canPreview || (!preview && !previewError)) && <p className="text-sm text-ink-muted">Choose a template and enter the CTC to see the breakdown.</p>}
           {previewError && <p className="text-sm text-danger">{previewError}</p>}
+          {canPreview && preview && !previewError && <InHandByMonth regular={preview.full.inHand} months={preview.months} />}
           {canPreview && preview && !previewError && <SalaryBreakdownView breakdown={preview} monthlyCtc={preview.monthlyCtc} mode="full" />}
         </section>
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, EyeOff, RefreshCw, Send } from 'lucide-react';
 import { Table } from '../../../components/ui/Table';
 import { Pagination } from '../../../components/ui/Pagination';
 import { Select } from '../../../components/ui/Select';
@@ -7,6 +7,7 @@ import { Button } from '../../../components/ui/Button';
 import { Badge } from '../../../components/ui/Badge';
 import { Modal } from '../../../components/ui/Modal';
 import { useToast } from '../../../context/toast-context';
+import { useConfirm } from '../../../context/confirm-context';
 import { apiErrorMessage } from '../../../utils/apiError';
 import {
   downloadPayrollPdf,
@@ -18,6 +19,7 @@ import {
   periodLabel,
   recalculatePayroll,
   saveBlob,
+  sharePayrolls,
   orgLabel,
   type EmployeePayroll,
 } from '../../../api/payroll';
@@ -33,6 +35,7 @@ function lastMonth() {
 
 export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
   const showToast = useToast();
+  const confirm = useConfirm();
   const [period, setPeriod] = useState(lastMonth());
   const [filters, setFilters] = useState<PayrollFilterValue>({ companyId: '', brandId: '', search: '' });
   const [rows, setRows] = useState<EmployeePayroll[]>([]);
@@ -43,6 +46,8 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<EmployeePayroll | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [sharing, setSharing] = useState<'all' | 'selected' | 'unshare' | null>(null);
 
   async function load() {
     setIsLoading(true);
@@ -58,6 +63,7 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
         offset,
       });
       setRows(result.data);
+      setChecked(new Set());
       setTotals(result.totals);
       setTotal(result.pagination.total);
     } catch {
@@ -90,6 +96,63 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
       setIsGenerating(false);
     }
   }
+
+  // Employees see a month only after it is shared here — after review.
+  async function handleShare(mode: 'all' | 'selected' | 'unshare') {
+    const label = periodLabel(period.year, period.month);
+    const ids = [...checked];
+    const ok = await confirm(
+      mode === 'all'
+        ? {
+          title: 'Share payslips',
+          message: `Share ${label} payslips with every employee in this list${filters.companyId || filters.brandId ? ' (current company / brand filter)' : ''}? They will be notified and can view and download them.`,
+          confirmLabel: 'Share with all',
+        }
+        : mode === 'selected'
+          ? { title: 'Share payslips', message: `Share ${label} payslips with ${ids.length} selected employee(s)?`, confirmLabel: 'Share' }
+          : {
+            title: 'Stop sharing',
+            message: `Hide ${label} payslips from ${ids.length} selected employee(s)? They will no longer see this month.`,
+            confirmLabel: 'Stop sharing',
+            variant: 'danger',
+          }
+    );
+    if (!ok) return;
+    setSharing(mode);
+    try {
+      const result = await sharePayrolls(
+        mode === 'all'
+          ? { year: period.year, month: period.month, companyId: filters.companyId || undefined, brandId: filters.brandId || undefined, share: true }
+          : { ids, share: mode === 'selected' }
+      );
+      showToast(
+        result.updated === 0
+          ? 'Nothing to change — already done.'
+          : mode === 'unshare'
+            ? `Stopped sharing with ${result.updated} employee(s).`
+            : `Shared with ${result.updated} employee(s).`,
+        'success'
+      );
+      await load();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not update sharing.'), 'error');
+    } finally {
+      setSharing(null);
+    }
+  }
+
+  function toggle(id: string) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const allOnPageChecked = rows.length > 0 && rows.every((r) => checked.has(String(r.id)));
+  const checkedRows = rows.filter((r) => checked.has(String(r.id)));
+  const anyCheckedUnshared = checkedRows.some((r) => !r.payslipReleased);
+  const anyCheckedShared = checkedRows.some((r) => r.payslipReleased);
 
   const now = new Date();
   const years = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
@@ -124,6 +187,11 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
             <RefreshCw className="mr-1.5 h-4 w-4" /> Generate / refresh
           </Button>
         )}
+        {canManage && rows.length > 0 && (
+          <Button onClick={() => handleShare('all')} isLoading={sharing === 'all'}>
+            <Send className="mr-1.5 h-4 w-4" /> Share with all
+          </Button>
+        )}
       </div>
       <PayrollFilters
         value={filters}
@@ -133,9 +201,24 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
         }}
       />
       <p className="text-xs text-ink-muted">
-        A month&apos;s payroll is generated automatically on the 1st of the next month, and recalculated by itself if leave or
-        attendance for it changes later.
+        A month&apos;s payroll is generated automatically on the 1st of the next month (a salary ended mid-month is settled right
+        away, up to its last date), and recalculated by itself if leave or attendance for it changes later. Employees see it only after you review it and share it.
       </p>
+
+      {canManage && checked.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary-light px-3 py-2">
+          <span className="text-sm font-medium text-primary">{checked.size} selected</span>
+          <Button onClick={() => handleShare('selected')} isLoading={sharing === 'selected'} disabled={!anyCheckedUnshared}>
+            <Send className="mr-1.5 h-4 w-4" /> Share
+          </Button>
+          <Button variant="secondary" onClick={() => handleShare('unshare')} isLoading={sharing === 'unshare'} disabled={!anyCheckedShared}>
+            <EyeOff className="mr-1.5 h-4 w-4" /> Stop sharing
+          </Button>
+          <button type="button" className="text-sm text-ink-muted hover:text-ink" onClick={() => setChecked(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Tile label="Gross" value={formatRupees(totals.gross)} />
@@ -152,6 +235,23 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
         rowKey={(r) => String(r.id)}
         emptyMessage={`No payroll for ${periodLabel(period.year, period.month)} yet.`}
         columns={[
+          ...(canManage
+            ? [
+              {
+                key: 'pick',
+                header: '',
+                render: (r: EmployeePayroll) => (
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${r.employee?.name ?? 'employee'}`}
+                    checked={checked.has(String(r.id))}
+                    onChange={() => toggle(String(r.id))}
+                    className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+                  />
+                ),
+              },
+            ]
+            : []),
           {
             key: 'employee',
             header: 'Employee',
@@ -186,13 +286,25 @@ export function MonthlyPayrollTab({ canManage }: { canManage: boolean }) {
             header: '',
             render: (r) => (
               <div className="flex flex-wrap gap-1">
+                {r.isFinal && <Badge tone="danger" title="Salary ends this month — paid up to the last date">Final · till {r.finalDate}</Badge>}
                 {r.revisedAt && <Badge tone="warning">Revised</Badge>}
-                {r.payslipReleased && <Badge tone="success">Payslip given</Badge>}
+                {r.payslipReleased ? <Badge tone="success">Shared</Badge> : <Badge tone="neutral">Not shared</Badge>}
               </div>
             ),
           },
         ]}
       />
+      {canManage && rows.length > 0 && (
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-muted">
+          <input
+            type="checkbox"
+            checked={allOnPageChecked}
+            onChange={() => setChecked(allOnPageChecked ? new Set() : new Set(rows.map((r) => String(r.id))))}
+            className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+          />
+          Select all on this page
+        </label>
+      )}
       <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
 
       {selected && (
@@ -229,7 +341,7 @@ export function PayrollDetailModal({
 }) {
   const showToast = useToast();
   const [payroll, setPayroll] = useState<EmployeePayroll | null>(null);
-  const [busy, setBusy] = useState<'pdf' | 'recalc' | null>(null);
+  const [busy, setBusy] = useState<'pdf' | 'recalc' | 'share' | null>(null);
 
   useEffect(() => {
     getPayroll(payrollId).then(setPayroll).catch(() => showToast('Could not load this payroll.', 'error'));
@@ -243,6 +355,22 @@ export function PayrollDetailModal({
       onChanged();
     } catch (err) {
       showToast(apiErrorMessage(err, 'Could not recalculate.'), 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleShareToggle() {
+    if (!payroll) return;
+    const share = !payroll.payslipReleased;
+    setBusy('share');
+    try {
+      await sharePayrolls({ ids: [payrollId], share });
+      setPayroll({ ...payroll, payslipReleased: share });
+      showToast(share ? 'Shared with the employee.' : 'No longer shared.', 'success');
+      onChanged();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not update sharing.'), 'error');
     } finally {
       setBusy(null);
     }
@@ -274,6 +402,12 @@ export function PayrollDetailModal({
         payroll && (
           <div className="flex gap-2">
             {canManage && (
+              <Button variant={payroll.payslipReleased ? 'secondary' : 'primary'} onClick={handleShareToggle} isLoading={busy === 'share'}>
+                {payroll.payslipReleased ? <EyeOff className="mr-1.5 h-4 w-4" /> : <Send className="mr-1.5 h-4 w-4" />}
+                {payroll.payslipReleased ? 'Stop sharing' : 'Share with employee'}
+              </Button>
+            )}
+            {canManage && (
               <Button variant="secondary" onClick={handleRecalculate} isLoading={busy === 'recalc'}>
                 <RefreshCw className="mr-1.5 h-4 w-4" /> Recalculate
               </Button>
@@ -290,6 +424,7 @@ export function PayrollDetailModal({
       ) : (
         <div className="space-y-3">
           <p className="text-sm text-ink-muted">
+            {payroll.isFinal && <span className="font-medium text-danger">Final settlement — paid up to {payroll.finalDate} · </span>}
             {orgLabel(payroll.employee)} · Template: {payroll.details.templateName ?? '—'}
             {payroll.details.deductionsEnabled === false ? ' · Deductions off' : ''}
           </p>

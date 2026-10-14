@@ -50,8 +50,9 @@ const DEFAULT_RULES = {
     esi: { enabled: true, rate: 3.25, grossLimit: 21000 },
     lwf: { enabled: false, amount: 0 },
   },
-  // { [customItemId]: { enabled, value } } — group-level extra items
-  // (payroll_custom_items); a missing entry means "on, at the item's value".
+  // Legacy: extra items used to be switched per template. They now apply to
+  // the employees chosen on the item (payroll_custom_item_employees); kept
+  // empty so old templates still load.
   customItems: {},
 };
 
@@ -185,16 +186,6 @@ function normalizeRules(input) {
   if (rules.employer.pf.epsRate > rules.employer.pf.rate) {
     throw new HttpError(400, 'Employer PF pension (EPS) % cannot be more than the employer PF %');
   }
-  if (isObj(src.customItems)) {
-    for (const [id, cfg] of Object.entries(src.customItems)) {
-      if (!/^\d+$/.test(id) || !isObj(cfg)) continue;
-      const entry = { enabled: cfg.enabled !== false };
-      if (cfg.value !== undefined && cfg.value !== null && cfg.value !== '') {
-        entry.value = num(cfg.value, 'Custom item value');
-      }
-      rules.customItems[id] = entry;
-    }
-  }
   return rules;
 }
 
@@ -203,7 +194,6 @@ function normalizeRules(input) {
 // payroll_custom_items (plain objects).
 function resolveCustomItems(rules, items) {
   return (items || []).map((item) => {
-    const cfg = (rules.customItems || {})[String(item.id)] || {};
     return {
       id: String(item.id),
       key: customItemKey(item.id),
@@ -211,8 +201,8 @@ function resolveCustomItems(rules, items) {
       kind: item.kind,
       calcType: item.calcType,
       basis: item.basis,
-      value: cfg.value !== undefined ? Number(cfg.value) : Number(item.value),
-      enabled: cfg.enabled !== false,
+      value: Number(item.value),
+      enabled: true,
     };
   });
 }
@@ -282,9 +272,9 @@ function computeSalary({
   const ctc = rupee(monthlyCtc);
   const disabled = new Set(disabledItems || []);
   const on = (key, rule) => deductionsEnabled && rule && rule.enabled && !disabled.has(key);
-  // Allowances are pay, not deductions — the "no deductions" switch leaves
-  // them alone; only their own toggles (template / employee) turn them off.
-  const onEarning = (item) => item.enabled && !disabled.has(item.key);
+  // Extra items (allowances, deductions, employer contributions) are given
+  // to chosen employees on purpose — the "no deductions" switch and the
+  // template don't touch them; `customItems` holds only this employee's.
   const D = rules.deductions;
   const E = rules.employer;
   const capped = (base, rule) => (rule.applyCeiling === false || rule.ceiling === undefined ? base : Math.min(base, rule.ceiling));
@@ -294,8 +284,8 @@ function computeSalary({
   const basic = rupee((ctc * rules.basicPercentOfCtc) / 100);
   const hra = rupee((basic * rules.hraPercentOfBasic) / 100);
 
-  const activeCustom = customItems.filter((item) => item.kind !== 'earning' && on(item.key, item));
-  const activeEarnings = customItems.filter((item) => item.kind === 'earning' && onEarning(item));
+  const activeCustom = customItems.filter((item) => item.kind !== 'earning' && item.enabled);
+  const activeEarnings = customItems.filter((item) => item.kind === 'earning' && item.enabled);
   const fixedEmployer = [];
   if (on('employer_pf', E.pf)) fixedEmployer.push({ key: 'employer_pf', amount: rupee((capped(basic, E.pf) * E.pf.rate) / 100) });
   if (on('edli', E.edli)) fixedEmployer.push({ key: 'edli', amount: rupee((Math.min(basic, E.edli.ceiling) * E.edli.rate) / 100) });

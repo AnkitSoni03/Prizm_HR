@@ -9,11 +9,8 @@ import { INDIAN_STATES } from '../../../utils/indianStates';
 import {
   createTemplate,
   getTemplateDefaults,
-  listCustomItems,
-  monthKeyLabel,
   previewSalary,
   updateTemplate,
-  type PayrollCustomItem,
   type PayrollRules,
   type PayrollTemplate,
   type RateRule,
@@ -74,7 +71,6 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
   const [description, setDescription] = useState(template?.description ?? '');
   const [isActive, setIsActive] = useState(template?.isActive ?? true);
   const [rules, setRules] = useState<PayrollRules | null>(template?.rules ?? null);
-  const [customItems, setCustomItems] = useState<PayrollCustomItem[]>([]);
   const [previewCtc, setPreviewCtc] = useState(30000);
   const [previewState, setPreviewState] = useState('');
   const [preview, setPreview] = useState<SalaryBreakdown | null>(null);
@@ -83,9 +79,6 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    listCustomItems()
-      .then((r) => setCustomItems(r.data.filter((i) => i.isActive)))
-      .catch(() => setCustomItems([]));
     if (!template) {
       getTemplateDefaults()
         .then((d) => setRules(d.rules))
@@ -232,41 +225,6 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
             </RuleCard>
           </div>
         </section>
-
-        {customItems.length > 0 && (
-          <section>
-            <h3 className="text-sm font-semibold text-ink">Extra allowances &amp; deductions (added for the whole Group)</h3>
-            <p className="mb-2 text-xs text-ink-muted">Off until you switch them on here — only employees on this template get the ones you turn on.</p>
-            <div className="space-y-2">
-              {[...customItems].sort((a, b) => Number(b.kind === 'earning') - Number(a.kind === 'earning')).map((item) => {
-                const cfg = rules.customItems[item.id] ?? { enabled: true };
-                const setCfg = (patch: { enabled?: boolean; value?: number }) =>
-                  setRules({ ...rules, customItems: { ...rules.customItems, [item.id]: { ...cfg, ...patch } } });
-                const unit = item.calcType === 'fixed' ? '₹/month' : `% of ${item.basis === 'ctc' ? 'CTC' : item.basis === 'gross' ? 'Gross' : 'Basic'}`;
-                return (
-                  <RuleCard
-                    key={item.id}
-                    title={item.name}
-                    description={
-                      `${
-                        item.kind === 'earning'
-                          ? 'Allowance — taken out of the Special allowance'
-                          : item.kind === 'deduction'
-                            ? 'Employee deduction'
-                            : 'Employer contribution'
-                      }${item.months && item.months.length > 0 ? ` · only in ${item.months.map(monthKeyLabel).join(', ')}` : ''}`
-                    }
-                    enabled={cfg.enabled !== false}
-                    disabled={ro}
-                    onToggle={(v) => setCfg({ enabled: v })}
-                  >
-                    <NumberField label="Value" suffix={unit} value={cfg.value ?? Number(item.value)} disabled={ro} onChange={(n) => setCfg({ value: n })} />
-                  </RuleCard>
-                );
-              })}
-            </div>
-          </section>
-        )}
 
         <section>
           <h3 className="mb-2 text-sm font-semibold text-ink">Leave</h3>

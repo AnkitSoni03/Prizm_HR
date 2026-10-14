@@ -8,6 +8,7 @@ const { isWorkingDay } = require('../../utils/workingDays');
 const { getFinancialYearStart, getRemainingMonthsInFY } = require('../../utils/financialYear');
 const { notifyUser } = require('../../utils/notifications');
 const { normalizeRules, resolveCustomItems, computeSalary } = require('./payrollRules');
+const { memberItemIds } = require('./customItemMembers');
 
 // ---------------------------------------------------------------------------
 // Monthly payroll engine. Everything here runs with the tenant hook off
@@ -246,22 +247,36 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
 
   const days = await classifyDays({ employee, start, end, segments });
   const primary = segments[segments.length - 1].assignment;
+  // Final settlement: the last salary part ends inside the month (salary
+  // ended, or the last working day) and nothing starts after it.
+  const lastTo = segments[segments.length - 1].to;
+  let finalDate = null;
+  if (lastTo < end) {
+    const later = await db.SalaryAssignment.count({ where: { employeeId: employee.id, effectiveFrom: { [Op.gt]: lastTo } } });
+    if (later === 0) finalDate = lastTo;
+  }
   const snapshot = existing ? existing.rulesSnapshot : null;
-  const customItemsRaw = await loadGroupCustomItems(primary.groupId);
+  // Only the items this employee was chosen for.
+  const mine = (await memberItemIds([employee.id])).get(String(employee.id)) || new Set();
+  const myItems = (await loadGroupCustomItems(primary.groupId)).filter((i) => mine.has(String(i.id)));
+  const limited = (i) => Array.isArray(i.months) && i.months.length > 0;
+  // Every-month items come from the month's frozen snapshot (already narrowed
+  // to this employee; an older snapshot is narrowed here); items limited to
+  // chosen months are always read live (adding / changing one is meant to
+  // change exactly those months), and apply only in those months.
+  const snapItems = snapshot && snapshot.customItems
+    ? snapshot.customItems.filter((i) => snapshot.itemsPerEmployee || mine.has(String(i.id)))
+    : null;
+  const thisMonth = `${year}-${pad(month)}`;
+  const itemsSource = [
+    ...(snapItems || myItems).filter((i) => !limited(i)),
+    ...myItems.filter((i) => limited(i) && i.months.includes(thisMonth)),
+  ];
 
   const templates = {};
   const resolved = (a) => {
     const r = rulesFor(a, snapshot);
     templates[String(a.templateId)] = r;
-    // Every-month items come from the month's frozen snapshot; items limited
-    // to chosen months are always read live (adding / changing one is meant to
-    // change exactly those months), and apply only in those months.
-    const thisMonth = `${year}-${pad(month)}`;
-    const limited = (i) => Array.isArray(i.months) && i.months.length > 0;
-    const itemsSource = [
-      ...((snapshot && snapshot.customItems) || customItemsRaw).filter((i) => !limited(i)),
-      ...customItemsRaw.filter((i) => limited(i) && i.months.includes(thisMonth)),
-    ];
     return { rules: r.rules, customItems: resolveCustomItems(r.rules, itemsSource) };
   };
   const salaryInput = (a) => ({
@@ -361,8 +376,10 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
       bonusTotal: salary.actual.bonusTotal,
       carryAdjustment,
       netPay,
+      isFinal: !!finalDate,
+      finalDate,
       details,
-      rulesSnapshot: snapshot || { templates, customItems: customItemsRaw },
+      rulesSnapshot: snapshot || { templates, customItems: myItems.filter((i) => !limited(i)), itemsPerEmployee: true },
     },
     carries,
     // A % bonus's amount follows the month's salary — written back to the
@@ -388,7 +405,12 @@ const COMPARED = ['monthDays', 'paidDays', 'lopDays', 'monthlyCtc', 'grossFull',
 // (existing or new), or null when there's nothing to pay.
 async function generateEmployeeMonth({ employeeId, year, month }) {
   return runAsCompany(null, async () => {
-    if (!isMonthComplete(year, month)) return null;
+    if (!isMonthComplete(year, month)) {
+      // A running month is payable early only as a final settlement, once
+      // its last salary date has come.
+      const last = await finalDateFor(employeeId, year, month);
+      if (!last || last > dateOnly(new Date())) return null;
+    }
     const existing = await db.EmployeePayroll.findOne({ where: { employeeId, periodYear: year, periodMonth: month } });
     if (existing) return existing;
     const employee = await db.Employee.findByPk(employeeId);
@@ -419,17 +441,6 @@ async function generateEmployeeMonth({ employeeId, year, month }) {
     });
 
     if (row) await syncBonusAmounts(result);
-    if (row && employee.userId) {
-      await notifyUser({
-        companyId: employee.companyId,
-        userId: employee.userId,
-        type: 'payroll_generated',
-        requestType: 'payroll',
-        requestId: row.id,
-        title: `Your ${monthLabel(year, month)} salary is ready`,
-        body: `In-hand ₹${row.netPay.toLocaleString('en-IN')}`,
-      });
-    }
     return row;
   });
 }
@@ -493,7 +504,8 @@ async function recalculatePayroll(payrollId) {
     });
 
     await syncBonusAmounts(result);
-    if (changed && employee.userId) {
+    // Only a month the employee can already see is worth telling them about.
+    if (changed && row.payslipReleased && employee.userId) {
       const label = monthLabel(row.periodYear, row.periodMonth);
       await notifyUser({
         companyId: employee.companyId,
@@ -506,6 +518,66 @@ async function recalculatePayroll(payrollId) {
       });
     }
     return row;
+  });
+}
+
+// The last salary date inside the month when the salary ends there and
+// nothing starts after it; else null.
+async function finalDateFor(employeeId, year, month) {
+  const { start, end } = monthBounds(year, month);
+  const assignments = await db.SalaryAssignment.findAll({
+    where: {
+      employeeId,
+      [Op.or]: [{ effectiveTo: null }, { effectiveTo: { [Op.gte]: start } }],
+    },
+    attributes: ['effectiveFrom', 'effectiveTo'],
+    order: [['effectiveFrom', 'ASC']],
+  });
+  if (assignments.length === 0) return null;
+  const last = assignments[assignments.length - 1];
+  if (!last.effectiveTo || last.effectiveTo >= end || last.effectiveFrom > end) return null;
+  return last.effectiveTo;
+}
+
+// Final settlements of the running month: salaries that ended on or before
+// today get that month generated now; a final month whose last day was
+// today or yesterday is refreshed (that day's attendance may have come in
+// after it was first worked out). Run daily by the payroll job, and right
+// after a salary is ended.
+async function generateFinalSettlements(today = dateOnly(new Date())) {
+  return runAsCompany(null, async () => {
+    const [y, m] = today.split('-').map(Number);
+    const { start } = monthBounds(y, m);
+    const ended = await db.SalaryAssignment.findAll({
+      where: { status: 'ended', effectiveTo: { [Op.between]: [start, today] } },
+      attributes: ['employeeId'],
+    });
+    let created = 0;
+    for (const employeeId of [...new Set(ended.map((a) => String(a.employeeId)))]) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const before = await db.EmployeePayroll.count({ where: { employeeId, periodYear: y, periodMonth: m } });
+        // eslint-disable-next-line no-await-in-loop
+        const row = await generateEmployeeMonth({ employeeId, year: y, month: m });
+        if (row && before === 0) created += 1;
+      } catch (err) {
+        console.error(`Final settlement failed for employee ${employeeId}:`, err);
+      }
+    }
+    const yesterday = dateOnly(new Date(new Date(`${today}T00:00:00`).getTime() - 86400000));
+    const fresh = await db.EmployeePayroll.findAll({
+      where: { isFinal: true, finalDate: { [Op.between]: [yesterday, today] } },
+      attributes: ['id'],
+    });
+    for (const r of fresh) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await recalculatePayroll(r.id);
+      } catch (err) {
+        console.error(`Final settlement refresh failed for ${r.id}:`, err);
+      }
+    }
+    return { created, refreshed: fresh.length };
   });
 }
 
@@ -606,6 +678,8 @@ async function processPendingRecalcs() {
 }
 
 module.exports = {
+  generateFinalSettlements,
+  finalDateFor,
   monthBounds,
   monthsBetween,
   isMonthComplete,

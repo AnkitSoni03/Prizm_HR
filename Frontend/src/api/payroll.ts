@@ -60,7 +60,10 @@ export interface PayrollCustomItem {
   // null = every month; ['2026-10', '2026-12'] = only those months.
   months?: string[] | null;
   isActive: boolean;
+  // How many employees it applies to (list only).
+  employeeCount?: number;
 }
+export type CustomItemInput = Omit<PayrollCustomItem, 'id' | 'employeeCount'> & { employeeIds?: string[] };
 
 export interface BuiltInItem {
   key: string;
@@ -83,6 +86,9 @@ export interface BonusLine extends SalaryLine {
 
 export interface SalaryBreakdown {
   monthlyCtc: number;
+  // Preview with an employee only: months (from now) whose in-hand differs
+  // from the regular month because of a month-limited item or a bonus.
+  months?: { month: string; extras: string[]; grossSalary: number; bonusTotal: number; totalDeductions: number; inHand: number }[];
   full: { grossSalary: number; totalDeductions: number; totalEmployer: number; inHand: number };
   actual: {
     grossSalary: number;
@@ -135,6 +141,11 @@ export interface SalaryAssignment {
   note: string | null;
   employee?: EmployeeRef;
   template?: { id: string; name: string } | null;
+  // List only: what the employee gets on top of the template.
+  extras?: {
+    items: { id: string; name: string; kind: CustomItemKind; calcType: 'percent' | 'fixed'; basis: 'basic' | 'gross' | 'ctc' | null; value: number; months: string[] | null }[];
+    bonuses: { id: string; type: string; title: string | null; calcType: 'fixed' | 'percent'; percent: number | null; basis: string | null; amount: number; periodYear: number; periodMonth: number }[];
+  };
 }
 
 export interface PayrollDetails {
@@ -177,21 +188,11 @@ export interface EmployeePayroll {
   revisedAt: string | null;
   generatedAt: string;
   payslipReleased: boolean;
+  // Final settlement: the salary ends inside this month (paid up to finalDate).
+  isFinal?: boolean;
+  finalDate?: string | null;
   details: PayrollDetails;
   employee?: EmployeeRef;
-}
-
-export interface PayslipRequest {
-  id: string;
-  employeeId: string;
-  periods: { year: number; month: number }[];
-  note: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
-  decidedAt: string | null;
-  rejectionReason: string | null;
-  createdAt: string;
-  employee?: EmployeeRef;
-  decidedByUser?: { id: string; email: string } | null;
 }
 
 export interface ScopeCompany {
@@ -235,7 +236,7 @@ export async function listTemplates() {
 }
 export async function getTemplateDefaults() {
   const { data } = await apiClient.get<{
-    data: { rules: PayrollRules; builtInItems: BuiltInItem[]; customItems: PayrollCustomItem[]; ptStates: string[] };
+    data: { rules: PayrollRules; builtInItems: BuiltInItem[]; ptStates: string[] };
   }>('/payroll/templates/defaults');
   return data.data;
 }
@@ -256,6 +257,8 @@ export async function deleteTemplate(id: string) {
 export async function previewSalary(body: {
   rules?: PayrollRules;
   templateId?: string;
+  // Include this employee's own every-month extra items.
+  employeeId?: string;
   ctcPeriod: 'monthly' | 'yearly';
   ctcAmount: number;
   deductionsEnabled?: boolean;
@@ -271,11 +274,16 @@ export async function listCustomItems() {
   const { data } = await apiClient.get<{ data: PayrollCustomItem[]; builtInItems: BuiltInItem[] }>('/payroll/custom-items');
   return data;
 }
-export async function createCustomItem(body: Omit<PayrollCustomItem, 'id'>) {
+// The employees an extra item applies to.
+export async function listCustomItemEmployees(id: string) {
+  const { data } = await apiClient.get<{ data: EmployeeRef[] }>(`/payroll/custom-items/${id}/employees`);
+  return data.data;
+}
+export async function createCustomItem(body: CustomItemInput) {
   const { data } = await apiClient.post<{ data: PayrollCustomItem }>('/payroll/custom-items', body);
   return data.data;
 }
-export async function updateCustomItem(id: string, body: Partial<Omit<PayrollCustomItem, 'id'>>) {
+export async function updateCustomItem(id: string, body: Partial<CustomItemInput>) {
   const { data } = await apiClient.put<{ data: PayrollCustomItem }>(`/payroll/custom-items/${id}`, body);
   return data.data;
 }
@@ -415,8 +423,13 @@ export async function updateAssignment(id: string, body: Partial<AssignmentInput
   const { data } = await apiClient.put<{ data: SalaryAssignment }>(`/payroll/assignments/${id}`, body);
   return data.data;
 }
+// Ends a salary. When the last date is today or earlier in the running month,
+// that month's final salary (up to the last date) comes back right away.
 export async function endAssignment(id: string, endDate: string) {
-  const { data } = await apiClient.post<{ data: SalaryAssignment }>(`/payroll/assignments/${id}/end`, { endDate });
+  const { data } = await apiClient.post<{ data: { assignment: SalaryAssignment; finalPayroll: EmployeePayroll | null } }>(
+    `/payroll/assignments/${id}/end`,
+    { endDate }
+  );
   return data.data;
 }
 
@@ -452,13 +465,17 @@ export async function generatePayrollMonth(year: number, month: number) {
   return data.data;
 }
 
-// ---- Payslip requests (managers) ----
-export async function listPayslipRequests(params: { status?: string; companyId?: string; search?: string; limit?: number; offset?: number }) {
-  const { data } = await apiClient.get<Paged<PayslipRequest>>('/payroll/payslip-requests', { params });
-  return data;
-}
-export async function decidePayslipRequest(id: string, decision: 'approved' | 'rejected', reason?: string) {
-  const { data } = await apiClient.patch<{ data: PayslipRequest }>(`/payroll/payslip-requests/${id}/decision`, { decision, reason });
+// ---- Sharing payslips with employees (managers) ----
+// Either chosen payroll rows (`ids`) or a whole month (narrowed by company / brand).
+export async function sharePayrolls(body: {
+  ids?: string[];
+  year?: number;
+  month?: number;
+  companyId?: string;
+  brandId?: string;
+  share: boolean;
+}) {
+  const { data } = await apiClient.post<{ data: { updated: number } }>('/payroll/months/share', body);
   return data.data;
 }
 
@@ -479,18 +496,6 @@ export async function downloadMyPayslipPdf(id: string) {
   const { data } = await apiClient.get<Blob>(`/payroll/me/months/${id}/pdf`, { responseType: 'blob' });
   return data;
 }
-export async function listMyPayslipRequests() {
-  const { data } = await apiClient.get<{ data: PayslipRequest[] }>('/payroll/me/payslip-requests');
-  return data.data;
-}
-export async function requestPayslips(periods: { year: number; month: number }[], note?: string) {
-  const { data } = await apiClient.post<{ data: PayslipRequest }>('/payroll/me/payslip-requests', { periods, note });
-  return data.data;
-}
-export async function cancelMyPayslipRequest(id: string) {
-  await apiClient.patch(`/payroll/me/payslip-requests/${id}/cancel`);
-}
-
 // Whether a deduction / contribution / allowance key is switched on in a template.
 export function isItemOnInTemplate(rules: PayrollRules, key: string): boolean {
   const map: Record<string, { enabled: boolean } | undefined> = {
@@ -506,7 +511,6 @@ export function isItemOnInTemplate(rules: PayrollRules, key: string): boolean {
     employer_esi: rules.employer.esi,
     employer_lwf: rules.employer.lwf,
   };
-  if (key.startsWith('custom_')) return rules.customItems[key.slice(7)]?.enabled !== false;
   return !!map[key]?.enabled;
 }
 
