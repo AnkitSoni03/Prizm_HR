@@ -5,13 +5,28 @@
 // every login.
 export const PROBATION_POPUP_KEY_PREFIX = 'hrms:probationPopupShown:';
 
+export type ProbationPeriodUnit = 'days' | 'months';
+
 // Last day of the period, DOJ counted as day 1 (DOJ 2026-01-01 + 180 days →
-// 2026-06-29). null when either input is missing/invalid.
-export function probationEndDate(dateOfJoining: string, periodDays: string | number | null | undefined): string | null {
-  const days = Number(periodDays);
-  if (!dateOfJoining || !Number.isInteger(days) || days < 1) return null;
+// 2026-06-29; DOJ 2026-10-10 + 6 months → 2027-04-09). Months clamp to the
+// target month's last day. null when either input is missing/invalid.
+export function probationEndDate(
+  dateOfJoining: string,
+  periodDays: string | number | null | undefined,
+  unit: ProbationPeriodUnit = 'days'
+): string | null {
+  const amount = Number(periodDays);
+  if (!dateOfJoining || !Number.isInteger(amount) || amount < 1) return null;
   const date = new Date(`${dateOfJoining}T00:00:00`);
-  date.setDate(date.getDate() + days - 1);
+  if (unit === 'months') {
+    const day = date.getDate();
+    date.setDate(1);
+    date.setMonth(date.getMonth() + amount);
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    date.setDate(Math.min(day, lastDay) - 1);
+  } else {
+    date.setDate(date.getDate() + amount - 1);
+  }
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');

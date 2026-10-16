@@ -27,6 +27,13 @@ export interface LeaveBalance {
   employeeId: string;
   leaveTypeId: string;
   year: number;
+  month?: number | null;
+  // The period this balance covers (a yearly cycle, or your Probation /
+  // Intern period — periodEnd null while it is still running).
+  periodStart?: string;
+  periodEnd?: string | null;
+  // Part of the total carried in from the previous period.
+  carriedForward?: number | string;
   allotted: number;
   used: number;
   balance: number;

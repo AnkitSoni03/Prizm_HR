@@ -2,7 +2,7 @@
 
 const { Op } = require('sequelize');
 const db = require('../models');
-const { dateOnly } = require('../utils/dateRange');
+const { dateOnly, addDays } = require('../utils/dateRange');
 const {
   PERIOD_EMPLOYMENT_TYPES,
   probationAlertFor,
@@ -26,21 +26,33 @@ async function remindEmployee(employee, asOf) {
   const endLabel = formatDisplayDate(alert.endDate);
   const ended = alert.daysRemaining < 0;
   const name = employee.name || employee.employeeCode || 'An employee';
+  // A queued Roster means the switch to Full-time happens on its own the
+  // day after the end (jobs/probationConversion.job.js).
+  const nextRoster = employee.nextRosterGroupId
+    ? await db.RosterGroup.findOne({ where: { id: employee.nextRosterGroupId }, attributes: ['id', 'name'] })
+    : null;
+  const autoText = nextRoster
+    ? ` From ${formatDisplayDate(addDays(alert.endDate, 1))} they move to Full-time on the "${nextRoster.name}" roster automatically.`
+    : '';
 
   await notifyUser({
     companyId: employee.companyId,
     userId: employee.userId,
     type: 'probation_ending',
     title: `Your ${period} ${when}`,
-    body: ended
-      ? `It ended on ${endLabel}. Your manager and HR will confirm your employment status shortly.`
-      : `It ends on ${endLabel}. Your manager and HR will review and confirm your employment status.`,
+    body: nextRoster
+      ? `It ends on ${endLabel}. From ${formatDisplayDate(addDays(alert.endDate, 1))} you will be Full-time on the "${nextRoster.name}" roster.`
+      : ended
+        ? `It ended on ${endLabel}. Your manager and HR will confirm your employment status shortly.`
+        : `It ends on ${endLabel}. Your manager and HR will review and confirm your employment status.`,
   });
 
   const adminTitle = `${name}'s ${period} ${when}`;
   const adminBody = ended
     ? `It ended on ${endLabel} and the Employment Type is still ${employee.employmentType === 'intern' ? 'Intern' : 'Probation'}. Review and update it to Full-time.`
-    : `It ends on ${endLabel}. Review their performance and update the Employment Type to Full-time when confirmed.`;
+    : nextRoster
+      ? `It ends on ${endLabel}.${autoText} Change the queued roster or extend the period on their profile if needed.`
+      : `It ends on ${endLabel}. Review their performance and update the Employment Type to Full-time, or queue their next roster.`;
 
   const managers = await getManagersForEmployee({ companyId: employee.companyId, employeeId: employee.id });
   const notifiedUserIds = new Set([String(employee.userId)]);

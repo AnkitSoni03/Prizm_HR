@@ -27,10 +27,8 @@ import {
   deleteEmployee,
   uploadEmployeePhoto,
   removeEmployeePhoto,
-  renewEmployeeRoster,
   type RosterTransferDetail,
 } from '../../../api/companyAdmin/employees';
-import { computeRosterExpiry, daysUntil as daysUntilRosterExpiry, rosterExpiryLabel } from '../../../utils/rosterValidity';
 import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import { FileUploadField } from '../../../components/ui/FileUploadField';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
@@ -61,6 +59,9 @@ import { formatDisplayDate, formatDisplayDateTime, daysUntil } from '../../../ut
 import { WEEKDAY_LABELS, weeklyOffLabel } from '../../../utils/weekdays';
 import { listCompOffCredits, type CompOffCredit } from '../../../api/companyAdmin/approvals';
 import { ProbationPeriodField } from '../../../components/ProbationPeriodField';
+import { RosterQueueFields } from '../../../components/RosterQueueFields';
+import { probationEndDate, type ProbationPeriodUnit } from '../../../utils/probation';
+import { addDaysToDate, balancePeriodLabel } from '../../../utils/yearlyCycle';
 
 interface EmployeeDetailModalProps {
   employee: Employee;
@@ -198,6 +199,11 @@ export function EmployeeDetailModal({
   const [probationPeriodDays, setProbationPeriodDays] = useState(
     employee.probationPeriodDays ? String(employee.probationPeriodDays) : ''
   );
+  const [probationPeriodUnit, setProbationPeriodUnit] = useState<ProbationPeriodUnit>(employee.probationPeriodUnit ?? 'days');
+  const [nextRosterGroupId, setNextRosterGroupId] = useState(employee.nextRosterGroupId ?? '');
+  const [yearlyCycleStartMonth, setYearlyCycleStartMonth] = useState(
+    employee.yearlyCycleStartMonth ? String(employee.yearlyCycleStartMonth) : ''
+  );
   const [status, setStatus] = useState(employee.status);
   const [workState, setWorkState] = useState(employee.workState ?? '');
   const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>(
@@ -325,25 +331,17 @@ export function EmployeeDetailModal({
   // Roster switch can leave real leave balance behind — see
   // rosterTransfer.service.js.
   const [isChangeRosterModalOpen, setIsChangeRosterModalOpen] = useState(false);
-  const currentRosterGroup = rosterGroups.find((rg) => rg.id === employee.rosterGroupId) ?? null;
-  const rosterExpiryDate = currentRosterGroup?.validityValue
-    ? computeRosterExpiry(employee.rosterAssignedAt, currentRosterGroup.validityValue, currentRosterGroup.validityUnit)
+  // Rosters never expire — the only scheduled change is the queued Roster a
+  // Probation/Intern employee moves to the day after their period ends.
+  const isInPeriod = employee.employmentType === 'probation' || employee.employmentType === 'intern';
+  const queuedRoster = isInPeriod && employee.nextRosterGroupId
+    ? rosterGroups.find((rg) => rg.id === employee.nextRosterGroupId) ?? null
     : null;
-  const rosterExpiryRemaining = rosterExpiryDate ? daysUntilRosterExpiry(rosterExpiryDate) : null;
-  const [isRenewingRoster, setIsRenewingRoster] = useState(false);
-
-  async function handleRenewRoster() {
-    setIsRenewingRoster(true);
-    try {
-      await renewEmployeeRoster(employee.id);
-      onUpdated();
-      showToast('Roster renewed.', 'success');
-    } catch {
-      showToast('Could not renew this Roster. Please try again.', 'error');
-    } finally {
-      setIsRenewingRoster(false);
-    }
-  }
+  const savedPeriodEnd = employee.dateOfJoining
+    ? probationEndDate(employee.dateOfJoining, employee.probationPeriodDays ?? null, employee.probationPeriodUnit ?? 'days')
+    : null;
+  // Rosters this employee may be put on: Shared ones and their own Brand's.
+  const assignableRosterGroups = rosterGroups.filter((rg) => !rg.brandId || rg.brandId === employee.brandId);
 
   function handleRosterChanged(details: RosterTransferDetail[]) {
     setIsChangeRosterModalOpen(false);
@@ -659,6 +657,7 @@ export function EmployeeDetailModal({
     const adjustments = leaveBalances
       .filter(isRowChanged)
       .map((b) => ({
+        id: b.id,
         leaveTypeId: b.leaveTypeId,
         year: b.year,
         month: b.month,
@@ -709,6 +708,10 @@ export function EmployeeDetailModal({
     }
   }
 
+  const isPeriodTypeSelected = employmentType === 'probation' || employmentType === 'intern';
+  // Saving Probation/Intern -> anything else confirms the employee now.
+  const isConfirmingNow = isInPeriod && !isPeriodTypeSelected;
+
   async function handleSaveDetails(event: FormEvent) {
     event.preventDefault();
     setDetailsError(null);
@@ -719,6 +722,9 @@ export function EmployeeDetailModal({
         designationId: designationId || null,
         employmentType,
         probationPeriodDays: probationPeriodDays ? Number(probationPeriodDays) : null,
+        probationPeriodUnit,
+        nextRosterGroupId: isPeriodTypeSelected ? nextRosterGroupId || null : null,
+        yearlyCycleStartMonth: yearlyCycleStartMonth ? Number(yearlyCycleStartMonth) : null,
         status,
         dateOfJoining: dateOfJoining || null,
         dateOfBirth: dateOfBirth || null,
@@ -953,10 +959,11 @@ export function EmployeeDetailModal({
                   <p className="mt-1 text-sm text-ink">
                     {rosterGroups.find((rg) => rg.id === employee.rosterGroupId)?.name ?? 'None — company/brand-wide defaults'}
                   </p>
-                  {rosterExpiryRemaining !== null && (
-                    <Badge tone={rosterExpiryRemaining <= 3 ? 'danger' : rosterExpiryRemaining <= 7 ? 'warning' : 'neutral'}>
-                      {rosterExpiryLabel(rosterExpiryRemaining)}
-                    </Badge>
+                  {queuedRoster && (
+                    <p className="mt-1 text-xs text-ink-muted">
+                      Next: <span className="font-medium text-ink">{queuedRoster.name}</span>
+                      {savedPeriodEnd ? ` from ${formatDisplayDate(addDaysToDate(savedPeriodEnd, 1))}` : ' after the period ends'}
+                    </p>
                   )}
                 </div>
                 <div className="rounded-lg border border-border bg-page px-4 py-3">
@@ -1003,11 +1010,6 @@ export function EmployeeDetailModal({
 
               {canUpdate && (
                 <div className="flex justify-end gap-2">
-                  {rosterExpiryRemaining !== null && (
-                    <Button type="button" variant="secondary" onClick={handleRenewRoster} isLoading={isRenewingRoster}>
-                      Renew
-                    </Button>
-                  )}
                   <Button type="button" variant="secondary" onClick={() => setIsChangeRosterModalOpen(true)}>
                     Change Roster
                   </Button>
@@ -1177,8 +1179,29 @@ export function EmployeeDetailModal({
                 id="employee-probation-days-edit"
                 value={probationPeriodDays}
                 onChange={setProbationPeriodDays}
+                unit={probationPeriodUnit}
+                onUnitChange={setProbationPeriodUnit}
                 dateOfJoining={dateOfJoining}
                 employmentType={employmentType}
+                disabled={!canUpdate}
+              />
+              {isConfirmingNow && (
+                <p className="text-xs text-warning sm:col-span-2">
+                  Saving ends the {employee.employmentType === 'intern' ? 'internship' : 'probation'} period today: leaves
+                  carry forward up to each leave type's limit
+                  {queuedRoster ? ` and they move to "${queuedRoster.name}"` : ''}.
+                </p>
+              )}
+              <RosterQueueFields
+                idPrefix="employee-edit"
+                rosterGroups={assignableRosterGroups}
+                currentRosterGroupId={employee.rosterGroupId ?? ''}
+                showNextRoster={isPeriodTypeSelected}
+                nextRosterGroupId={nextRosterGroupId}
+                onNextRosterChange={setNextRosterGroupId}
+                endDate={probationEndDate(dateOfJoining, probationPeriodDays, probationPeriodUnit)}
+                yearlyCycleStartMonth={yearlyCycleStartMonth}
+                onYearlyCycleChange={setYearlyCycleStartMonth}
                 disabled={!canUpdate}
               />
               <Select
@@ -1830,7 +1853,15 @@ export function EmployeeDetailModal({
                         ].join(' ')}
                       >
                         <div className="mb-3 flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-ink">{b.leaveType?.name ?? 'Unknown'}</p>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-ink">{b.leaveType?.name ?? 'Unknown'}</p>
+                            {balancePeriodLabel(b) && (
+                              <p className="text-xs text-ink-muted">
+                                {balancePeriodLabel(b)}
+                                {Number(b.carriedForward) > 0 && ` · ${Number(b.carriedForward)} carried forward`}
+                              </p>
+                            )}
+                          </div>
                           {b.month && <Badge tone="neutral">This month</Badge>}
                         </div>
 

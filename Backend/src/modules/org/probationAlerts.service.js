@@ -16,6 +16,7 @@ const ATTRIBUTES = [
   'employmentType',
   'dateOfJoining',
   'probationPeriodDays',
+  'probationPeriodUnit',
 ];
 
 const BASE_WHERE = {
@@ -55,6 +56,7 @@ async function listProbationAlerts(auth) {
         employmentType: employee.employmentType,
         dateOfJoining: employee.dateOfJoining,
         probationPeriodDays: employee.probationPeriodDays,
+        probationPeriodUnit: employee.probationPeriodUnit,
         endDate: alert.endDate,
         daysRemaining: alert.daysRemaining,
         companyName: employee.company?.name ?? null,

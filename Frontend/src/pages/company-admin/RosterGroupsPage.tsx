@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { AlignLeft, Building2, ChevronRight, LayoutGrid, Pencil, Plus, Trash2, UsersRound } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import { Badge } from '../../components/ui/Badge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { FilterSelect } from '../../components/ui/FilterSelect';
@@ -22,11 +21,6 @@ function extractError(err: unknown, fallback: string): string {
     return err.response.data.error;
   }
   return fallback;
-}
-
-function validityLabel(group: RosterPolicyGroup): string | null {
-  if (!group.validityValue || !group.validityUnit) return null;
-  return `${group.validityValue} ${group.validityUnit} validity`;
 }
 
 function RosterCardSkeleton() {
@@ -60,7 +54,6 @@ interface RosterCardProps {
 }
 
 function RosterCard({ group, brandName, onView, onEdit, onDelete }: RosterCardProps) {
-  const validity = validityLabel(group);
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow duration-150 hover:shadow-md sm:p-5">
       <button type="button" onClick={onView} className="group flex w-full items-start gap-3 text-left">
@@ -68,8 +61,7 @@ function RosterCard({ group, brandName, onView, onEdit, onDelete }: RosterCardPr
           <LayoutGrid className="h-5 w-5" strokeWidth={1.75} />
         </div>
         <div className="min-w-0 flex-1">
-          {validity && <Badge tone="neutral">{validity}</Badge>}
-          <p className="mt-1 truncate text-[15px] font-semibold text-ink transition-colors group-hover:text-primary">
+          <p className="truncate text-[15px] font-semibold text-ink transition-colors group-hover:text-primary">
             {group.name}
           </p>
         </div>
@@ -146,7 +138,6 @@ export function RosterGroupsPage() {
   const [editingGroup, setEditingGroup] = useState<RosterPolicyGroup | 'new' | null>(null);
   const [viewingGroup, setViewingGroup] = useState<RosterPolicyGroup | null>(null);
   const [search, setSearch] = useState('');
-  const [validityFilter, setValidityFilter] = useState<'' | 'timed' | 'permanent'>('');
   const [brandFilter, setBrandFilter] = useState('');
 
   async function loadRosterGroups() {
@@ -196,12 +187,10 @@ export function RosterGroupsPage() {
         const needle = search.trim().toLowerCase();
         const matchesSearch =
           !needle || g.name.toLowerCase().includes(needle) || (g.description ?? '').toLowerCase().includes(needle);
-        const hasValidity = !!(g.validityValue && g.validityUnit);
-        const matchesFilter = validityFilter === '' || (validityFilter === 'timed') === hasValidity;
         const matchesBrand = brandFilter === '' || g.brandId === brandFilter;
-        return matchesSearch && matchesFilter && matchesBrand;
+        return matchesSearch && matchesBrand;
       }),
-    [rosterGroups, search, validityFilter, brandFilter],
+    [rosterGroups, search, brandFilter],
   );
 
   async function handleDelete(rosterGroup: RosterPolicyGroup) {
@@ -245,16 +234,6 @@ export function RosterGroupsPage() {
 
       <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search rosters…" value={search} onChange={setSearch} />
-        <FilterSelect
-          value={validityFilter}
-          onChange={(value) => setValidityFilter(value as typeof validityFilter)}
-          placeholder="All rosters"
-          ariaLabel="Filter by validity"
-          options={[
-            { value: 'timed', label: 'Has validity period' },
-            { value: 'permanent', label: 'No expiry' },
-          ]}
-        />
         {brands.length > 1 && (
           <FilterSelect
             value={brandFilter}

@@ -2,36 +2,24 @@
 
 const { Op } = require('sequelize');
 const db = require('../models');
-const { getOrCreateBalance, monthsAccruedInCycle } = require('../modules/leave/leaveBalance.service');
+const { getOrCreateBalance, refreshMonthlyAccrual } = require('../modules/leave/leaveBalance.service');
 const { toBusinessLocal, dateOnly } = require('../utils/dateRange');
-const { resolveLeaveCycle } = require('../utils/leaveCycle');
 
 // Repeatable job, scheduled '0 0 1 * *' (midnight on the 1st of each month)
-// from src/server.js. PHASE4_MODELS.md: "monthly: annual_quota / 12 credited
-// each month, pro-rated for employees joining mid-year". Recomputes
-// `allotted` from scratch each run rather than incrementing it — since
-// monthsAccruedInCycle only grows as real time moves forward, recomputation
-// is idempotent even if this runs more than once for the same month.
-//
-// Running every month (not just January) for monthly/monthly_reset policies
-// is also what makes 'anniversary' cycle types (see utils/leaveCycle.js)
-// work with zero extra scheduling logic here: each employee's own cycle
-// naturally rolls over — and getOrCreateBalance's carry-forward kicks in —
-// whichever month that employee's own join-anniversary happens to fall in,
-// since this job touches every employee's balance every month regardless.
+// from src/server.js. Touches every active employee's balance for every
+// Roster-linked policy:
+//   - creates the row for the period that's current today if it doesn't
+//     exist yet — this is what makes the yearly renewal (with capped
+//     carry-forward) show up on the 1st of each company's/employee's own
+//     "Yearly Roster Update" month without anyone opening the page; a
+//     Probation/Intern employee's single probation row is simply found again
+//     (no renewal while the period runs — utils/leavePeriod.js);
+//   - for 'monthly' accrual, recomputes what has accrued so far in the row's
+//     period (plus its carried-in amount). Idempotent.
 async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
   const asOfStr = dateOnly(asOf);
-  const isJanuary = asOf.getMonth() === 0;
 
-  // Outside January there's nothing to do for yearly-accrual policies —
-  // those are seeded in full the moment a balance row is first created
-  // (see leaveBalance.service.js::getOrCreateBalance), lazily, whenever an
-  // employee's cycle next needs one — true for both cycle types, so no
-  // active cron work is needed for 'yearly' policies at all. monthly_reset
-  // must run every month (including January), same as monthly.
-  const policies = await db.LeavePolicy.findAll({
-    where: isJanuary ? {} : { accrual: { [Op.in]: ['monthly', 'monthly_reset'] } },
-  });
+  const policies = await db.LeavePolicy.findAll();
 
   let processed = 0;
   for (const policy of policies) {
@@ -55,10 +43,9 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
 
     const leaveType = await db.LeaveType.findOne({
       where: { id: policy.leaveTypeId },
-      attributes: ['id', 'cycleType', 'customCycleStartMonth', 'customCycleStartDay', 'applicableGender', 'deductFromLeaveTypeId'],
+      attributes: ['id', 'applicableGender', 'deductFromLeaveTypeId'],
     });
     if (leaveType && leaveType.deductFromLeaveTypeId) continue;
-    const cycleType = leaveType ? leaveType.cycleType : 'calendar';
 
     const employees = await db.Employee.findAll({
       where: {
@@ -72,26 +59,13 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
           ? { gender: leaveType.applicableGender }
           : {}),
       },
-      attributes: ['id', 'dateOfJoining'],
     });
 
     for (const employee of employees) {
       const balance = await getOrCreateBalance({ employeeId: employee.id, leaveTypeId: policy.leaveTypeId, dateStr: asOfStr });
 
-      if (policy.accrual === 'monthly') {
-        const { cycleStart, cycleEnd } = resolveLeaveCycle({
-          cycleType,
-          dateOfJoining: employee.dateOfJoining,
-          dateStr: asOfStr,
-          customCycleStartMonth: leaveType ? leaveType.customCycleStartMonth : null,
-          customCycleStartDay: leaveType ? leaveType.customCycleStartDay : null,
-        });
-        const monthlyAmount = Number(policy.annualQuota) / 12;
-        const months = monthsAccruedInCycle({ cycleStart, cycleEnd, dateOfJoining: employee.dateOfJoining, asOf });
-        const allotted = Math.round(monthlyAmount * months * 100) / 100;
-        if (Number(balance.allotted) !== allotted) {
-          await balance.update({ allotted, balance: allotted - Number(balance.used) });
-        }
+      if (policy.accrual === 'monthly' && balance && balance.month === null) {
+        await refreshMonthlyAccrual({ balance, policy, employee, asOfStr });
       }
       // 'monthly_reset' needs nothing further here — each calendar month
       // now gets its OWN balance row (see leaveBalance.service.js::

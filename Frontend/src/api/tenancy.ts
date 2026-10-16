@@ -149,11 +149,18 @@ export interface Employee {
   // holidays, the company-wide leave policy, and their own employee_shifts
   // default — exactly as if Roster Groups didn't exist.
   rosterGroupId: string | null;
-  // When the CURRENT rosterGroupId was (re)assigned — combine with the
-  // assigned Roster's own validityValue/validityUnit (see
-  // api/companyAdmin/rosterGroups.ts) to compute this employee's own
-  // expiry date. Null whenever rosterGroupId is null.
+  // When the CURRENT rosterGroupId was assigned (informational — Rosters
+  // never expire). Null whenever rosterGroupId is null.
   rosterAssignedAt: string | null;
+  // Roster queued for when the Probation/Intern period ends — the employee
+  // moves to it automatically (and becomes Full-time) the next day.
+  nextRosterGroupId?: string | null;
+  nextRosterGroup?: { id: string; name: string } | null;
+  // "Yearly Roster Update" override: month (1-12) this employee's yearly
+  // leave cycle starts on. null = the company's default.
+  yearlyCycleStartMonth?: number | null;
+  // The day this employee left Probation/Intern.
+  confirmedOn?: string | null;
   userId: string | null;
   name: string;
   // Optional: Super Admin's minimal "name only" employee creation leaves
@@ -167,10 +174,11 @@ export interface Employee {
   // leave types (e.g. Maternity/Paternity Leave) this employee is offered.
   gender: 'male' | 'female' | 'other' | null;
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
-  // Optional Probation/Intern period length in days, counted from
-  // dateOfJoining (DOJ = day 1). Reminders run while employmentType is
-  // probation/intern — see Backend/src/utils/probation.js.
+  // Optional Probation/Intern period length (in probationPeriodUnit),
+  // counted from dateOfJoining (DOJ = day 1). Reminders run while
+  // employmentType is probation/intern — see Backend/src/utils/probation.js.
   probationPeriodDays?: number | null;
+  probationPeriodUnit?: 'days' | 'months';
   // Free text — used for Professional Tax slab lookup only (see
   // Backend/src/config/statutoryDefaults.js). An unrecognized/blank value
   // just falls back to the 'default' PT slab.

@@ -16,6 +16,7 @@ import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin
 import type { Brand, Employee } from '../../api/tenancy';
 import { LeavePolicyFormModal } from './components/LeavePolicyFormModal';
 import { RosterGroupDetailModal } from './components/RosterGroupDetailModal';
+import { YearlyCycleCard } from './components/YearlyCycleCard';
 
 const ACCRUAL_LABELS: Record<LeavePolicy['accrual'], string> = {
   yearly: 'Yearly',
@@ -220,6 +221,8 @@ export function LeavePolicySettingsPage() {
           </Button>
         )}
       </div>
+
+      <YearlyCycleCard canUpdate={canUpdate} />
 
       <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <SearchInput placeholder="Search by leave type…" value={search} onChange={setSearch} />

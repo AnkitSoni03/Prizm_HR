@@ -1,6 +1,6 @@
 import { formatPolicyQuota } from '../../../api/companyAdmin/leavePolicies';
 import { useEffect, useState } from 'react';
-import { Plus, RotateCw, UserMinus } from 'lucide-react';
+import { Plus, UserMinus } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs } from '../../../components/ui/Tabs';
 import { Button } from '../../../components/ui/Button';
@@ -9,8 +9,7 @@ import { EmployeeMultiSelect } from '../../../components/ui/EmployeeMultiSelect'
 import { useAuth } from '../../../context/auth-context';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
-import { listEmployees, changeEmployeeRoster, renewEmployeeRoster } from '../../../api/companyAdmin/employees';
-import { computeRosterExpiry, daysUntil, rosterExpiryLabel } from '../../../utils/rosterValidity';
+import { listEmployees, changeEmployeeRoster } from '../../../api/companyAdmin/employees';
 import { listShifts } from '../../../api/companyAdmin/attendance';
 import { listLeaveTypes, type LeaveType } from '../../../api/companyAdmin/leaveBalance';
 import {
@@ -106,21 +105,6 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, allRosterGro
   const [carryForward, setCarryForward] = useState<boolean | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
-  const [renewingId, setRenewingId] = useState<string | null>(null);
-
-  async function handleRenew(employee: Employee) {
-    setRenewingId(employee.id);
-    try {
-      await renewEmployeeRoster(employee.id);
-      await loadAssigned();
-      onUpdated();
-      showToast(`Renewed ${formatEmployeeLabel(employee)}'s Roster.`, 'success');
-    } catch {
-      showToast('Could not renew this Roster. Please try again.', 'error');
-    } finally {
-      setRenewingId(null);
-    }
-  }
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   async function loadAssigned() {
@@ -241,10 +225,6 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, allRosterGro
             {assignedEmployees && assignedEmployees.length > 0 && (
               <div className="max-h-56 overflow-y-auto rounded-xl border border-border">
                 {assignedEmployees.map((employee) => {
-                  const expiryDate = rosterGroup.validityValue
-                    ? computeRosterExpiry(employee.rosterAssignedAt, rosterGroup.validityValue, rosterGroup.validityUnit)
-                    : null;
-                  const remaining = expiryDate ? daysUntil(expiryDate) : null;
                   return (
                     <div
                       key={employee.id}
@@ -252,25 +232,8 @@ export function RosterGroupDetailModal({ rosterGroup, allEmployees, allRosterGro
                     >
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="text-ink">{formatEmployeeLabel(employee)}</span>
-                        {remaining !== null && (
-                          <Badge tone={remaining <= 3 ? 'danger' : remaining <= 7 ? 'warning' : 'neutral'}>
-                            {rosterExpiryLabel(remaining)}
-                          </Badge>
-                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {canUpdate && remaining !== null && (
-                          <button
-                            type="button"
-                            onClick={() => handleRenew(employee)}
-                            disabled={renewingId === employee.id}
-                            aria-label={`Renew ${employee.name}'s Roster`}
-                            title="Renew"
-                            className="rounded-md p-1 text-ink-muted hover:bg-primary/10 hover:text-primary disabled:opacity-50"
-                          >
-                            <RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          </button>
-                        )}
                         {canUpdate && (
                           <button
                             type="button"

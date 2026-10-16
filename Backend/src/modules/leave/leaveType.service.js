@@ -83,41 +83,6 @@ async function getLeaveTypeForWrite({ companyId, id, scopedBrandIds }) {
   return leaveType;
 }
 
-// Validates a real day-for-month combination (rejects e.g. month=2/day=30)
-// by round-tripping through Date and checking it didn't roll over into the
-// next month — same class of bug flagged in CLAUDE.md's PT-slab-key
-// mismatch note (a silent fallback here would be far worse: a wrong cycle
-// boundary applied to every employee under this leave type, not just one
-// state's slab).
-function assertValidCustomCycleStart(month, day) {
-  if (!Number.isInteger(month) || month < 1 || month > 12) {
-    throw new HttpError(400, 'customCycleStartMonth must be 1–12');
-  }
-  if (!Number.isInteger(day) || day < 1 || day > 31) {
-    throw new HttpError(400, 'customCycleStartDay must be 1–31');
-  }
-  const probe = new Date(2001, month - 1, day);
-  if (probe.getMonth() !== month - 1 || probe.getDate() !== day) {
-    throw new HttpError(400, `${month}/${day} is not a valid date`);
-  }
-}
-
-// Resolves the two customCycleStart columns from a cycleType + candidate
-// values — shared by create (cycleType always has a real value, defaulted
-// below) and update (cycleType may be omitted entirely, in which case the
-// EXISTING type's cycleType decides whether these columns are relevant).
-function resolveCustomCycleFields({ cycleType, customCycleStartMonth, customCycleStartDay }) {
-  if (cycleType !== 'custom') {
-    // Stale config left over from a previous 'custom' selection would be
-    // misleading if the type is later switched to 'calendar'/'anniversary'
-    // — same "clear it outright" precedent as maxCarryForwardDays when
-    // carryForward turns false.
-    return { customCycleStartMonth: null, customCycleStartDay: null };
-  }
-  assertValidCustomCycleStart(customCycleStartMonth, customCycleStartDay);
-  return { customCycleStartMonth, customCycleStartDay };
-}
-
 const DEDUCTION_PER_USE_VALUES = [0.5, 1];
 
 // Validates/normalizes the optional "Deduct from another leave" link. Returns
@@ -162,22 +127,13 @@ async function createLeaveType({
   isPaid,
   carryForward,
   maxCarryForwardDays,
-  cycleType,
   defaultAccrual,
-  customCycleStartMonth,
-  customCycleStartDay,
   applicableGender,
   deductFromLeaveTypeId,
   deductionPerUse,
 }) {
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
-  const resolvedCycleType = cycleType || 'calendar';
-  const customCycle = resolveCustomCycleFields({
-    cycleType: resolvedCycleType,
-    customCycleStartMonth,
-    customCycleStartDay,
-  });
   const resolvedApplicableGender = applicableGender || 'all';
   if (!APPLICABLE_GENDER_VALUES.includes(resolvedApplicableGender)) {
     throw new HttpError(400, `applicableGender must be one of ${APPLICABLE_GENDER_VALUES.join(', ')}`);
@@ -194,10 +150,8 @@ async function createLeaveType({
       isPaid: isPaid !== undefined ? !!isPaid : true,
       carryForward: !!carryForward,
       maxCarryForwardDays: carryForward && maxCarryForwardDays !== undefined ? maxCarryForwardDays : null,
-      cycleType: resolvedCycleType,
       defaultAccrual: defaultAccrual || null,
       applicableGender: resolvedApplicableGender,
-      ...customCycle,
       ...link,
     });
   } catch (err) {
@@ -215,10 +169,7 @@ async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
     isPaid,
     carryForward,
     maxCarryForwardDays,
-    cycleType,
     defaultAccrual,
-    customCycleStartMonth,
-    customCycleStartDay,
     brandId,
     applicableGender,
     deductFromLeaveTypeId,
@@ -242,25 +193,9 @@ async function updateLeaveType({ companyId, id, updates, scopedBrandIds }) {
     ...(maxCarryForwardDays !== undefined && {
       maxCarryForwardDays: carryForward === false ? null : maxCarryForwardDays,
     }),
-    ...(cycleType !== undefined && { cycleType }),
     ...(defaultAccrual !== undefined && { defaultAccrual }),
     ...(applicableGender !== undefined && { applicableGender }),
   };
-
-  // Only re-resolve the custom-cycle columns when this update actually
-  // touches the cycle dimension (cycleType itself, or a new month/day for
-  // an already-'custom' type) — an unrelated field-only edit (e.g. name)
-  // must leave an existing custom start date completely untouched.
-  if (cycleType !== undefined || customCycleStartMonth !== undefined || customCycleStartDay !== undefined) {
-    Object.assign(
-      patch,
-      resolveCustomCycleFields({
-        cycleType: cycleType !== undefined ? cycleType : leaveType.cycleType,
-        customCycleStartMonth: customCycleStartMonth !== undefined ? customCycleStartMonth : leaveType.customCycleStartMonth,
-        customCycleStartDay: customCycleStartDay !== undefined ? customCycleStartDay : leaveType.customCycleStartDay,
-      })
-    );
-  }
 
   // Only touched when the caller actually sends the link field. Safe to
   // change any time: every request snapshots the balance it was charged

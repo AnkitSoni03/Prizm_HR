@@ -9,7 +9,7 @@ const { runWeekOffLeaveAccrual } = require('./jobs/weekOffLeaveAccrual.job');
 const { sweepExpiredCompOff } = require('./jobs/compOffExpiry.job');
 const { cleanupExpiredAttendanceVideos } = require('./jobs/attendanceVideoCleanup.job');
 const { sendHolidayReminders } = require('./jobs/holidayReminder.job');
-const { sendRosterExpiryReminders } = require('./jobs/rosterExpiryReminder.job');
+const { runProbationConversions } = require('./jobs/probationConversion.job');
 const { markMissedCheckouts } = require('./jobs/missedCheckout.job');
 const { sendProbationReminders } = require('./jobs/probationReminder.job');
 const { runPayrollGeneration, processPendingRecalcs } = require('./jobs/payrollGeneration.job');
@@ -44,14 +44,14 @@ function startLeaveJobs() {
   cron.schedule('0 9 * * *', () => {
     sendHolidayReminders().catch((err) => console.error('holiday-reminder job failed:', err));
   });
-  // Roster validity reminders (see roster_groups.validity_value/unit) —
-  // advisory-only, checks every active employee once a day.
   // Flag attendance rows left open past the 12h30m checkout window.
   cron.schedule('5 * * * *', () => {
     markMissedCheckouts().catch((err) => console.error('missed-checkout job failed:', err));
   });
-  cron.schedule('0 9 * * *', () => {
-    sendRosterExpiryReminders().catch((err) => console.error('roster-expiry-reminder job failed:', err));
+  // The day after a Probation/Intern period ends: Full-time + the queued
+  // Roster, with leave carried forward (probationConversion.service.js).
+  cron.schedule('5 0 * * *', () => {
+    runProbationConversions().catch((err) => console.error('probation-conversion job failed:', err));
   });
   // Probation/Intern period reminders — daily from 3 days before the end
   // until the Employment Type is changed (utils/probation.js).
@@ -79,6 +79,7 @@ db.sequelize
     // Probation/Intern reminder (deduped per day, so the 9 AM run won't
     // repeat it).
     sendProbationReminders().catch((err) => console.error('probation-reminder startup run failed:', err));
+    runProbationConversions().catch((err) => console.error('probation-conversion startup run failed:', err));
     verifyMailerConnection();
   })
   .catch((err) => {

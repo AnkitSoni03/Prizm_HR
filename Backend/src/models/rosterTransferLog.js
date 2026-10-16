@@ -21,7 +21,8 @@ module.exports = (sequelize, DataTypes) => {
       fromRosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
       toRosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
       carryForward: { type: DataTypes.BOOLEAN, allowNull: false },
-      actorUserId: { type: DataTypes.BIGINT, allowNull: false },
+      // Null for the automatic probation-end switch (no acting user).
+      actorUserId: { type: DataTypes.BIGINT, allowNull: true },
       details: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
     },
     {

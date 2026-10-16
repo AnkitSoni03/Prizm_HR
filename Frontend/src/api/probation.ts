@@ -11,6 +11,7 @@ export interface ProbationAlert {
   employmentType: 'probation' | 'intern';
   dateOfJoining: string;
   probationPeriodDays: number;
+  probationPeriodUnit?: 'days' | 'months';
   endDate: string;
   // Negative once the end date has passed.
   daysRemaining: number;

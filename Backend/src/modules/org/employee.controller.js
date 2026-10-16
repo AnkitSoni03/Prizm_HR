@@ -85,6 +85,9 @@ async function create(req, res, next) {
       employmentType,
       workState,
       probationPeriodDays,
+      probationPeriodUnit,
+      nextRosterGroupId,
+      yearlyCycleStartMonth,
     } = req.body;
 
     // brandId is conditionally required (validated in the service against
@@ -128,6 +131,9 @@ async function create(req, res, next) {
       employmentType,
       workState,
       probationPeriodDays,
+      probationPeriodUnit,
+      nextRosterGroupId,
+      yearlyCycleStartMonth,
     });
     res.status(201).json({ data: employee });
   } catch (err) {
@@ -142,6 +148,7 @@ async function update(req, res, next) {
       id: req.params.id,
       updates: req.body,
       scopedBrandIds: req.auth.scopedBrandIds,
+      actorUserId: req.auth.userId,
     });
     res.json({ data: employee });
   } catch (err) {
@@ -171,21 +178,6 @@ async function changeRoster(req, res, next) {
       groupId: req.auth.groupId,
     });
     res.json({ data: result.employee, details: result.details });
-  } catch (err) {
-    next(err);
-  }
-}
-
-async function renewRoster(req, res, next) {
-  try {
-    const result = await rosterTransferService.renewEmployeeRoster({
-      companyId: req.auth.companyId,
-      id: req.params.id,
-      actorUserId: req.auth.userId,
-      scopedBrandIds: req.auth.scopedBrandIds,
-      groupId: req.auth.groupId,
-    });
-    res.json({ data: result.employee });
   } catch (err) {
     next(err);
   }
@@ -450,7 +442,6 @@ module.exports = {
   create,
   update,
   changeRoster,
-  renewRoster,
   getRosterTransferHistory,
   transfer,
   remove,

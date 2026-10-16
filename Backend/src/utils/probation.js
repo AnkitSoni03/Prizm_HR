@@ -1,7 +1,14 @@
 'use strict';
 
-const { addDays } = require('./dateRange');
-const { daysUntil } = require('./rosterValidity');
+const { addDays, dateOnly } = require('./dateRange');
+
+// Whole calendar days from "today" (business-local) to dateStr — negative
+// once dateStr is in the past.
+function daysUntil(dateStr, asOf = new Date()) {
+  const target = new Date(`${dateStr}T00:00:00`);
+  const today = new Date(`${dateOnly(asOf)}T00:00:00`);
+  return Math.round((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
 
 // Employment types that are still "in a period" — reminders and the pop-up
 // only run for these. Changing the employee to any other type (normally
@@ -12,10 +19,27 @@ const PERIOD_EMPLOYMENT_TYPES = ['probation', 'intern'];
 // repeat daily (past the end too) until the employment type is changed.
 const REMINDER_LEAD_DAYS = 3;
 
+const PERIOD_UNITS = ['days', 'months'];
+
+// Calendar-month arithmetic, clamped to the target month's last day
+// (Jan 31 + 1 month = Feb 28/29, not Mar 3).
+function addMonths(dateStr, months) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const target = new Date(y, m - 1 + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d, lastDay));
+  return dateOnly(target);
+}
+
 // Last day of the period, DOJ counted as day 1: DOJ 2026-01-01 + 180 days
-// ends 2026-06-29. null when either input is missing.
-function computeProbationEndDate({ dateOfJoining, probationPeriodDays }) {
+// ends 2026-06-29; DOJ 2026-10-10 + 6 months ends 2027-04-09.
+// probationPeriodDays holds the length in probationPeriodUnit ('days' by
+// default). null when either input is missing.
+function computeProbationEndDate({ dateOfJoining, probationPeriodDays, probationPeriodUnit }) {
   if (!dateOfJoining || !probationPeriodDays) return null;
+  if (probationPeriodUnit === 'months') {
+    return addDays(addMonths(dateOfJoining, Number(probationPeriodDays)), -1);
+  }
   return addDays(dateOfJoining, Number(probationPeriodDays) - 1);
 }
 
@@ -52,22 +76,32 @@ function periodLabel(employmentType) {
 }
 
 // Throws-free validation shared by create and update: null/'' clears it,
-// otherwise a whole number of days between 1 and 3650.
-function normalizeProbationPeriodDays(value) {
+// otherwise a whole number between 1 and 3650 (days) / 120 (months).
+function normalizeProbationPeriodDays(value, unit = 'days') {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
-  const days = Number(value);
-  if (!Number.isInteger(days) || days < 1 || days > 3650) return NaN;
-  return days;
+  const amount = Number(value);
+  const max = unit === 'months' ? 120 : 3650;
+  if (!Number.isInteger(amount) || amount < 1 || amount > max) return NaN;
+  return amount;
+}
+
+function probationPeriodError(unit = 'days') {
+  return unit === 'months'
+    ? 'Probation / Intern period must be a whole number of months between 1 and 120'
+    : 'Probation / Intern period must be a whole number of days between 1 and 3650';
 }
 
 module.exports = {
   PERIOD_EMPLOYMENT_TYPES,
+  PERIOD_UNITS,
   REMINDER_LEAD_DAYS,
+  addMonths,
   computeProbationEndDate,
   probationAlertFor,
   describeRemaining,
   periodLabel,
   formatDisplayDate,
   normalizeProbationPeriodDays,
+  probationPeriodError,
 };

@@ -35,7 +35,7 @@ async function get(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { name, description, validityValue, validityUnit, brandId } = req.body;
+    const { name, description, brandId } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
 
     const companyId = requireCompanyScope({
@@ -49,8 +49,6 @@ async function create(req, res, next) {
       scopedBrandIds: req.auth.scopedBrandIds,
       name,
       description,
-      validityValue: validityValue === undefined ? null : validityValue,
-      validityUnit: validityUnit === undefined ? null : validityUnit,
       createdBy: req.auth.userId,
     });
     res.status(201).json({ data: rosterGroup });

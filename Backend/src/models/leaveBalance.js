@@ -21,6 +21,16 @@ module.exports = (sequelize, DataTypes) => {
       // boundary can never land on the wrong month's balance. See
       // leaveBalance.service.js::getOrCreateBalance.
       month: { type: DataTypes.INTEGER, allowNull: true },
+      // The period this row covers (see utils/leavePeriod.js): a calendar
+      // month for month-grain rows; otherwise a yearly cycle, or a
+      // Probation/Intern period. period_end is NULL while a probation period
+      // is still running. `year` = the calendar year periodStart falls in.
+      periodStart: { type: DataTypes.DATEONLY, allowNull: false },
+      periodEnd: { type: DataTypes.DATEONLY, allowNull: true },
+      // Part of `allotted` carried in from the previous period (capped by the
+      // leave type's maxCarryForwardDays). Monthly accrual recomputes
+      // allotted as accrued + carriedForward.
+      carriedForward: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       allotted: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       used: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       balance: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },

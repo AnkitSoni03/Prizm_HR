@@ -11,11 +11,12 @@ const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = re
 const { deleteFace: deleteRekognitionFace } = require('../../utils/rekognition');
 const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
 const { getActiveEmployeeShift } = require('../attendance/employeeShift.service');
-const { dateOnly } = require('../../utils/dateRange');
+const { dateOnly, toBusinessLocal } = require('../../utils/dateRange');
 const { syncWeekOffLeaveForEmployee, syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 const { assertManagersInGroup } = require('../../utils/managerScope');
 const { syncPendingManagerApprovals } = require('../../utils/managerApprovals');
-const { normalizeProbationPeriodDays } = require('../../utils/probation');
+const { normalizeProbationPeriodDays, probationPeriodError, PERIOD_UNITS, PERIOD_EMPLOYMENT_TYPES } = require('../../utils/probation');
+const { normalizeCycleStartMonth } = require('../../utils/leavePeriod');
 const { sendProbationReminderForEmployee } = require('../../jobs/probationReminder.job');
 
 const GENDER_VALUES = ['male', 'female', 'other'];
@@ -173,7 +174,9 @@ async function getEmployeeForRead(id) {
       // has no roster_group:read of their own to resolve this name
       // client-side, and My Profile now needs to show it (Roster drives
       // their shift/holidays/policies/leave entirely).
-      { model: db.RosterGroup, as: 'rosterGroup', attributes: ['id', 'name', 'validityValue', 'validityUnit'] },
+      { model: db.RosterGroup, as: 'rosterGroup', attributes: ['id', 'name'] },
+      // Queued Roster for when the Probation/Intern period ends.
+      { model: db.RosterGroup, as: 'nextRosterGroup', attributes: ['id', 'name'] },
       // Lets My Profile show whether the comp-off benefit is active for this
       // employee (see compOff.service.js::checkAndCreateCompOffCredit —
       // null here means they earn nothing on a holiday/week-off worked).
@@ -300,14 +303,19 @@ async function createEmployee({
   employmentType,
   workState,
   probationPeriodDays,
+  probationPeriodUnit,
+  nextRosterGroupId,
+  yearlyCycleStartMonth,
 }) {
   if (gender !== undefined && gender !== null && !GENDER_VALUES.includes(gender)) {
     throw new HttpError(400, `gender must be one of ${GENDER_VALUES.join(', ')}`);
   }
-  const periodDays = normalizeProbationPeriodDays(probationPeriodDays);
-  if (Number.isNaN(periodDays)) {
-    throw new HttpError(400, 'probationPeriodDays must be a whole number of days between 1 and 3650');
-  }
+  const periodUnit = probationPeriodUnit || 'days';
+  if (!PERIOD_UNITS.includes(periodUnit)) throw new HttpError(400, "probationPeriodUnit must be 'days' or 'months'");
+  const periodDays = normalizeProbationPeriodDays(probationPeriodDays, periodUnit);
+  if (Number.isNaN(periodDays)) throw new HttpError(400, probationPeriodError(periodUnit));
+  const cycleStartMonth = normalizeCycleStartMonth(yearlyCycleStartMonth);
+  if (Number.isNaN(cycleStartMonth)) throw new HttpError(400, 'yearlyCycleStartMonth must be a month number 1-12');
   const company = await db.Company.findByPk(companyId);
   if (!company) throw new HttpError(404, 'Company not found');
   if (company.usesBrands && !brandId) {
@@ -329,6 +337,7 @@ async function createEmployee({
   // managers). Only effect: deciding this employee's resignation.
   if (hrEmployeeId) await assertManagersInGroup({ employeeCompanyId: companyId, managerIds: [hrEmployeeId], label: 'HR' });
   if (rosterGroupId) await assertOwnedByBrand(db.RosterGroup, rosterGroupId, companyId, brandId, 'Roster Group');
+  if (nextRosterGroupId) await assertOwnedByBrand(db.RosterGroup, nextRosterGroupId, companyId, brandId, 'Next Roster');
 
   // Roster is no longer a precondition for creating an employee — it can be
   // assigned any time afterward via shift_rosters (create/bulk-assign +
@@ -357,12 +366,22 @@ async function createEmployee({
       employmentType: employmentType || 'full_time',
       workState: workState || null,
       probationPeriodDays: periodDays ?? null,
+      probationPeriodUnit: periodUnit,
+      // Only meaningful while Probation/Intern — see
+      // modules/org/probationConversion.service.js.
+      nextRosterGroupId: PERIOD_EMPLOYMENT_TYPES.includes(employmentType) ? nextRosterGroupId || null : null,
+      yearlyCycleStartMonth: cycleStartMonth ?? null,
       status: 'onboarding',
     });
     await syncWeekOffLeaveIfShiftless({ rosterGroupId: employee.rosterGroupId });
     // A period that's already inside the reminder window notifies now, not
     // at the next 9 AM run (best-effort, never throws).
     await sendProbationReminderForEmployee(employee.id);
+    // A back-dated DOJ may already be past the period's end.
+    if (employee.nextRosterGroupId) {
+      await require('./probationConversion.service').convertIfDue(employee.id);
+      await employee.reload();
+    }
     return withPhotoUrl(employee);
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
@@ -390,9 +409,16 @@ async function createEmployee({
 // no separate permission code is needed. Optional and harmless to set on any
 // employee — it only ever affects behavior for one on a 0-weekly-off +
 // Week-Off-Leave-enabled roster (see leaveRequest.service.js::createLeaveRequest).
-const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'hrEmployeeId', 'userId', 'workState', 'weekOffLeaveBlockedDays', 'probationPeriodDays'];
+// nextRosterGroupId (the Roster queued for when Probation/Intern ends) and
+// yearlyCycleStartMonth ("Yearly Roster Update" override) are plain fields —
+// nothing moves until the period actually ends / the cycle comes round.
+// Changing employmentType from Probation/Intern to anything else is the
+// manual "confirm" — it goes through probationConversion.service.js so the
+// leave period closes and any queued Roster is applied, same as the
+// automatic switch.
+const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'hrEmployeeId', 'userId', 'workState', 'weekOffLeaveBlockedDays', 'probationPeriodDays', 'probationPeriodUnit', 'nextRosterGroupId', 'yearlyCycleStartMonth'];
 
-async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
+async function updateEmployee({ companyId, id, updates, scopedBrandIds, actorUserId }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
 
   const patch = {};
@@ -415,11 +441,39 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   const hrChanged =
     patch.hrEmployeeId !== undefined && String(patch.hrEmployeeId ?? '') !== String(employee.hrEmployeeId ?? '');
   if (patch.designationId) await assertOwnedByBrand(db.Designation, patch.designationId, companyId, employee.brandId, 'Designation');
-  if (patch.probationPeriodDays !== undefined) {
-    patch.probationPeriodDays = normalizeProbationPeriodDays(patch.probationPeriodDays);
-    if (Number.isNaN(patch.probationPeriodDays)) {
-      throw new HttpError(400, 'probationPeriodDays must be a whole number of days between 1 and 3650');
-    }
+  if (patch.probationPeriodUnit !== undefined && !PERIOD_UNITS.includes(patch.probationPeriodUnit)) {
+    throw new HttpError(400, "probationPeriodUnit must be 'days' or 'months'");
+  }
+  if (patch.probationPeriodDays !== undefined || patch.probationPeriodUnit !== undefined) {
+    const unit = patch.probationPeriodUnit ?? employee.probationPeriodUnit ?? 'days';
+    const amount = normalizeProbationPeriodDays(
+      patch.probationPeriodDays !== undefined ? patch.probationPeriodDays : employee.probationPeriodDays,
+      unit
+    );
+    if (Number.isNaN(amount)) throw new HttpError(400, probationPeriodError(unit));
+    if (patch.probationPeriodDays !== undefined) patch.probationPeriodDays = amount;
+  }
+  if (patch.yearlyCycleStartMonth !== undefined) {
+    patch.yearlyCycleStartMonth = normalizeCycleStartMonth(patch.yearlyCycleStartMonth);
+    if (Number.isNaN(patch.yearlyCycleStartMonth)) throw new HttpError(400, 'yearlyCycleStartMonth must be a month number 1-12');
+  }
+  if (patch.nextRosterGroupId === '') patch.nextRosterGroupId = null;
+  if (patch.nextRosterGroupId) {
+    await assertOwnedByBrand(db.RosterGroup, patch.nextRosterGroupId, employee.companyId, employee.brandId, 'Next Roster');
+  }
+  // Leaving Probation/Intern by hand = confirming the employee (below).
+  const confirmingTo =
+    patch.employmentType !== undefined &&
+    PERIOD_EMPLOYMENT_TYPES.includes(employee.employmentType) &&
+    !PERIOD_EMPLOYMENT_TYPES.includes(patch.employmentType)
+      ? patch.employmentType
+      : null;
+  if (confirmingTo) delete patch.employmentType;
+  // Moving INTO Probation/Intern starts a fresh period — forget an old
+  // confirmation date.
+  if (patch.employmentType !== undefined && PERIOD_EMPLOYMENT_TYPES.includes(patch.employmentType) &&
+      !PERIOD_EMPLOYMENT_TYPES.includes(employee.employmentType)) {
+    patch.confirmedOn = null;
   }
   if (patch.weekOffLeaveBlockedDays !== undefined) {
     const days = patch.weekOffLeaveBlockedDays;
@@ -438,6 +492,26 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
     throw err;
   }
 
+  if (confirmingTo) {
+    const { confirmEmployee } = require('./probationConversion.service');
+    await confirmEmployee({
+      employeeId: employee.id,
+      confirmedOn: dateOnly(toBusinessLocal()),
+      employmentType: confirmingTo,
+      actorUserId,
+    });
+    await employee.reload();
+  } else if (
+    employee.nextRosterGroupId &&
+    (patch.nextRosterGroupId !== undefined || patch.probationPeriodDays !== undefined ||
+      patch.probationPeriodUnit !== undefined || patch.dateOfJoining !== undefined)
+  ) {
+    // The period may already be over (shortened, back-dated DOJ, or a Roster
+    // queued after the end) — switch now rather than at tomorrow's run.
+    await require('./probationConversion.service').convertIfDue(employee.id);
+    await employee.reload();
+  }
+
   if (patch.managerId !== undefined) {
     await syncPendingManagerApprovals({ companyId: employee.companyId, employeeId: employee.id });
   }
@@ -451,6 +525,7 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds }) {
   // Probation/Intern reminder window (period/DOJ/type changed), notify now.
   if (
     patch.probationPeriodDays !== undefined ||
+    patch.probationPeriodUnit !== undefined ||
     patch.dateOfJoining !== undefined ||
     patch.employmentType !== undefined
   ) {

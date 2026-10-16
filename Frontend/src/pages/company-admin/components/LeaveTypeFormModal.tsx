@@ -22,30 +22,9 @@ interface LeaveTypeFormModalProps {
   onSaved: (leaveType: LeaveType) => void;
 }
 
-const CYCLE_OPTIONS = [
-  { value: 'calendar', label: 'Calendar Year (resets every Jan 1 – Dec 31)' },
-  { value: 'anniversary', label: 'Anniversary Year (resets every year from date of joining)' },
-  { value: 'custom', label: 'Custom (admin-defined start date, resets every year)' },
-];
-
 const DEDUCTION_OPTIONS = [
   { value: '0.5', label: '0.5 day (half day)' },
   { value: '1', label: '1 day' },
-];
-
-const MONTH_OPTIONS = [
-  { value: '1', label: 'January' },
-  { value: '2', label: 'February' },
-  { value: '3', label: 'March' },
-  { value: '4', label: 'April' },
-  { value: '5', label: 'May' },
-  { value: '6', label: 'June' },
-  { value: '7', label: 'July' },
-  { value: '8', label: 'August' },
-  { value: '9', label: 'September' },
-  { value: '10', label: 'October' },
-  { value: '11', label: 'November' },
-  { value: '12', label: 'December' },
 ];
 
 // Used both as its own "Leave Types" management page (LeaveTypesPage.tsx)
@@ -69,15 +48,8 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
   const [maxCarryForwardDays, setMaxCarryForwardDays] = useState(
     leaveType?.maxCarryForwardDays != null ? String(leaveType.maxCarryForwardDays) : ''
   );
-  const [cycleType, setCycleType] = useState<LeaveType['cycleType']>(leaveType?.cycleType ?? 'calendar');
   const [applicableGender, setApplicableGender] = useState<LeaveType['applicableGender']>(
     leaveType?.applicableGender ?? 'all'
-  );
-  const [customCycleStartMonth, setCustomCycleStartMonth] = useState(
-    leaveType?.customCycleStartMonth != null ? String(leaveType.customCycleStartMonth) : '4'
-  );
-  const [customCycleStartDay, setCustomCycleStartDay] = useState(
-    leaveType?.customCycleStartDay != null ? String(leaveType.customCycleStartDay) : '1'
   );
   // Optional "Deduct from another leave" link — '' = independent type with
   // its own quota (set on the Leave Policy).
@@ -109,18 +81,10 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (cycleType === 'custom' && (customCycleStartDay.trim() === '' || Number(customCycleStartDay) < 1 || Number(customCycleStartDay) > 31)) {
-      setError('Custom cycle start day must be between 1 and 31.');
-      return;
-    }
     setIsSubmitting(true);
     try {
       const maxCarryForwardValue =
         carryForward && maxCarryForwardDays.trim() !== '' ? Number(maxCarryForwardDays) : null;
-      const cyclePayload =
-        cycleType === 'custom'
-          ? { customCycleStartMonth: Number(customCycleStartMonth), customCycleStartDay: Number(customCycleStartDay) }
-          : { customCycleStartMonth: null, customCycleStartDay: null };
       // Only ever sent when the field below is actually rendered/editable
       // (showBrandField) — see the brands prop's own comment above.
       const brandPatch = showBrandField ? { brandId } : {};
@@ -134,9 +98,7 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           isPaid,
           carryForward,
           maxCarryForwardDays: maxCarryForwardValue,
-          cycleType,
           applicableGender,
-          ...cyclePayload,
           ...brandPatch,
           ...linkPayload,
         });
@@ -147,9 +109,7 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           isPaid,
           carryForward,
           maxCarryForwardDays: maxCarryForwardValue,
-          cycleType,
           applicableGender,
-          ...cyclePayload,
           ...brandPatch,
           ...linkPayload,
         });
@@ -252,39 +212,10 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
           Leave → Male only). Employees whose gender doesn't match never see or can apply it.
         </p>
 
-        {/* A linked type has no balance of its own, so cycle/carry-forward don't apply. */}
+        {/* A linked type has no balance of its own, so carry-forward doesn't apply. The
+            yearly cycle itself is the company's / employee's "Yearly Roster Update". */}
         {!deductFromLeaveTypeId && (
           <>
-            <Select
-              id="leave-type-cycle"
-              label="Leave Cycle"
-              value={cycleType}
-              onChange={(event) => setCycleType(event.target.value as LeaveType['cycleType'])}
-              options={CYCLE_OPTIONS}
-            />
-            {cycleType === 'custom' && (
-              <div className="flex gap-2">
-                <Select
-                  id="leave-type-custom-cycle-month"
-                  label="Starts every"
-                  value={customCycleStartMonth}
-                  onChange={(event) => setCustomCycleStartMonth(event.target.value)}
-                  options={MONTH_OPTIONS}
-                />
-                <Input
-                  id="leave-type-custom-cycle-day"
-                  label="Day"
-                  type="number"
-                  min={1}
-                  max={31}
-                  step={1}
-                  value={customCycleStartDay}
-                  onChange={(event) => setCustomCycleStartDay(event.target.value)}
-                  className="w-24"
-                />
-              </div>
-            )}
-
             <label className="flex items-center gap-2.5 text-sm text-ink">
               <input
                 type="checkbox"
@@ -292,7 +223,7 @@ export function LeaveTypeFormModal({ leaveType, brands = [], onClose, onSaved }:
                 onChange={(event) => setCarryForward(event.target.checked)}
                 className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
               />
-              Allow carry-forward to next cycle
+              Allow carry-forward (yearly renewal, and from Probation / Intern to Full-time)
             </label>
             {carryForward && (
               <Input

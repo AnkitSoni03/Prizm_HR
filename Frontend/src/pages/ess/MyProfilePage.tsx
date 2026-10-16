@@ -39,10 +39,11 @@ import {
 } from '../../api/ess/profile';
 import { uploadMyPhoto, removeMyPhoto } from '../../api/myPhoto';
 import { holidayAuditName } from '../../api/companyAdmin/holidays';
+import { addDaysToDate } from '../../utils/yearlyCycle';
+import { probationEndDate } from '../../utils/probation';
 import { formatDisplayDate, formatDisplayDateTime } from '../../utils/dateDisplay';
 import { weeklyOffLabel } from '../../utils/weekdays';
 import { GENDER_LABEL } from '../../utils/gender';
-import { computeRosterExpiry, daysUntil as daysUntilRosterExpiry, rosterExpiryLabel } from '../../utils/rosterValidity';
 
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
@@ -156,13 +157,12 @@ export function MyProfilePage() {
     return <p className="text-sm text-ink-muted">Loading…</p>;
   }
 
-  // Same expiry computation as EmployeeDetailModal.tsx's admin-facing view —
-  // shown here too so the employee themselves can see how long their own
-  // Roster is valid, not just their admin.
-  const rosterExpiryDate = profile.rosterGroup?.validityValue
-    ? computeRosterExpiry(profile.rosterAssignedAt, profile.rosterGroup.validityValue, profile.rosterGroup.validityUnit)
+  // Rosters never expire — the only scheduled change is the Roster you move
+  // to once your Probation/Intern period ends.
+  const isInPeriod = profile.employmentType === 'probation' || profile.employmentType === 'intern';
+  const periodEnd = isInPeriod && profile.dateOfJoining
+    ? probationEndDate(profile.dateOfJoining, profile.probationPeriodDays ?? null, profile.probationPeriodUnit ?? 'days')
     : null;
-  const rosterExpiryRemaining = rosterExpiryDate ? daysUntilRosterExpiry(rosterExpiryDate) : null;
 
   // Full manager list — the primary `manager` plus any additional ones (see
   // GroupManagerPicker.tsx on the admin side) — deduped by id in case the same
@@ -331,11 +331,10 @@ export function MyProfilePage() {
               {profile.rosterGroup ? (
                 <>
                   <p className="mt-0.5 text-xs text-ink sm:mt-1 sm:text-sm">{profile.rosterGroup.name}</p>
-                  {rosterExpiryRemaining !== null && (
-                    <p className="mt-1.5">
-                      <Badge tone={rosterExpiryRemaining <= 3 ? 'danger' : rosterExpiryRemaining <= 7 ? 'warning' : 'neutral'}>
-                        {rosterExpiryLabel(rosterExpiryRemaining)}
-                      </Badge>
+                  {isInPeriod && profile.nextRosterGroup && (
+                    <p className="mt-1 text-xs text-ink-muted">
+                      Next: {profile.nextRosterGroup.name}
+                      {periodEnd ? ` from ${formatDisplayDate(addDaysToDate(periodEnd, 1))}` : ' after your period ends'}
                     </p>
                   )}
                 </>

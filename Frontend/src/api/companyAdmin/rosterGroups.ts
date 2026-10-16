@@ -22,11 +22,6 @@ export interface RosterPolicyGroup {
   brandId: string | null;
   name: string;
   description: string | null;
-  // Optional validity period ("6 months", "45 days") — both null means no
-  // expiry. Anchored per-employee at assignment time, not to the Roster
-  // itself — see Employee.rosterAssignedAt and utils/rosterValidity.ts.
-  validityValue: number | null;
-  validityUnit: 'days' | 'months' | null;
   // Trimmed Shift eligibility fields (id/weeklyOffDays/weekOffLeave*) — lets
   // EmployeeFormModal.tsx decide whether to show the "Can't take leave"
   // field for a picked Roster without a second round trip. At most one
@@ -70,8 +65,6 @@ export async function getRosterGroup(id: string): Promise<RosterPolicyGroupDetai
 export async function createRosterGroup(input: {
   name: string;
   description?: string | null;
-  validityValue?: number | null;
-  validityUnit?: 'days' | 'months' | null;
   // Omit (or '') for a Roster shared across every Brand — see
   // utils/brandScope.js.
   brandId?: string;
@@ -85,8 +78,6 @@ export async function updateRosterGroup(
   input: Partial<{
     name: string;
     description: string | null;
-    validityValue: number | null;
-    validityUnit: 'days' | 'months' | null;
     // Reassigns which Brand this Roster belongs to ('' = shared).
     brandId: string;
   }>

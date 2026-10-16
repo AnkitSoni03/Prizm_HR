@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { ArrowRightLeft, Building2, Hash, Pencil, Plus, RotateCw, Trash2, TrendingUp, Users, Wallet } from 'lucide-react';
+import { ArrowRightLeft, Building2, Hash, Pencil, Plus, Trash2, TrendingUp, Users, Wallet } from 'lucide-react';
 import { Table } from '../../components/ui/Table';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -17,23 +17,6 @@ import { listBrands } from '../../api/companyAdmin/org';
 import type { Brand } from '../../api/tenancy';
 import { APPLICABLE_GENDER_LABELS } from '../../utils/gender';
 import { LeaveTypeFormModal } from './components/LeaveTypeFormModal';
-
-const CYCLE_LABELS: Record<LeaveType['cycleType'], string> = {
-  calendar: 'Calendar Year',
-  anniversary: 'Anniversary (Joining Date)',
-  custom: 'Custom',
-};
-
-const MONTH_NAMES = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
-function cycleLabel(leaveType: LeaveType): string {
-  if (leaveType.cycleType === 'custom' && leaveType.customCycleStartMonth && leaveType.customCycleStartDay) {
-    return `Custom (${MONTH_NAMES[leaveType.customCycleStartMonth - 1]} ${leaveType.customCycleStartDay})`;
-  }
-  return CYCLE_LABELS[leaveType.cycleType];
-}
 
 function carryForwardLabel(leaveType: LeaveType): string {
   if (!leaveType.carryForward) return 'No';
@@ -105,7 +88,6 @@ function LeaveTypeCard({ leaveType, brandName, onEdit, onDelete }: LeaveTypeCard
       </div>
 
       <div className="mt-3.5 space-y-2.5 border-t border-border pt-3.5">
-        <DetailRow icon={RotateCw} label="Cycle" value={cycleLabel(leaveType)} />
         <DetailRow icon={ArrowRightLeft} label="Carry Forward" value={carryForwardLabel(leaveType)} />
         <DetailRow
           icon={TrendingUp}
@@ -306,7 +288,6 @@ export function LeaveTypesPage() {
                     ]
                   : []),
                 { key: 'paid', header: 'Paid', render: (lt) => <Badge tone={lt.isPaid ? 'success' : 'neutral'}>{lt.isPaid ? 'Paid' : 'Unpaid'}</Badge> },
-                { key: 'cycle', header: 'Cycle', render: (lt) => cycleLabel(lt) },
                 {
                   key: 'carryForward',
                   header: 'Carry Forward',

@@ -9,6 +9,8 @@ const router = Router();
 router.use(requireAuth);
 
 router.get('/', requirePermission('leave_policy:read'), controller.list);
+router.get('/yearly-cycle', requirePermission('leave_policy:read'), controller.getYearlyCycle);
+router.put('/yearly-cycle', requirePermission('leave_policy:update'), controller.updateYearlyCycle);
 router.post('/', requirePermission('leave_policy:create'), controller.create);
 router.patch('/:id', requirePermission('leave_policy:update'), controller.update);
 

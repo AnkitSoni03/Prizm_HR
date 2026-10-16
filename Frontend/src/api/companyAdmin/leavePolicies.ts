@@ -81,3 +81,19 @@ export function formatPolicyQuota(policy: LeavePolicy): string {
   if (policy.isUnlimited) return 'Unlimited';
   return `${Number(policy.annualQuota)} days`;
 }
+
+// Company default "Yearly Roster Update": the month (1-12) the yearly leave
+// cycle starts on (1 = Jan–Dec, 4 = Apr–Mar). Balances renew on the 1st of
+// that month with capped carry-forward — never during a Probation/Intern
+// period. Employees can override it on their profile.
+export async function getYearlyCycle(): Promise<{ yearlyCycleStartMonth: number }> {
+  const { data } = await apiClient.get<{ data: { yearlyCycleStartMonth: number } }>('/leave/policies/yearly-cycle');
+  return data.data;
+}
+
+export async function updateYearlyCycle(yearlyCycleStartMonth: number): Promise<{ yearlyCycleStartMonth: number }> {
+  const { data } = await apiClient.put<{ data: { yearlyCycleStartMonth: number } }>('/leave/policies/yearly-cycle', {
+    yearlyCycleStartMonth,
+  });
+  return data.data;
+}

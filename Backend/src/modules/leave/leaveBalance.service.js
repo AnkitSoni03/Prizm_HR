@@ -3,32 +3,40 @@
 const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
-const { toBusinessLocal, dateOnly } = require('../../utils/dateRange');
-const { resolveLeaveCycle } = require('../../utils/leaveCycle');
+const { toBusinessLocal, dateOnly, addDays } = require('../../utils/dateRange');
+const {
+  effectiveCycleStartMonth,
+  resolveLeavePeriod,
+  prorateYearlyQuota,
+  monthsAccruedInPeriod,
+} = require('../../utils/leavePeriod');
 const { computeWeekOffQuota } = require('../../utils/weekOffLeave');
 
-// Monthly accrual is credited whole-month, not prorated by day-of-month: an
-// employee who joins on the 20th still gets that month's full share.
-// PHASE4_MODELS.md only calls for day-of-joining proration at the "which
-// months count at all" level, not sub-month precision. Generalized from a
-// hardcoded Jan1–Dec31 window to an arbitrary cycleStart/cycleEnd so both
-// 'calendar' and 'anniversary' cycle types (see utils/leaveCycle.js) share
-// the exact same math — for a 'calendar' cycle, cycleStart/cycleEnd ARE
-// Jan1/Dec31 of the year, so this is byte-identical to the pre-cycle-type
-// behavior for every leave type that stays on the 'calendar' default.
-function monthsAccruedInCycle({ cycleStart, cycleEnd, dateOfJoining, asOf = toBusinessLocal() }) {
-  const cycleStartDate = new Date(`${cycleStart}T00:00:00`);
-  const cycleEndDate = new Date(`${cycleEnd}T00:00:00`);
-  const joinDate = dateOfJoining ? new Date(`${dateOfJoining}T00:00:00`) : null;
-  const accrualStart = joinDate && joinDate > cycleStartDate ? joinDate : cycleStartDate;
-  if (accrualStart > cycleEndDate) return 0;
+const round2 = (n) => Math.round(Number(n) * 100) / 100;
+const pad = (n) => String(n).padStart(2, '0');
 
-  const windowEnd = asOf > cycleEndDate ? cycleEndDate : asOf;
-  if (windowEnd < accrualStart) return 0;
+function monthRange(year, month) {
+  const lastDay = new Date(year, month, 0).getDate();
+  return { start: `${year}-${pad(month)}-01`, end: `${year}-${pad(month)}-${pad(lastDay)}` };
+}
 
-  const months = (windowEnd.getFullYear() - accrualStart.getFullYear()) * 12
-    + (windowEnd.getMonth() - accrualStart.getMonth()) + 1;
-  return Math.max(0, Math.min(12, months));
+// "As of which date" for the year-only callers (manual adjust, the year
+// picker): today for the current year, otherwise that year's Dec 31.
+function dateForYear(year) {
+  const today = dateOnly(toBusinessLocal());
+  return Number(year) === Number(today.slice(0, 4)) ? today : `${year}-12-31`;
+}
+
+// The employee's leave period for dateStr (utils/leavePeriod.js), resolved
+// against their own / their company's "Yearly Roster Update" cycle.
+async function resolvePeriodForEmployee(employee, dateStr, transaction) {
+  const company = await db.Company.findOne({
+    where: { id: employee.companyId },
+    attributes: ['id', 'yearlyCycleStartMonth'],
+    transaction,
+  });
+  const cycleStartMonth = effectiveCycleStartMonth({ employee, company });
+  return resolveLeavePeriod({ employee, cycleStartMonth, dateStr });
 }
 
 // Roster is now the SOLE determinant of which LeavePolicy governs an
@@ -55,19 +63,18 @@ async function resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId, trans
   return link ? link.leavePolicy : null;
 }
 
-// Pure calculation, extracted so rosterTransfer.service.js can compute what
-// a leave type's FRESH allotment would be under a given policy (the "No,
-// don't carry forward — recompute per the new Roster" path) without
-// duplicating the yearly/monthly/monthly_reset branching. `policy: null`
-// (no applicable LeavePolicy) always yields 0. `leaveType` is optional (only
-// needed to detect the auto-provisioned "Week Off Leaves" bucket below) —
-// every existing caller that omits it keeps the exact prior behavior.
-function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining, dateStr, leaveType, weekOffBasisDays }) {
+// Pure calculation of a policy's own allotment (without any carried-in
+// amount) for one period — shared with rosterTransfer.service.js's "don't
+// carry forward, recompute per the new Roster" path. `policy: null` (no
+// applicable LeavePolicy) always yields 0. `period` is a
+// utils/leavePeriod.js::resolveLeavePeriod result:
+//   - yearly: the quota prorated over the period (full for a whole cycle);
+//   - monthly: quota/12 per month credited so far (dateStr = "as of");
+//   - monthly_reset: the flat amount for that calendar month's own row.
+// `leaveType` is only needed to detect the "Week Off Leaves" bucket.
+function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leaveType, weekOffBasisDays }) {
   if (!policy) return 0;
 
-  if (policy.accrual === 'yearly') {
-    return Number(policy.annualQuota);
-  }
   if (policy.accrual === 'monthly_reset') {
     // The "Week Off Leaves" bucket's quota isn't a flat configured amount —
     // it's that calendar month's basis-day count (see
@@ -89,160 +96,206 @@ function computeAllottedForPolicy({ policy, cycleStart, cycleEnd, dateOfJoining,
     // Flat amount for THIS month's own row — no division/accumulation.
     return Number(policy.annualQuota);
   }
-  if (cycleStart && cycleEnd) {
-    const monthlyAmount = Number(policy.annualQuota) / 12;
-    const months = monthsAccruedInCycle({
-      cycleStart,
-      cycleEnd,
-      dateOfJoining,
-      asOf: dateStr ? new Date(`${dateStr}T00:00:00`) : undefined,
-    });
-    return Math.round(monthlyAmount * months * 100) / 100;
+  if (!period) return 0;
+  if (policy.accrual === 'yearly') {
+    return prorateYearlyQuota({ quota: policy.annualQuota, period });
   }
-  // An explicit `year` was passed with no resolvable cycle window (the
-  // adjustLeaveBalance path) — monthly accrual can't be computed without
-  // one, so this seeds at 0; adjustLeaveBalance immediately overwrites
-  // `allotted` with its own explicit value anyway.
-  return 0;
+  const months = monthsAccruedInPeriod({ period, dateOfJoining, asOf: dateStr || dateOnly(toBusinessLocal()) });
+  return round2((Number(policy.annualQuota) / 12) * months);
 }
 
-// Lazily creates the employee's leave_balances row for (leaveTypeId, cycle)
-// from the company's leave_policies row the first time it's needed, rather
-// than requiring a separate backfill step per PHASE4_MODELS.md's "at policy
-// assignment / start of year" trigger. For accrual=monthly this seeds
-// whatever should already have accrued as of today; the monthly cron
-// (src/jobs/leaveAccrual.job.js) tops it up going forward.
+// How much of a previous row's remainder carries into the next period —
+// capped at the leave type's maxCarryForwardDays (null = uncapped), zero
+// when the type doesn't carry forward at all.
+function carryAmount(leaveType, remainder) {
+  if (!leaveType || !leaveType.carryForward || !(Number(remainder) > 0)) return 0;
+  const cap = leaveType.maxCarryForwardDays;
+  return round2(cap != null ? Math.min(Number(remainder), Number(cap)) : Number(remainder));
+}
+
+// The year-grain row a date falls in, if one exists: the latest-starting row
+// whose period contains dateStr (an open probation row — period_end NULL —
+// contains every later date).
+async function findYearGrainRowForDate({ employeeId, leaveTypeId, dateStr, transaction }) {
+  return db.LeaveBalance.findOne({
+    where: {
+      employeeId,
+      leaveTypeId,
+      month: null,
+      periodStart: { [Op.lte]: dateStr },
+      [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: dateStr } }],
+    },
+    order: [['periodStart', 'DESC']],
+    transaction,
+  });
+}
+
+// Lazily creates the employee's leave_balances row for (leaveTypeId, the
+// period dateStr falls in) from their Roster's LeavePolicy the first time
+// it's needed. There is no separate "renewal" step: the first touch of a new
+// yearly cycle (or of the first post-probation period) creates its row and
+// carries the previous period's remainder in (capped). For accrual=monthly
+// this seeds whatever should already have accrued as of dateStr; the
+// monthly cron (src/jobs/leaveAccrual.job.js) tops it up going forward.
 //
-// Callers pass EITHER `dateStr` (the normal path — resolves which cycle that
-// date falls into, via the leave type's own cycleType + the employee's
-// dateOfJoining) OR `year` directly (the legacy/manual-override path used by
-// adjustLeaveBalance, which predates cycle support and has no "as of which
-// date" context to resolve one from). `leave_balances.year` is reused
-// as-is as the cycle key for both cycle types — see utils/leaveCycle.js's
-// header comment for why that's safe.
+// Callers pass `dateStr` (normal path) or, for the year-only manual adjust
+// path, `year` (resolved as of today / that year's Dec 31).
 //
-// 'monthly_reset' policies get their own row PER CALENDAR MONTH (the
-// `month` column) instead of sharing the year's single row — critical for
-// correctness: a leave applied for in one month but not approved until the
-// next must deduct from the month it was actually FOR, not whatever month
-// happens to be current when the approval finally lands (see the migration
-// comment on 20260818160000 for the exact bug this closes). `dateStr`
-// itself decides which month, not "today" — createLeaveRequest and
-// approveLeaveRequest both pass the request's own fromDate, so both the
-// eligibility check at submission and the deduction at approval always
-// resolve the SAME month's row regardless of how long approval takes.
+// Periods (utils/leavePeriod.js): a Probation/Intern employee has ONE row per
+// leave type from DOJ until they're confirmed — it does not renew on the
+// yearly cycle date. After that, one row per yearly cycle (company default or
+// the employee's own "Yearly Roster Update"), the first one starting on the
+// confirmation day, prorated.
+//
+// 'monthly_reset' policies get their own row PER CALENDAR MONTH (the `month`
+// column) — critical for correctness: a leave applied for in one month but
+// not approved until the next must deduct from the month it was actually
+// FOR (see the migration comment on 20260818160000). `dateStr` itself
+// decides which month, not "today".
 async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, transaction }) {
+  const asOfStr = dateStr || dateForYear(year ?? toBusinessLocal().getFullYear());
   const [leaveType, employee] = await Promise.all([
     db.LeaveType.findOne({ where: { id: leaveTypeId }, transaction }),
     db.Employee.findOne({ where: { id: employeeId }, transaction }),
   ]);
 
-  let cycleStart = null;
-  let cycleEnd = null;
-  let cycleKey = year;
-  if (cycleKey === undefined) {
-    const cycle = resolveLeaveCycle({
-      cycleType: leaveType ? leaveType.cycleType : 'calendar',
-      dateOfJoining: employee ? employee.dateOfJoining : null,
-      dateStr,
-      customCycleStartMonth: leaveType ? leaveType.customCycleStartMonth : null,
-      customCycleStartDay: leaveType ? leaveType.customCycleStartDay : null,
-    });
-    cycleKey = cycle.cycleKey;
-    cycleStart = cycle.cycleStart;
-    cycleEnd = cycle.cycleEnd;
-  }
-
-  // Needs the policy's accrual up front now (not just at creation time) to
-  // know whether this lookup/creation is month-grain — resolved once and
-  // reused below rather than a second query at creation.
-  const policy = leaveType
-    ? await resolveLeavePolicy({
-        companyId: leaveType.companyId,
-        leaveTypeId,
-        rosterGroupId: employee ? employee.rosterGroupId : null,
-        transaction,
-      })
-    : null;
-
-  const isMonthlyReset = policy?.accrual === 'monthly_reset';
-  const month = isMonthlyReset
-    ? (year !== undefined ? null : new Date(`${dateStr}T00:00:00`).getMonth() + 1)
-    : null;
-  // An explicit `year` with no dateStr (the adjustLeaveBalance path) can't
-  // resolve a real month — falls back to the year-grain row even for a
-  // monthly_reset type in that legacy path, same as before this column
-  // existed.
-
-  const lookupWhere = { employeeId, leaveTypeId, year: cycleKey, month };
-
-  let balance = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
-  if (balance) return balance;
+  const policy =
+    leaveType && employee
+      ? await resolveLeavePolicy({
+          companyId: leaveType.companyId,
+          leaveTypeId,
+          rosterGroupId: employee.rosterGroupId,
+          transaction,
+        })
+      : null;
+  const period = employee ? await resolvePeriodForEmployee(employee, asOfStr, transaction) : null;
 
   // Only resolved for the Week Off Leaves bucket — every other leave type
-  // ignores weekOffBasisDays entirely, so this extra query is skipped for
-  // the overwhelmingly common case.
-  let weekOffBasisDays = null;
-  if (leaveType && leaveType.isWeekOffBucket && employee && employee.rosterGroupId) {
+  // ignores weekOffBasisDays entirely.
+  async function weekOffBasisDays() {
+    if (!leaveType || !leaveType.isWeekOffBucket || !employee || !employee.rosterGroupId) return null;
     const rosterGroup = await db.RosterGroup.findOne({
       where: { id: employee.rosterGroupId },
       include: [{ model: db.Shift, as: 'shifts', through: { attributes: [] } }],
       transaction,
     });
-    weekOffBasisDays = rosterGroup?.shifts?.[0]?.weekOffLeaveBasisDays ?? null;
+    return rosterGroup?.shifts?.[0]?.weekOffLeaveBasisDays ?? null;
   }
+
+  async function createRow(values, lookupWhere) {
+    try {
+      return await db.LeaveBalance.create({ employeeId, leaveTypeId, used: 0, ...values }, { transaction });
+    } catch (err) {
+      if (err.name !== 'SequelizeUniqueConstraintError') throw err;
+      // Race: created concurrently by another request.
+      return db.LeaveBalance.findOne({ where: lookupWhere, transaction });
+    }
+  }
+
+  // ── Month-grain (monthly_reset) ──────────────────────────────────────
+  if (policy?.accrual === 'monthly_reset') {
+    const [y, m] = asOfStr.split('-').map(Number);
+    const lookupWhere = { employeeId, leaveTypeId, year: y, month: m };
+    const existing = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
+    if (existing) return existing;
+
+    let allotted = computeAllottedForPolicy({
+      policy,
+      period,
+      dateOfJoining: employee.dateOfJoining,
+      dateStr: asOfStr,
+      leaveType,
+      weekOffBasisDays: await weekOffBasisDays(),
+    });
+    // "Use it or lose it EACH MONTH" is the point of this accrual type — only
+    // the first month of a yearly cycle carries the previous month's
+    // remainder in (never during a probation period).
+    let carried = 0;
+    if (leaveType.carryForward && period?.kind === 'cycle' && m === period.cycleStartMonth) {
+      const prev = await db.LeaveBalance.findOne({
+        where: { employeeId, leaveTypeId, year: m === 1 ? y - 1 : y, month: m === 1 ? 12 : m - 1 },
+        transaction,
+      });
+      carried = carryAmount(leaveType, prev?.balance);
+      allotted = round2(allotted + carried);
+    }
+    const range = monthRange(y, m);
+    return createRow(
+      { year: y, month: m, periodStart: range.start, periodEnd: range.end, allotted, carriedForward: carried, balance: allotted },
+      lookupWhere
+    );
+  }
+
+  // ── Year-grain (yearly / monthly, or no policy) ──────────────────────
+  const containing = await findYearGrainRowForDate({ employeeId, leaveTypeId, dateStr: asOfStr, transaction });
+  // An open probation row (period_end NULL) contains every later date —
+  // but once the employee is confirmed it must give way to the new period.
+  const staleOpenRow =
+    containing && containing.periodEnd === null && period?.kind === 'cycle' && containing.periodStart < period.periodStart;
+  if (containing && !staleOpenRow) return containing;
+  if (!period) return containing;
+
+  const lookupWhere = { employeeId, leaveTypeId, month: null, periodStart: period.periodStart };
+  const sameStart = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
+  if (sameStart) return sameStart;
 
   let allotted = computeAllottedForPolicy({
     policy,
-    cycleStart,
-    cycleEnd,
-    dateOfJoining: employee ? employee.dateOfJoining : null,
-    dateStr,
+    period,
+    dateOfJoining: employee.dateOfJoining,
+    dateStr: asOfStr,
     leaveType,
-    weekOffBasisDays,
+    weekOffBasisDays: await weekOffBasisDays(),
   });
 
-  // Carry-forward: if this leave type allows it, roll in whatever remained
-  // unused at the end of the immediately-preceding PERIOD (capped at
-  // maxCarryForwardDays, or uncapped if that's null). For year-grain rows,
-  // "immediately preceding" is simply last cycle's row (cycleKey - 1, same
-  // monotonic-integer trick as before). For a monthly_reset row, carry-
-  // forward is deliberately a YEAR-boundary concept only — "use it or lose
-  // it EACH MONTH" is the whole point of this accrual type, so month 2-12
-  // never carries in from the month before; only month 1 checks December of
-  // the previous year (a genuine cycle boundary, same as year-grain types).
-  if (leaveType && leaveType.carryForward) {
-    const prevWhere =
-      month === null
-        ? { employeeId, leaveTypeId, year: cycleKey - 1, month: null }
-        : month === 1
-          ? { employeeId, leaveTypeId, year: cycleKey - 1, month: 12 }
-          : null;
-    if (prevWhere) {
-      const prevBalance = await db.LeaveBalance.findOne({ where: prevWhere, transaction });
-      if (prevBalance && Number(prevBalance.balance) > 0) {
-        const remainder = Number(prevBalance.balance);
-        const cap = leaveType.maxCarryForwardDays;
-        const carriedIn = cap != null ? Math.min(remainder, Number(cap)) : remainder;
-        allotted = Math.round((allotted + carriedIn) * 100) / 100;
-      }
+  // The period right before this one: close it if it was left open (a
+  // probation period ends the day before this one starts), and — when the
+  // leave type carries forward — roll its remainder in, capped. Only a
+  // period that actually runs up to this one counts (no carry across a gap),
+  // and nothing carries INTO a probation period.
+  let carried = 0;
+  const prev = await db.LeaveBalance.findOne({
+    where: { employeeId, leaveTypeId, month: null, periodStart: { [Op.lt]: period.periodStart } },
+    order: [['periodStart', 'DESC']],
+    transaction,
+  });
+  if (prev) {
+    const dayBefore = addDays(period.periodStart, -1);
+    if (prev.periodEnd === null || prev.periodEnd > dayBefore) {
+      await prev.update({ periodEnd: dayBefore }, { transaction });
+    }
+    if (period.kind === 'cycle' && prev.periodEnd >= dayBefore) {
+      carried = carryAmount(leaveType, prev.balance);
+      allotted = round2(allotted + carried);
     }
   }
 
-  try {
-    balance = await db.LeaveBalance.create(
-      { employeeId, leaveTypeId, year: cycleKey, month, allotted, used: 0, balance: allotted },
-      { transaction }
-    );
-  } catch (err) {
-    if (err.name === 'SequelizeUniqueConstraintError') {
-      // Race: created concurrently by another request.
-      balance = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
-    } else {
-      throw err;
-    }
+  return createRow(
+    {
+      year: Number(period.periodStart.slice(0, 4)),
+      month: null,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      allotted,
+      carriedForward: carried,
+      balance: allotted,
+    },
+    lookupWhere
+  );
+}
+
+// Monthly accrual top-up for one year-grain row (jobs/leaveAccrual.job.js):
+// recomputes what the policy has accrued in the row's period as of
+// asOfStr, keeping the carried-in amount on top. Idempotent.
+async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr }) {
+  const period = await resolvePeriodForEmployee(employee, asOfStr);
+  // The row decides the window; the resolved period supplies its cycle.
+  const rowPeriod = { ...period, periodStart: balance.periodStart, periodEnd: balance.periodEnd };
+  const accrued = computeAllottedForPolicy({ policy, period: rowPeriod, dateOfJoining: employee.dateOfJoining, dateStr: asOfStr });
+  const allotted = round2(accrued + Number(balance.carriedForward || 0));
+  if (Number(balance.allotted) !== allotted) {
+    await balance.update({ allotted, balance: round2(allotted - Number(balance.used)) });
   }
-  return balance;
 }
 
 // A 'yearly'-accrual balance is otherwise never written until something
@@ -294,14 +347,13 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
   if (links.length === 0) return;
 
   const currentYear = toBusinessLocal().getFullYear();
-  // Viewing the current year: seed as of today (correct partial-year
-  // proration for monthly accrual). Browsing a past year: seed as of that
-  // year's Dec 31 (the full year had already elapsed, so accrual/carry-
-  // forward resolve to their final values) — a future year is left alone,
-  // nothing has accrued yet.
+  // Viewing the current year: seed as of today (correct partial-period
+  // proration for monthly accrual, and the yearly renewal / post-probation
+  // period is created the first time it's looked at). Browsing a past year:
+  // seed as of that year's Dec 31 — a future year is left alone.
   const numericYear = year ? Number(year) : currentYear;
   if (numericYear > currentYear) return;
-  const dateStr = numericYear === currentYear ? dateOnly(toBusinessLocal()) : `${numericYear}-12-31`;
+  const dateStr = dateForYear(numericYear);
 
   await Promise.all(
     links.map((link) =>
@@ -332,33 +384,10 @@ async function ensureBalancesForEmployee({ employeeId, year }) {
 // The company-wide admin list (listLeaveBalances, no attachAccrualInfo call)
 // is deliberately NOT filtered this way — an admin needs to see a stray
 // balance to clean it up, not have it hidden from them too.
-// The date range a balance row covers: one calendar month for a
-// 'monthly_reset' row, otherwise the leave type's cycle whose key is
-// row.year (see utils/leaveCycle.js — calendar year, custom cycle start year,
-// or employment-year number for 'anniversary').
-function periodForBalanceRow(row, leaveType, dateOfJoining) {
-  const year = Number(row.year);
-  const pad = (n) => String(n).padStart(2, '0');
-  if (row.month) {
-    const lastDay = new Date(year, Number(row.month), 0).getDate();
-    return { start: `${year}-${pad(row.month)}-01`, end: `${year}-${pad(row.month)}-${pad(lastDay)}` };
-  }
-  const cycleType = leaveType?.cycleType || 'calendar';
-  let anchor = `${year}-01-01`;
-  if (cycleType === 'custom' && leaveType.customCycleStartMonth && leaveType.customCycleStartDay) {
-    anchor = `${year}-${pad(leaveType.customCycleStartMonth)}-${pad(leaveType.customCycleStartDay)}`;
-  } else if (cycleType === 'anniversary' && dateOfJoining) {
-    const join = new Date(`${dateOfJoining}T00:00:00`);
-    anchor = `${join.getFullYear() + year - 1}-${pad(join.getMonth() + 1)}-${pad(join.getDate())}`;
-  }
-  const { cycleStart, cycleEnd } = resolveLeaveCycle({
-    cycleType,
-    dateOfJoining,
-    dateStr: anchor,
-    customCycleStartMonth: leaveType?.customCycleStartMonth,
-    customCycleStartDay: leaveType?.customCycleStartDay,
-  });
-  return { start: cycleStart, end: cycleEnd };
+// The date range a balance row covers — its own period (an open probation
+// period runs up to today).
+function periodForBalanceRow(row) {
+  return { start: row.periodStart, end: row.periodEnd || dateOnly(toBusinessLocal()) };
 }
 
 async function attachAccrualInfo(rows, employeeId) {
@@ -407,7 +436,7 @@ async function attachAccrualInfo(rows, employeeId) {
     const sources = result.filter((r) => String(r.leaveTypeId) === String(linkedType.deductFromLeaveTypeId));
     for (const source of sources) {
       const toUses = (days) => Math.round((Number(days) / perUse) * 100) / 100;
-      const period = periodForBalanceRow(source, source.leaveType, employee.dateOfJoining);
+      const period = periodForBalanceRow(source);
       const usedDays = await db.LeaveRequest.sum('days', {
         where: {
           employeeId,
@@ -442,29 +471,31 @@ async function listLeaveBalances({ companyId, employeeId, year, limit, offset })
   const where = {};
   if (employeeId) where.employeeId = employeeId;
 
-  // For an 'anniversary'-cycle leave type, `leave_balances.year` holds an
-  // employment-cycle NUMBER (1, 2, 3...), not a calendar year (see
-  // utils/leaveCycle.js's header comment) — a literal `year` filter (what
-  // every caller of this function actually has: the ESS "My Leave Balance"
-  // page's Year picker, or an admin browsing a calendar year) can never
-  // match those rows. Only resolvable per-row (each leave type's own
-  // cycleType + the employee's own dateOfJoining), so this is only done for
-  // a single-employee lookup (own-scope read, or an admin viewing one
-  // employee) — cheap there, and not worth the extra per-row work across an
-  // unbounded company-wide list.
-  const resolveCycleKeysPerRow = Boolean(year) && Boolean(employeeId);
-  if (year && !resolveCycleKeysPerRow) where.year = year;
-
-  // A month-grain ('monthly_reset') leave type can have up to 12 rows for
-  // the current year — only one of them ("this month's") is ever the
-  // *current* balance. Year-grain rows (month IS NULL) always match
-  // regardless. Only applied when browsing the current year (or no year
-  // filter at all, which means "now") — a past-year browse intentionally
-  // shows whatever rows exist for that year, month-grain or not.
-  const currentYear = toBusinessLocal().getFullYear();
-  if (!year || Number(year) === currentYear) {
-    const currentMonth = toBusinessLocal().getMonth() + 1;
-    where[Op.or] = [{ month: null }, { month: currentMonth }];
+  // Current year (or no year = "now"): each employee's CURRENT row per leave
+  // type — the year-grain row whose period contains today (a still-running
+  // probation period always does) and this month's month-grain row. Any
+  // other year: every row whose period overlaps that year.
+  const today = dateOnly(toBusinessLocal());
+  const currentYear = Number(today.slice(0, 4));
+  const numericYear = year ? Number(year) : currentYear;
+  if (numericYear === currentYear) {
+    where[Op.or] = [
+      {
+        month: null,
+        periodStart: { [Op.lte]: today },
+        [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: today } }],
+      },
+      { year: currentYear, month: toBusinessLocal().getMonth() + 1 },
+    ];
+  } else {
+    where[Op.or] = [
+      {
+        month: null,
+        periodStart: { [Op.lte]: `${numericYear}-12-31` },
+        [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: `${numericYear}-01-01` } }],
+      },
+      { year: numericYear, month: { [Op.not]: null } },
+    ];
   }
 
   // Hide balances for a gender-restricted leave type the employee isn't
@@ -483,38 +514,16 @@ async function listLeaveBalances({ companyId, employeeId, year, limit, offset })
   };
   where[Op.and] = [...(where[Op.and] || []), genderEligible];
 
-  const { rows, count } = await db.LeaveBalance.findAndCountAll({
+  return db.LeaveBalance.findAndCountAll({
     where,
-    limit: resolveCycleKeysPerRow ? undefined : limit,
-    offset: resolveCycleKeysPerRow ? undefined : offset,
-    order: [['year', 'DESC']],
+    limit,
+    offset,
+    order: [['periodStart', 'DESC'], ['month', 'DESC']],
     include: [
       { model: db.Employee, as: 'employee', where: { companyId }, attributes: ['id', 'employeeCode', 'dateOfJoining'] },
       { model: db.LeaveType, as: 'leaveType' },
     ],
   });
-
-  if (!resolveCycleKeysPerRow) return { rows, count };
-
-  const numericYear = Number(year);
-  // Same "current year -> as of today, past year -> as of that Dec 31"
-  // resolution ensureBalancesForEmployee already uses to CREATE these rows —
-  // mirroring it here is what guarantees a row this function just seeded is
-  // always found again by this same filter.
-  const dateStr = numericYear >= currentYear ? dateOnly(toBusinessLocal()) : `${numericYear}-12-31`;
-  const filteredRows = rows.filter((row) => {
-    const leaveType = row.leaveType;
-    if (!leaveType || leaveType.cycleType !== 'anniversary') {
-      return Number(row.year) === numericYear;
-    }
-    const { cycleKey } = resolveLeaveCycle({
-      cycleType: 'anniversary',
-      dateOfJoining: row.employee ? row.employee.dateOfJoining : null,
-      dateStr,
-    });
-    return Number(row.year) === cycleKey;
-  });
-  return { rows: filteredRows, count: filteredRows.length };
 }
 
 // Manual correction (leave_balance:adjust) — sets allotted directly and
@@ -549,16 +558,27 @@ async function bulkAdjustLeaveBalances({ companyId, employeeId, adjustments }) {
   if (!employee) throw new HttpError(404, 'Employee not found');
 
   const changes = [];
-  for (const { leaveTypeId, year, month, allotted, used } of adjustments) {
+  for (const { id, leaveTypeId, year, month, allotted, used } of adjustments) {
     const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId } });
     if (!leaveType) throw new HttpError(404, 'Leave type not found');
     assertGenderEligible(leaveType, employee);
 
-    const monthKey = month ?? null;
-    const [balance] = await db.LeaveBalance.findOrCreate({
-      where: { employeeId, leaveTypeId, year, month: monthKey },
-      defaults: { employeeId, leaveTypeId, year, month: monthKey, allotted: 0, used: 0, balance: 0 },
-    });
+    // The displayed row itself (by id) — a year can now hold two periods for
+    // one leave type (probation, then the post-confirmation period).
+    // Without an id: that month's row, or the period current as of the year.
+    let balance;
+    if (id) {
+      balance = await db.LeaveBalance.findOne({ where: { id, employeeId, leaveTypeId } });
+      if (!balance) throw new HttpError(404, 'Leave balance not found');
+    } else if (month) {
+      const range = monthRange(Number(year), Number(month));
+      [balance] = await db.LeaveBalance.findOrCreate({
+        where: { employeeId, leaveTypeId, year, month },
+        defaults: { employeeId, leaveTypeId, year, month, periodStart: range.start, periodEnd: range.end, allotted: 0, used: 0, balance: 0 },
+      });
+    } else {
+      balance = await getOrCreateBalance({ employeeId, leaveTypeId, dateStr: dateForYear(year) });
+    }
 
     const previousAllotted = Number(balance.allotted);
     const previousUsed = Number(balance.used);
@@ -581,7 +601,9 @@ module.exports = {
   listLeaveBalances,
   adjustLeaveBalance,
   bulkAdjustLeaveBalances,
-  monthsAccruedInCycle,
   resolveLeavePolicy,
+  resolvePeriodForEmployee,
   computeAllottedForPolicy,
+  carryAmount,
+  refreshMonthlyAccrual,
 };

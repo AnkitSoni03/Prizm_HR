@@ -27,7 +27,6 @@ async function ensureWeekOffLeaveType({ companyId }) {
       isPaid: true,
       // Use-it-or-lose-it, per month — never carries a remainder forward.
       carryForward: false,
-      cycleType: 'calendar',
       defaultAccrual: 'monthly_reset',
       isWeekOffBucket: true,
     });

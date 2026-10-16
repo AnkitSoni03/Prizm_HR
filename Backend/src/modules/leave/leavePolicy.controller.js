@@ -1,7 +1,9 @@
 'use strict';
 
+const db = require('../../models');
 const service = require('./leavePolicy.service');
 const { parsePagination } = require('../../utils/pagination');
+const { normalizeCycleStartMonth } = require('../../utils/leavePeriod');
 
 async function list(req, res, next) {
   try {
@@ -62,4 +64,38 @@ async function update(req, res, next) {
   }
 }
 
-module.exports = { list, create, update };
+// Company default "Yearly Roster Update" — the month (1-12) the yearly leave
+// cycle starts on (1 = Jan–Dec, 4 = Apr–Mar). Employees may override it on
+// their profile. Leave balances renew on the 1st of that month (with capped
+// carry-forward) — not during a Probation/Intern period. See
+// utils/leavePeriod.js.
+async function getYearlyCycle(req, res, next) {
+  try {
+    if (!req.auth.companyId) return res.status(400).json({ error: 'companyId is required' });
+    const company = await db.Company.findByPk(req.auth.companyId, { attributes: ['id', 'yearlyCycleStartMonth'] });
+    if (!company) return res.status(404).json({ error: 'Company not found' });
+    res.json({ data: { yearlyCycleStartMonth: company.yearlyCycleStartMonth } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Company-wide, so a Brand-scoped admin (Brand Admin) can't change it.
+async function updateYearlyCycle(req, res, next) {
+  try {
+    if (!req.auth.companyId) return res.status(400).json({ error: 'companyId is required' });
+    if (req.auth.scopedBrandIds) {
+      return res.status(403).json({ error: 'Only a company-wide admin can change the yearly cycle' });
+    }
+    const month = normalizeCycleStartMonth(req.body.yearlyCycleStartMonth);
+    if (!month) return res.status(400).json({ error: 'yearlyCycleStartMonth must be a month number 1-12' });
+    const company = await db.Company.findByPk(req.auth.companyId);
+    if (!company) return res.status(404).json({ error: 'Company not found' });
+    await company.update({ yearlyCycleStartMonth: month });
+    res.json({ data: { yearlyCycleStartMonth: company.yearlyCycleStartMonth } });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, create, update, getYearlyCycle, updateYearlyCycle };

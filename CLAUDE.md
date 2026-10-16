@@ -1395,6 +1395,32 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   day was today/yesterday are recalculated (late punches). `POST /assignments/:id/end` now returns
   `{ assignment, finalPayroll }`; UI shows the result + "Final · till" badge in Monthly Payroll.
   Leave encashment / gratuity / notice recovery NOT included. Mock-tested; **not applied**.
+- ✅ Roster queue + Yearly Roster Update (2026-10-16) — **supersedes Roster validity/Renew and
+  leave types' own cycle** (`cycleType`/`customCycleStart*` dropped, `utils/leaveCycle.js`,
+  `utils/rosterValidity.js`, `rosterExpiryReminder.job.js` deleted). Rosters never expire.
+  - **Employee fields**: `probation_period_unit` (days|months; `probation_period_days` holds the
+    amount in that unit), `next_roster_group_id` (queued Roster, Probation/Intern only),
+    `yearly_cycle_start_month` (override; null = `companies.yearly_cycle_start_month`, default 1 =
+    Jan–Dec, set on Leave Policies page via `GET/PUT /leave/policies/yearly-cycle`), `confirmed_on`.
+  - **Leave balances are per period** (`leave_balances.period_start/period_end/carried_forward`,
+    unique on employee+type+period_start for year-grain rows; `utils/leavePeriod.js`): a
+    Probation/Intern employee has ONE open row from DOJ (period_end NULL) — no renewal on the cycle
+    date however long it runs, quota prorated over the planned length by days (½-day rounding).
+    After confirmation, one row per yearly cycle; the first starts on `confirmed_on`, prorated.
+    Renewal is lazy in `getOrCreateBalance` (+ the monthly cron touching every row): new period =
+    policy allotment + previous period's remainder capped by `maxCarryForwardDays` (now applies to
+    matched types too). Monthly accrual recomputes `accrued + carried_forward`.
+  - **Auto switch** (`probationConversion.service.js`, daily 00:05 + boot +
+    right after an employee save): the day after the period ends, only if a Roster is queued →
+    type Full-time, `confirmed_on`, probation rows closed, `changeEmployeeRoster(carryForward:
+    true)` (unmatched types → capped CF bucket), new-period balances seeded, notifications. No
+    queue → nothing changes (same roster/type/leave period; reminders continue). An admin
+    changing the type off Probation/Intern by hand runs the same confirmation.
+    `roster_transfer_logs.actor_user_id` is now nullable (automatic switch).
+  - Migrations `20261016090000` (fields, drops validity) + `20261016090100` (backfills periods from
+    the old cycle settings, re-keys still-in-probation employees' current row onto DOJ, drops
+    leave-type cycle). Flow mock-tested offline (8 scenarios); **not live-tested, migrations not
+    applied** (.env is prod).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

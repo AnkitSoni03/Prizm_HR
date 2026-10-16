@@ -25,6 +25,8 @@ import { INDIAN_STATES } from '../../../utils/indianStates';
 import { GENDER_OPTIONS } from '../../../utils/gender';
 import { WEEKDAY_LABELS } from '../../../utils/weekdays';
 import { ProbationPeriodField } from '../../../components/ProbationPeriodField';
+import { RosterQueueFields } from '../../../components/RosterQueueFields';
+import { probationEndDate, type ProbationPeriodUnit } from '../../../utils/probation';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
@@ -91,6 +93,9 @@ export function EmployeeFormModal({
   >('full_time');
   const [workState, setWorkState] = useState('');
   const [probationPeriodDays, setProbationPeriodDays] = useState('');
+  const [probationPeriodUnit, setProbationPeriodUnit] = useState<ProbationPeriodUnit>('days');
+  const [nextRosterGroupId, setNextRosterGroupId] = useState('');
+  const [yearlyCycleStartMonth, setYearlyCycleStartMonth] = useState('');
   const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>([]);
   const [powerLevels, setPowerLevels] = useState<PowerLevelMap>({});
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -127,7 +132,10 @@ export function EmployeeFormModal({
       prev === NEW_OPTION_VALUE || ownedByBrand(designations, nextBrandId).some((d) => d.id === prev) ? prev : ''
     );
     setRosterGroupId((prev) => (ownedByBrand(rosterGroups, nextBrandId).some((rg) => rg.id === prev) ? prev : ''));
+    setNextRosterGroupId((prev) => (ownedByBrand(rosterGroups, nextBrandId).some((rg) => rg.id === prev) ? prev : ''));
   }
+
+  const isPeriodType = employmentType === 'probation' || employmentType === 'intern';
 
   // Only meaningful for a 0-weekly-off + Week-Off-Leave-enabled Roster — a
   // Roster has at most one Shift, so shifts[0] is the whole picture.
@@ -190,6 +198,9 @@ export function EmployeeFormModal({
         employmentType,
         workState: workState || undefined,
         probationPeriodDays: probationPeriodDays ? Number(probationPeriodDays) : null,
+        probationPeriodUnit,
+        nextRosterGroupId: isPeriodType ? nextRosterGroupId || null : null,
+        yearlyCycleStartMonth: yearlyCycleStartMonth ? Number(yearlyCycleStartMonth) : null,
       });
 
       // Same non-blocking treatment as powers/photo below — the employee
@@ -372,6 +383,8 @@ export function EmployeeFormModal({
             id="employee-probation-days"
             value={probationPeriodDays}
             onChange={setProbationPeriodDays}
+            unit={probationPeriodUnit}
+            onUnitChange={setProbationPeriodUnit}
             dateOfJoining={dateOfJoining}
             employmentType={employmentType}
           />
@@ -425,6 +438,17 @@ export function EmployeeFormModal({
           Assigns this employee's default shift, region-specific holidays, and leave policy from
           the group in one go.
         </p>
+        <RosterQueueFields
+          idPrefix="employee"
+          rosterGroups={availableRosterGroups}
+          currentRosterGroupId={rosterGroupId}
+          showNextRoster={isPeriodType}
+          nextRosterGroupId={nextRosterGroupId}
+          onNextRosterChange={setNextRosterGroupId}
+          endDate={probationEndDate(dateOfJoining, probationPeriodDays, probationPeriodUnit)}
+          yearlyCycleStartMonth={yearlyCycleStartMonth}
+          onYearlyCycleChange={setYearlyCycleStartMonth}
+        />
         {showWeekOffBlockField && (
           <div>
             <p className="mb-1.5 text-sm font-medium text-ink">Can't Take Leave On (optional)</p>

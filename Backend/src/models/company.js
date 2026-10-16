@@ -36,6 +36,10 @@ module.exports = (sequelize, DataTypes) => {
       planId: { type: DataTypes.BIGINT, allowNull: true },
       createdBy: { type: DataTypes.BIGINT, allowNull: true },
       usesBrands: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // "Yearly Roster Update": month (1-12) the yearly leave cycle starts on
+      // for this company's employees (1 = Jan–Dec, 4 = Apr–Mar). Employees
+      // can override it (employees.yearly_cycle_start_month).
+      yearlyCycleStartMonth: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     },
     {
       sequelize,

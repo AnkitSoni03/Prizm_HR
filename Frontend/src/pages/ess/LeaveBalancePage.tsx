@@ -23,6 +23,7 @@ import { Select } from '../../components/ui/Select';
 import { useAuth } from '../../context/auth-context';
 import { useTheme } from '../../context/theme-context';
 import { getChartPalette } from '../../utils/chartColors';
+import { balancePeriodLabel } from '../../utils/yearlyCycle';
 import { listLeaveTypes, listMyLeaveBalances, type LeaveBalance, type LeaveType } from '../../api/ess/leave';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -209,6 +210,9 @@ export function LeaveBalancePage() {
               const allotted = balance ? Number(balance.allotted) : 0;
               const used = balance ? Number(balance.used) : 0;
               const remaining = balance ? Number(balance.balance) : 0;
+              const periodLabel = balance
+                ? balancePeriodLabel({ month: balance.month ?? null, periodStart: balance.periodStart, periodEnd: balance.periodEnd })
+                : null;
               const usagePercent = allotted > 0 ? Math.min(100, Math.round((used / allotted) * 100)) : 0;
               const isUnlimited = !!balance?.isUnlimited;
               const status = isUnlimited
@@ -248,10 +252,14 @@ export function LeaveBalancePage() {
                             ? ACCRUAL_LABELS[balance.accrual]
                             : 'Accrual not set'}
                       </p>
-                      <p className="mb-3.5 text-[10px] text-ink-muted sm:mb-5 sm:text-xs">
+                      <p className="text-[10px] text-ink-muted sm:text-xs">
                         {type.carryForward
-                          ? `Carries forward — up to ${type.maxCarryForwardDays != null ? `${type.maxCarryForwardDays} days` : 'unlimited'} into next year`
-                          : 'Does not carry forward — unused days expire at year end'}
+                          ? `Carries forward — up to ${type.maxCarryForwardDays != null ? `${type.maxCarryForwardDays} days` : 'unlimited'} into the next cycle`
+                          : 'Does not carry forward — unused days expire when the cycle ends'}
+                      </p>
+                      <p className="mb-3.5 text-[10px] text-ink-muted sm:mb-5 sm:text-xs">
+                        {periodLabel ? `Period: ${periodLabel}` : ''}
+                        {balance && Number(balance.carriedForward) > 0 ? ` · ${Number(balance.carriedForward)} carried forward` : ''}
                       </p>
                     </>
                   )}

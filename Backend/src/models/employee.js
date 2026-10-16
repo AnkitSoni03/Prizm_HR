@@ -16,6 +16,9 @@ module.exports = (sequelize, DataTypes) => {
       Employee.belongsTo(models.Employee, { foreignKey: 'hrEmployeeId', as: 'hrEmployee' });
       Employee.hasMany(models.Resignation, { foreignKey: 'employeeId', as: 'resignations' });
       Employee.belongsTo(models.RosterGroup, { foreignKey: 'rosterGroupId', as: 'rosterGroup' });
+      // Queued Roster for when the Probation/Intern period ends — see
+      // jobs/probationConversion.job.js.
+      Employee.belongsTo(models.RosterGroup, { foreignKey: 'nextRosterGroupId', as: 'nextRosterGroup' });
       // Optional, admin-assigned enrollment in the comp-off benefit — see
       // compOff.service.js::checkAndCreateCompOffCredit, which returns
       // immediately (no credit) for an employee with this left null.
@@ -77,12 +80,22 @@ module.exports = (sequelize, DataTypes) => {
       // holidays, the company-wide leave policy, and their own
       // employee_shifts default — exactly as before this column existed.
       rosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
-      // When the CURRENT rosterGroupId was (re)assigned — the anchor date
-      // the Roster's own validityValue/validityUnit counts from. Null
-      // whenever rosterGroupId is null. See rosterTransfer.service.js and
-      // jobs/rosterExpiryReminder.job.js.
+      // When the CURRENT rosterGroupId was assigned (informational only —
+      // Rosters never expire). Null whenever rosterGroupId is null.
       rosterAssignedAt: { type: DataTypes.DATEONLY, allowNull: true },
-      rosterExpiryNotifiedThresholdDays: { type: DataTypes.INTEGER, allowNull: true },
+      // Roster this employee moves to automatically the day after their
+      // Probation/Intern period ends (with leave carry-forward, and
+      // employmentType -> full_time). Null = nothing queued: they simply stay
+      // on their current Roster and type. See jobs/probationConversion.job.js.
+      nextRosterGroupId: { type: DataTypes.BIGINT, allowNull: true },
+      // "Yearly Roster Update" override (1-12 = the month the yearly cycle
+      // starts on). Null = the company's own yearlyCycleStartMonth. See
+      // utils/leavePeriod.js.
+      yearlyCycleStartMonth: { type: DataTypes.INTEGER, allowNull: true },
+      // The day this employee left Probation/Intern (auto or by an admin
+      // changing the Employment Type) — their first post-probation leave
+      // period starts here.
+      confirmedOn: { type: DataTypes.DATEONLY, allowNull: true },
       // Optional, admin-assigned Comp-Off Policy — null means this employee
       // is not enrolled in the comp-off benefit at all (no auto-credit on a
       // holiday/week-off worked, and the ESS "My Comp-Off" page shows a
@@ -113,11 +126,13 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('full_time', 'part_time', 'contract', 'probation', 'intern'),
         allowNull: false,
       },
-      // Optional Probation / Intern period length in days, counted from
-      // dateOfJoining (DOJ = day 1). Reminders + the login pop-up run while
-      // employmentType is 'probation'/'intern' — see utils/probation.js and
-      // jobs/probationReminder.job.js. Changing the type ends tracking.
+      // Optional Probation / Intern period length, counted from
+      // dateOfJoining (DOJ = day 1), in probationPeriodUnit ('days' or
+      // 'months' — the column name predates the unit). Reminders + the login
+      // pop-up run while employmentType is 'probation'/'intern' — see
+      // utils/probation.js and jobs/probationReminder.job.js.
       probationPeriodDays: { type: DataTypes.INTEGER, allowNull: true },
+      probationPeriodUnit: { type: DataTypes.ENUM('days', 'months'), allowNull: false, defaultValue: 'days' },
       // Business date the daily reminder last went out (dedupe guard).
       probationLastNotifiedOn: { type: DataTypes.DATEONLY, allowNull: true },
       status: {

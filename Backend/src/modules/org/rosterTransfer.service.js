@@ -1,10 +1,14 @@
 'use strict';
 
+const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { getEmployeeForWrite } = require('./employee.service');
-const { computeAllottedForPolicy } = require('../leave/leaveBalance.service');
-const { resolveLeaveCycle } = require('../../utils/leaveCycle');
+const {
+  computeAllottedForPolicy,
+  getOrCreateBalance,
+  resolvePeriodForEmployee,
+} = require('../leave/leaveBalance.service');
 const { syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 const { dateOnly, toBusinessLocal } = require('../../utils/dateRange');
 
@@ -70,7 +74,6 @@ async function findOrCreateCarryForwardBucket({ companyId, sourceLeaveType, targ
           name: `Carry Forward - ${sourceLeaveType.name}`,
           isPaid: sourceLeaveType.isPaid,
           carryForward: false,
-          cycleType: 'calendar',
           defaultAccrual: null,
           isCarryForwardBucket: true,
           sourceLeaveTypeId: sourceLeaveType.id,
@@ -140,11 +143,8 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
   }
   await assertRosterGroupBelongsToCompany(resolvedNewRosterGroupId, employee.companyId, employee.brandId);
 
-  // rosterAssignedAt anchors the new Roster's own validity period (if any)
-  // for this employee (see rosterValidity.js) — reset on every real
-  // assignment change, including un-assigning to null. The notified-
-  // threshold resets alongside it so the expiry-reminder job treats this as
-  // a fresh cycle rather than skipping it as "already notified".
+  // rosterAssignedAt records when the current Roster was assigned
+  // (informational — Rosters never expire).
   const rosterAssignedAt = resolvedNewRosterGroupId ? dateOnly(toBusinessLocal()) : null;
 
   // A shiftless new Roster must have its Week Off Leaves link in place BEFORE
@@ -154,7 +154,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
 
   // First-ever assignment (no old Roster) — nothing to carry or reset.
   if (!oldRosterGroupId) {
-    await employee.update({ rosterGroupId: resolvedNewRosterGroupId, rosterAssignedAt, rosterExpiryNotifiedThresholdDays: null });
+    await employee.update({ rosterGroupId: resolvedNewRosterGroupId, rosterAssignedAt });
     const log = await db.RosterTransferLog.create({
       companyId: employee.companyId,
       employeeId: employee.id,
@@ -171,6 +171,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
   const currentYear = toBusinessLocal().getFullYear();
   const currentMonth = toBusinessLocal().getMonth() + 1;
   const dateStr = dateOnly(toBusinessLocal());
+  const period = await resolvePeriodForEmployee(employee, dateStr);
 
   const [oldMap, newMap, newRosterGroup] = await Promise.all([
     loadRosterLeaveTypeMap(oldRosterGroupId),
@@ -195,11 +196,16 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
       const leaveTypeId = Number(leaveTypeIdStr);
       // monthly_reset types get their own row PER CALENDAR MONTH (see
       // leaveBalance.service.js::getOrCreateBalance) — the CURRENT month's
-      // row, not the year's month:null row, is the one actually showing on
-      // the employee's dashboard right now.
+      // row is the one showing on the employee's dashboard right now.
+      // Otherwise the latest period that has started: the current yearly
+      // period, or — for the automatic probation-end switch — the probation
+      // period that was closed a moment ago.
       const isMonthlyReset = oldMap.get(leaveTypeIdStr).accrual === 'monthly_reset';
       const balanceRow = await db.LeaveBalance.findOne({
-        where: { employeeId: employee.id, leaveTypeId, year: currentYear, month: isMonthlyReset ? currentMonth : null },
+        where: isMonthlyReset
+          ? { employeeId: employee.id, leaveTypeId, year: currentYear, month: currentMonth }
+          : { employeeId: employee.id, leaveTypeId, month: null, periodStart: { [Op.lte]: dateStr } },
+        order: [['periodStart', 'DESC']],
         transaction: t,
       });
       const remainder = balanceRow ? Number(balanceRow.balance) : 0;
@@ -215,17 +221,10 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
         // unmatched by definition here), never routed into a Carry Forward
         // bucket, even when the admin chose "Yes" overall.
         const newPolicy = matched ? newMap.get(leaveTypeIdStr) : null;
-        const cycle = resolveLeaveCycle({
-          cycleType: leaveType.cycleType,
-          dateOfJoining: employee.dateOfJoining,
-          dateStr,
-          customCycleStartMonth: leaveType.customCycleStartMonth,
-          customCycleStartDay: leaveType.customCycleStartDay,
-        });
         const freshAllotted = computeAllottedForPolicy({
           policy: newPolicy,
-          cycleStart: cycle.cycleStart,
-          cycleEnd: cycle.cycleEnd,
+          // The row's own period decides the proration window.
+          period: { ...period, periodStart: balanceRow.periodStart, periodEnd: balanceRow.periodEnd },
           dateOfJoining: employee.dateOfJoining,
           dateStr,
           leaveType,
@@ -233,7 +232,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
         });
         const used = Number(balanceRow.used);
         await balanceRow.update(
-          { allotted: freshAllotted, balance: Math.round((freshAllotted - used) * 100) / 100 },
+          { allotted: freshAllotted, carriedForward: 0, balance: Math.round((freshAllotted - used) * 100) / 100 },
           { transaction: t }
         );
         details.push({
@@ -283,32 +282,22 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
           transaction: t,
         });
 
-        const cfBalance = await db.LeaveBalance.findOne({
-          where: { employeeId: employee.id, leaveTypeId: cfType.id, year: currentYear, month: null },
+        // The bucket's row for the current period (its own policy grants 0),
+        // topped up with the carried amount.
+        const cfBalance = await getOrCreateBalance({
+          employeeId: employee.id,
+          leaveTypeId: cfType.id,
+          dateStr,
           transaction: t,
         });
-        if (cfBalance) {
-          await cfBalance.update(
-            {
-              allotted: Math.round((Number(cfBalance.allotted) + carriedAmount) * 100) / 100,
-              balance: Math.round((Number(cfBalance.balance) + carriedAmount) * 100) / 100,
-            },
-            { transaction: t }
-          );
-        } else {
-          await db.LeaveBalance.create(
-            {
-              employeeId: employee.id,
-              leaveTypeId: cfType.id,
-              year: currentYear,
-              month: null,
-              allotted: carriedAmount,
-              used: 0,
-              balance: carriedAmount,
-            },
-            { transaction: t }
-          );
-        }
+        await cfBalance.update(
+          {
+            allotted: Math.round((Number(cfBalance.allotted) + carriedAmount) * 100) / 100,
+            carriedForward: Math.round((Number(cfBalance.carriedForward || 0) + carriedAmount) * 100) / 100,
+            balance: Math.round((Number(cfBalance.balance) + carriedAmount) * 100) / 100,
+          },
+          { transaction: t }
+        );
 
         details.push({
           leaveTypeId,
@@ -335,10 +324,7 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
       await balanceRow.update({ allotted: used, balance: 0 }, { transaction: t });
     }
 
-    await employee.update(
-      { rosterGroupId: resolvedNewRosterGroupId, rosterAssignedAt, rosterExpiryNotifiedThresholdDays: null },
-      { transaction: t }
-    );
+    await employee.update({ rosterGroupId: resolvedNewRosterGroupId, rosterAssignedAt }, { transaction: t });
 
     const log = await db.RosterTransferLog.create(
       {
@@ -359,34 +345,6 @@ async function changeEmployeeRoster({ companyId, id, newRosterGroupId, carryForw
   return { employee, details, rosterTransferLogId };
 }
 
-// Same Roster, no leave-balance decision involved at all — just pushes this
-// employee's own validity window (rosterAssignedAt + the Roster's
-// validityValue/validityUnit) forward from today. Distinct from
-// changeEmployeeRoster, which rejects re-assigning the SAME Roster outright
-// (there, "same roster" looks like a mistaken no-op click; here it's the
-// explicit point of the action).
-async function renewEmployeeRoster({ companyId, id, actorUserId, scopedBrandIds, groupId }) {
-  const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId });
-  if (!employee.rosterGroupId) throw new HttpError(400, 'Employee has no Roster assigned to renew');
-
-  const rosterAssignedAt = dateOnly(toBusinessLocal());
-  await employee.update({ rosterAssignedAt, rosterExpiryNotifiedThresholdDays: null });
-
-  const log = await db.RosterTransferLog.create({
-    companyId: employee.companyId,
-    employeeId: employee.id,
-    fromRosterGroupId: employee.rosterGroupId,
-    toRosterGroupId: employee.rosterGroupId,
-    // Not a real carry-forward decision (same Roster, nothing changes about
-    // leave balances) — true is the closest fit for "nothing was reset".
-    carryForward: true,
-    actorUserId,
-    details: [{ action: 'renewed', rosterGroupId: employee.rosterGroupId, rosterAssignedAt }],
-  });
-
-  return { employee, rosterTransferLogId: log.id };
-}
-
 async function listRosterTransferHistory({ companyId, id, scopedBrandIds, groupId }) {
   await getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId });
   return db.RosterTransferLog.findAll({
@@ -400,4 +358,4 @@ async function listRosterTransferHistory({ companyId, id, scopedBrandIds, groupI
   });
 }
 
-module.exports = { changeEmployeeRoster, renewEmployeeRoster, listRosterTransferHistory };
+module.exports = { changeEmployeeRoster, listRosterTransferHistory };

@@ -12,22 +12,6 @@ const {
 } = require('../../utils/brandScope');
 const { syncWeekOffLeaveIfShiftless } = require('../leave/weekOffLeave.service');
 
-// validityValue/validityUnit come as a pair — undefined/undefined (field
-// omitted) means "not touched" on an update; explicit null/null clears the
-// validity period entirely (no expiry); anything else must be a positive
-// integer + a real unit.
-function normalizeValidity({ validityValue, validityUnit }) {
-  if (validityValue === undefined && validityUnit === undefined) return undefined;
-  if (validityValue === null && validityUnit === null) return { validityValue: null, validityUnit: null };
-  if (!Number.isInteger(validityValue) || validityValue <= 0) {
-    throw new HttpError(400, 'validityValue must be a positive whole number');
-  }
-  if (!['days', 'months'].includes(validityUnit)) {
-    throw new HttpError(400, "validityUnit must be 'days' or 'months'");
-  }
-  return { validityValue, validityUnit };
-}
-
 // Roster Group's own page ("Roster") no longer assigns Shifts/Holidays/
 // Company Policies/Leave Policies to itself — those are all assigned from
 // each entity's OWN create/edit form ("Assign to Roster(s)"). This read
@@ -91,19 +75,15 @@ async function createRosterGroup({
   scopedBrandIds,
   name,
   description,
-  validityValue,
-  validityUnit,
   createdBy,
 }) {
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
-  const validity = normalizeValidity({ validityValue, validityUnit }) ?? { validityValue: null, validityUnit: null };
   const rosterGroup = await db.RosterGroup.create({
     companyId,
     brandId: resolvedBrandId,
     name,
     description: description || null,
-    ...validity,
     createdBy: createdBy || null,
   });
   // A new Roster starts with no Shift — link its Week Off Leaves right away.
@@ -114,7 +94,6 @@ async function createRosterGroup({
 async function updateRosterGroup({ companyId, id, updates, updatedBy, scopedBrandIds }) {
   const rosterGroup = await getRosterGroupForWrite({ companyId, id, scopedBrandIds });
   const { name, description, brandId } = updates;
-  const validity = normalizeValidity({ validityValue: updates.validityValue, validityUnit: updates.validityUnit });
 
   assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
   if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
@@ -122,7 +101,6 @@ async function updateRosterGroup({ companyId, id, updates, updatedBy, scopedBran
   await rosterGroup.update({
     ...(name !== undefined && { name }),
     ...(description !== undefined && { description }),
-    ...(validity !== undefined && validity),
     ...(brandId !== undefined && { brandId: brandId || null }),
     updatedBy: updatedBy || null,
   });
@@ -191,15 +169,8 @@ async function bulkAssignRosterGroup({ companyId, id, employeeIds, scopedBrandId
       results.push({ employeeId, status: 'skipped', reason: 'Employee already has a Roster assigned — remove them from it first to reassign' });
       continue;
     }
-    // rosterAssignedAt anchors this Roster's own validity period (if any)
-    // for this specific employee — see rosterValidity.js. Reset the
-    // notified-threshold so the expiry-reminder job treats this as a fresh
-    // cycle, same as changeEmployeeRoster/renewEmployeeRoster.
-    await employee.update({
-      rosterGroupId: id,
-      rosterAssignedAt: dateOnly(toBusinessLocal()),
-      rosterExpiryNotifiedThresholdDays: null,
-    });
+    // Informational "assigned since" date — Rosters never expire.
+    await employee.update({ rosterGroupId: id, rosterAssignedAt: dateOnly(toBusinessLocal()) });
     results.push({ employeeId, status: 'assigned' });
   }
   if (results.some((r) => r.status === 'assigned')) await syncWeekOffLeaveIfShiftless({ rosterGroupId: id });

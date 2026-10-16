@@ -47,6 +47,9 @@ export async function createEmployee(input: {
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
   workState?: string;
   probationPeriodDays?: number | null;
+  probationPeriodUnit?: 'days' | 'months';
+  nextRosterGroupId?: string | null;
+  yearlyCycleStartMonth?: number | null;
 }): Promise<Employee> {
   const { data } = await apiClient.post<{ data: Employee }>('/employees', input);
   return data.data;
@@ -59,6 +62,9 @@ export async function updateEmployee(
     designationId: string | null;
     employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
     probationPeriodDays: number | null;
+    probationPeriodUnit: 'days' | 'months';
+    nextRosterGroupId: string | null;
+    yearlyCycleStartMonth: number | null;
     status: Employee['status'];
     dateOfJoining: string | null;
     dateOfBirth: string | null;
@@ -113,14 +119,6 @@ export async function changeEmployeeRoster(
     input
   );
   return { employee: data.data, details: data.details };
-}
-
-// Same Roster, no leave-balance decision — just pushes this employee's own
-// validity window (rosterAssignedAt) forward from today. See
-// Backend/src/modules/org/rosterTransfer.service.js::renewEmployeeRoster.
-export async function renewEmployeeRoster(id: string): Promise<Employee> {
-  const { data } = await apiClient.post<{ data: Employee }>(`/employees/${id}/roster/renew`, {});
-  return data.data;
 }
 
 export async function listRosterTransferHistory(id: string): Promise<RosterTransferLog[]> {

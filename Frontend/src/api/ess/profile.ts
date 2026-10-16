@@ -33,6 +33,8 @@ export interface EmployeeProfile {
   // or blank value just falls back to the 'default' PT slab.
   workState: string | null;
   employmentType: 'full_time' | 'part_time' | 'contract' | 'probation' | 'intern';
+  probationPeriodDays?: number | null;
+  probationPeriodUnit?: 'days' | 'months';
   status: 'onboarding' | 'active' | 'on_notice' | 'exited' | 'archived';
   company?: { id: string; name: string };
   brand?: { id: string; name: string };
@@ -52,14 +54,12 @@ export interface EmployeeProfile {
   // The Roster that now drives this employee's Shift/Holidays/Company
   // Policies/Leave — null means none assigned yet (everything shows blank
   // until one is, see LeaveBalancePage.tsx and HolidaysPage.tsx).
-  // validityValue/validityUnit are null when the Roster has no expiry
-  // configured — pair with rosterAssignedAt (below) via
-  // utils/rosterValidity.ts's computeRosterExpiry, same as
-  // EmployeeDetailModal.tsx's admin-facing view.
-  rosterGroup?: { id: string; name: string; validityValue: number | null; validityUnit: 'days' | 'months' | null } | null;
+  rosterGroup?: { id: string; name: string } | null;
   // Date this employee was assigned to their CURRENT Roster — null if never
-  // assigned. Anchors rosterGroup's own validity window.
+  // assigned (informational — Rosters never expire).
   rosterAssignedAt: string | null;
+  // Roster you move to automatically once your Probation/Intern period ends.
+  nextRosterGroup?: { id: string; name: string } | null;
   // Null means comp-off is not active for this employee — they earn no
   // credit for working a holiday/week-off until an admin assigns one on the
   // Comp Off Setting page (see Backend's compOff.service.js).

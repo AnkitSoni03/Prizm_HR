@@ -7,19 +7,13 @@ export interface LeaveType {
   code: string;
   name: string;
   isPaid: boolean;
-  // Whether an unused balance rolls into the next cycle at all — see
-  // maxCarryForwardDays/cycleType below for how much and when.
+  // Whether an unused balance rolls into the next period at all (the yearly
+  // renewal — company/employee "Yearly Roster Update" — or Probation →
+  // Full-time), capped by maxCarryForwardDays.
   carryForward: boolean;
   // Cap on days carried forward when carryForward is true. null = unlimited
   // (carryForward: false is what means "zero", not this).
   maxCarryForwardDays: number | null;
-  // 'calendar' (Jan 1 – Dec 31), 'anniversary' (resets on the employee's own
-  // joining-date anniversary), or 'custom' (an admin-defined recurring
-  // month/day, e.g. April 1 for a fiscal year — see customCycleStartMonth/Day).
-  cycleType: 'calendar' | 'anniversary' | 'custom';
-  // Only meaningful when cycleType is 'custom'.
-  customCycleStartMonth: number | null;
-  customCycleStartDay: number | null;
   // Pure UX default that pre-fills the Add Leave Policy form's Accrual
   // field when this type is selected — never enforced, a Roster-specific
   // policy can still pick a different accrual for the same leave type.
@@ -41,6 +35,13 @@ export interface LeaveBalance {
   leaveTypeId: string;
   year: number;
   month: number | null;
+  // The period this row covers: a yearly cycle (from the first day the
+  // employee was in it), a Probation/Intern period (periodEnd null while it
+  // is still running), or one calendar month for a monthly-reset type.
+  periodStart: string;
+  periodEnd: string | null;
+  // Part of `allotted` carried in from the previous period.
+  carriedForward: number | string;
   allotted: number;
   used: number;
   balance: number;
@@ -61,9 +62,6 @@ interface LeaveTypeWriteInput {
   // Omit (or '') for a Leave Type shared across every Brand — see
   // utils/brandScope.js.
   brandId?: string;
-  cycleType?: 'calendar' | 'anniversary' | 'custom';
-  customCycleStartMonth?: number | null;
-  customCycleStartDay?: number | null;
   defaultAccrual?: 'yearly' | 'monthly' | 'monthly_reset' | null;
   applicableGender?: 'all' | 'male' | 'female' | 'other';
   // null/'' = independent type with its own quota.
@@ -117,15 +115,16 @@ export async function adjustLeaveBalance(input: {
 }
 
 // Edits several of one employee's leave types' allotted balance in a single
-// Save (the Employee Detail Modal's "Leaves" tab) — each entry must carry
-// the SAME year/month as the row it came from (see
+// Save (the Employee Detail Modal's "Leaves" tab) — each entry carries the
+// row's own id (a year can hold two periods for one leave type: probation,
+// then the post-confirmation period) plus its year/month (see
 // leaveBalance.service.js::bulkAdjustLeaveBalances for why month matters for
 // a 'monthly_reset' leave type). The employee gets one consolidated
 // notification server-side, only if at least one entry's value actually
 // changed. Returns how many rows actually changed.
 export async function bulkAdjustLeaveBalances(input: {
   employeeId: string;
-  adjustments: Array<{ leaveTypeId: string; year: number; month: number | null; allotted: number; used?: number }>;
+  adjustments: Array<{ id?: string; leaveTypeId: string; year: number; month: number | null; allotted: number; used?: number }>;
 }): Promise<{ changed: number }> {
   const { data } = await apiClient.post<{ changed: number }>('/leave/balances/bulk-adjust', input);
   return data;
