@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs } from '../../../components/ui/Tabs';
 import { EmployeePowersEditor } from '../../../components/EmployeePowersEditor';
+import { EmployeeFaceIdCard } from '../../../components/EmployeeFaceIdCard';
 import { useAuth } from '../../../context/auth-context';
 import { Badge } from '../../../components/ui/Badge';
 import { Avatar } from '../../../components/ui/Avatar';
@@ -44,20 +45,22 @@ function Field({ label, value }: { label: string; value: string }) {
 export function EmployeeDetailModal({ employee, groupName, companyName, brandName, onClose }: EmployeeDetailModalProps) {
   const { user } = useAuth();
   const canManagePowers = !!user?.roles.some((role) => role.name === 'Group Admin' || role.name === 'Super Admin');
+  const isSuperAdmin = !!user?.roles.some((role) => role.name === 'Super Admin');
   const [activeTab, setActiveTab] = useState<'details' | 'powers'>('details');
+  const tabItems = [
+    { key: 'details', label: 'Details' },
+    ...(canManagePowers ? [{ key: 'powers', label: 'Powers' }] : []),
+  ];
 
   return (
     <Modal
       title={employee.name ?? employee.employeeCode}
       onClose={onClose}
-      widthClassName={canManagePowers ? 'max-w-2xl' : undefined}
+      widthClassName={tabItems.length > 1 ? 'max-w-2xl' : undefined}
       tabs={
-        canManagePowers ? (
+        tabItems.length > 1 ? (
           <Tabs
-            items={[
-              { key: 'details', label: 'Details' },
-              { key: 'powers', label: 'Powers' },
-            ]}
+            items={tabItems}
             active={activeTab}
             onChange={(key) => setActiveTab(key as 'details' | 'powers')}
           />
@@ -97,6 +100,9 @@ export function EmployeeDetailModal({ employee, groupName, companyName, brandNam
           <Field label="Date of Joining" value={employee.dateOfJoining ? formatDisplayDate(employee.dateOfJoining) : 'Not set'} />
           <Field label="Added On" value={formatDisplayDateTime(employee.createdAt)} />
         </div>
+
+        {/* Group Admin only — Super Admin doesn't see employees' Face ID photos. */}
+        {!isSuperAdmin && <EmployeeFaceIdCard employeeId={employee.id} />}
 
         <p className="text-xs text-ink-muted">
           This is a read-only view. Department, designation, shift, and roster assignment are

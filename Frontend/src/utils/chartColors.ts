@@ -15,7 +15,7 @@ const light = {
   mutedText: '#5a6b85',
   accent: '#3656c5',
   accentSoft: 'rgba(54, 86, 197, 0.14)',
-  status: { success: '#059669', warning: '#d97706', danger: '#dc2626', info: '#3354a4' },
+  status: { success: '#059669', warning: '#d97706', danger: '#dc2626', info: '#3354a4', neutral: '#64748b' },
 };
 
 const dark = {
@@ -24,7 +24,7 @@ const dark = {
   mutedText: '#9ca3af',
   accent: '#5478d0',
   accentSoft: 'rgba(84, 120, 208, 0.22)',
-  status: { success: '#10b981', warning: '#fbbf24', danger: '#f87171', info: '#3354a4' },
+  status: { success: '#10b981', warning: '#fbbf24', danger: '#f87171', info: '#3354a4', neutral: '#94a3b8' },
 };
 
 export function getChartPalette(theme: Theme) {

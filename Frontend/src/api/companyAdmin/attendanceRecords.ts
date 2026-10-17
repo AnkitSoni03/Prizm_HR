@@ -31,6 +31,9 @@ export interface AttendanceRosterRow {
   // punch recorded before kiosk locations existed.
   kioskLocationName: string | null;
   leaveTypeName: string | null;
+  // Backend-computed working hours (utils/workingHours.ts).
+  workedMinutes: number | null;
+  workedMinutesBasis: 'actual' | 'shift' | null;
 }
 
 interface ListResult<T> {

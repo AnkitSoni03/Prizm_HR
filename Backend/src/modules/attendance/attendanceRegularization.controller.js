@@ -75,7 +75,7 @@ async function approve(req, res, next) {
     if (!validateOptionalTime(checkOutTime, 'checkOutTime', res)) return;
 
     const regularization = await service.approveRegularization({
-      companyId: req.auth.companyId,
+      companyId: req.regularizationCompanyId || req.auth.companyId,
       id: req.params.id,
       approverId: req.auth.employeeId,
       approverUserId: req.auth.userId,
@@ -97,7 +97,7 @@ async function approve(req, res, next) {
 async function revoke(req, res, next) {
   try {
     const regularization = await service.revokeRegularization({
-      companyId: req.auth.companyId,
+      companyId: req.regularizationCompanyId || req.auth.companyId,
       id: req.params.id,
       actorEmployeeId: req.auth.employeeId,
       actorUserId: req.auth.userId,
@@ -112,7 +112,7 @@ async function revoke(req, res, next) {
 async function reject(req, res, next) {
   try {
     const regularization = await service.rejectRegularization({
-      companyId: req.auth.companyId,
+      companyId: req.regularizationCompanyId || req.auth.companyId,
       id: req.params.id,
       approverId: req.auth.employeeId,
       approverUserId: req.auth.userId,

@@ -1,5 +1,6 @@
 import { useEffect, type ComponentType, useState } from 'react';
 import axios from 'axios';
+import { workingHoursLabel } from '../../utils/workingHours';
 import {
   CalendarCheck,
   CalendarClock,
@@ -112,19 +113,6 @@ function formatDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-// Working hours for a single day — only meaningful once both punches exist.
-function workedMinutes(record: AttendanceRosterRow): number {
-  if (!record.checkIn || !record.checkOut) return 0;
-  const minutes = (new Date(record.checkOut).getTime() - new Date(record.checkIn).getTime()) / 60000;
-  return minutes > 0 ? minutes : 0;
-}
-
-function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  return `${hours}h ${String(mins).padStart(2, '0')}m`;
-}
-
 function extractError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err) && typeof err.response?.data?.error === 'string') {
     return err.response.data.error;
@@ -163,7 +151,7 @@ interface AttendanceCardProps {
 }
 
 function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: AttendanceCardProps) {
-  const worked = record.checkIn && record.checkOut ? formatDuration(workedMinutes(record)) : null;
+  const worked = workingHoursLabel(record);
   return (
     <div
       className={[
@@ -195,7 +183,7 @@ function AttendanceCard({ record, selected, onToggleSelect, onOpenVideo }: Atten
       <div className="mt-3.5 space-y-2.5 border-t border-border pt-3.5">
         <DetailRow icon={LogIn} label="Check In" value={<PunchTime value={record.checkIn} />} />
         <DetailRow icon={LogOut} label="Check Out" value={<PunchTime value={record.checkOut} />} />
-        <DetailRow icon={TimerReset} label="Working Hrs" value={worked ?? '—'} />
+        <DetailRow icon={TimerReset} label="Working Hrs" value={worked} />
         {record.kioskLocationName && <DetailRow icon={MapPin} label="Location" value={record.kioskLocationName} />}
       </div>
 
@@ -420,7 +408,7 @@ export function AttendanceRecordsPage({ groupMode = false }: { groupMode?: boole
     {
       key: 'workingHours',
       header: 'Working Hrs',
-      render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
+      render: (r) => workingHoursLabel(r),
     },
     {
       key: 'location',

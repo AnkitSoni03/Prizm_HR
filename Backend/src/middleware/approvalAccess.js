@@ -3,6 +3,8 @@
 const { userHasPermission, getBrandScope } = require('./rbac.middleware');
 const { getGroupCompanyIds } = require('../utils/managerScope');
 const { HttpError } = require('../utils/errors');
+const { runAsCompany } = require('../config/tenant-context');
+const db = require('../models');
 
 // Shared access rules for deciding / reading the history of a leave
 // request, OD request or comp-off credit. Two independent ways in:
@@ -32,6 +34,17 @@ function isSnapshottedManager(request, employeeId) {
   );
 }
 
+// Group Admin: company-less (company_id NULL, group_id set). Reaches every
+// company of their own Group, never another Group's.
+function isGroupAdminCaller(auth) {
+  return auth.companyId == null && auth.groupId != null;
+}
+
+async function companyInCallerGroup(auth, companyId) {
+  const count = await db.Company.count({ where: { id: companyId, groupId: auth.groupId } });
+  return count > 0;
+}
+
 async function managerCanReach(auth, request) {
   const groupCompanyIds = await getGroupCompanyIds(auth.companyId);
   return groupCompanyIds.includes(String(request.employee.companyId));
@@ -54,6 +67,19 @@ function requireApprovalDecisionAccess({ resource, action, loadAnyCompany, notFo
           req.decision = { mode: 'admin', companyId: req.auth.companyId, request };
           return next();
         }
+      }
+
+      // 3. GROUP ADMIN — holds the plain code on their group-level role and
+      //    the item is in a company of their Group. Decides as an admin,
+      //    under the ITEM's company tenant context (theirs is NULL).
+      if (
+        isGroupAdminCaller(req.auth) &&
+        (await userHasPermission(req.auth, `${resource}:${action}`)) &&
+        (await companyInCallerGroup(req.auth, request.employee.companyId))
+      ) {
+        const companyId = request.employee.companyId;
+        req.decision = { mode: 'admin', companyId, request };
+        return runAsCompany(companyId, () => next());
       }
 
       if (
@@ -101,4 +127,4 @@ async function resolveHistoryAccess({ req, request, resource, scopeCompanyId }) 
   return null;
 }
 
-module.exports = { requireApprovalDecisionAccess, resolveHistoryAccess };
+module.exports = { requireApprovalDecisionAccess, resolveHistoryAccess, isGroupAdminCaller, companyInCallerGroup };

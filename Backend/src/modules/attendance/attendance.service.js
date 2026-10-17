@@ -20,7 +20,7 @@ const {
 // dateOnly/addDays: business-timezone (IST) date helpers, not the server
 // process's own ambient TZ — see utils/dateRange.js for why that distinction
 // matters (Render's containers default to UTC, unlike a dev machine's IST).
-const { dateOnly, addDays } = require('../../utils/dateRange');
+const { dateOnly, addDays, datesBetween } = require('../../utils/dateRange');
 const {
   isOvernightShift,
   scheduledEndDateTime,
@@ -74,6 +74,35 @@ function shiftDurationMinutes(shift) {
   // utils/shiftTime.js::scheduledEndDateTime, just in plain minutes.
   if (isOvernightShift(shift) || endMinutes <= startMinutes) endMinutes += 24 * 60;
   return endMinutes - startMinutes;
+}
+
+// Working hours for one attendance day. Real punches always win: with both
+// check-in and check-out it's the actual time between them — so a missed
+// checkout corrected later (regularization) switches to actual hours by
+// itself. Without them, an On Duty day, or a check-in whose checkout was
+// missed, counts the assigned shift's length (`shift` = the shift for that
+// date; none → DEFAULT_SHIFT_MINUTES). The punch times themselves are never
+// filled in. Returns { workedMinutes, workedMinutesBasis: 'actual' | 'shift' | null }.
+function workedMinutesFor(attendance, shift) {
+  if (!attendance) return { workedMinutes: null, workedMinutesBasis: null };
+  if (attendance.checkIn && attendance.checkOut) {
+    const minutes = Math.max(0, (new Date(attendance.checkOut) - new Date(attendance.checkIn)) / 60000);
+    return { workedMinutes: Math.round(minutes), workedMinutesBasis: 'actual' };
+  }
+  if (attendance.status === 'on_duty' || (attendance.checkIn && isCheckoutMissed(attendance))) {
+    return { workedMinutes: Math.round(shiftDurationMinutes(shift)), workedMinutesBasis: 'shift' };
+  }
+  return { workedMinutes: null, workedMinutesBasis: null };
+}
+
+// workedMinutesFor needs the shift only for the 'shift' basis — resolves it
+// (one lookup) just for those rows.
+function needsShiftForHours(attendance) {
+  return (
+    !!attendance &&
+    !(attendance.checkIn && attendance.checkOut) &&
+    (attendance.status === 'on_duty' || (!!attendance.checkIn && isCheckoutMissed(attendance)))
+  );
 }
 
 function formatHoursMinutes(totalMinutes) {
@@ -320,8 +349,8 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
     }),
     db.LeaveRequest.findAll({
       where: { employeeId, status: 'approved', fromDate: { [Op.lte]: lastDate }, toDate: { [Op.gte]: startDate } },
-      attributes: ['fromDate', 'toDate'],
-      include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['name'] }],
+      attributes: ['fromDate', 'toDate', 'halfDaySession'],
+      include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['name', 'isPaid'] }],
     }),
     // Roster overrides the default shift for a specific date (CLAUDE.md
     // rule 7) — same precedence resolveShiftForDate uses, just batched.
@@ -373,23 +402,44 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
     return match?.leaveType?.name ?? null;
   }
 
+  // Paid-leave share of a day: 1 full paid leave, 0.5 a paid half-day leave,
+  // 0 unpaid / none. Used by the ESS hours chart (paid days shown at shift length).
+  function paidLeaveShareForDate(d) {
+    const match = leaveRequests.find((lr) => lr.fromDate <= d && lr.toDate >= d);
+    if (!match?.leaveType?.isPaid) return 0;
+    return match.halfDaySession ? 0.5 : 1;
+  }
+
+  // 'first_half' / 'second_half' when the day's leave is a half-day one.
+  function leaveHalfForDate(d) {
+    const match = leaveRequests.find((lr) => lr.fromDate <= d && lr.toDate >= d);
+    return match?.halfDaySession ?? null;
+  }
+
   const rows = [];
   let shiftIdx = -1;
   for (let d = startDate; d <= lastDate; d = addDays(d, 1)) {
-    const existing = attendanceByDate.get(d);
-    if (existing) {
-      const plain = existing.get({ plain: true });
-      if (plain.status === 'leave') plain.leaveTypeName = leaveTypeNameForDate(d);
-      plain.checkoutMissed = isCheckoutMissed(plain);
-      rows.push(plain);
-      continue;
-    }
-
     while (shiftIdx + 1 < employeeShifts.length && employeeShifts[shiftIdx + 1].effectiveFrom <= d) {
       shiftIdx++;
     }
     const defaultShift = shiftIdx >= 0 ? employeeShifts[shiftIdx].shift : null;
     const shift = rosterShiftByDate.get(d) || defaultShift || rosterGroupDefaultShift;
+
+    const existing = attendanceByDate.get(d);
+    if (existing) {
+      const plain = existing.get({ plain: true });
+      if (plain.status === 'leave') plain.leaveTypeName = leaveTypeNameForDate(d);
+      plain.checkoutMissed = isCheckoutMissed(plain);
+      Object.assign(plain, workedMinutesFor(plain, shift));
+      plain.shiftMinutes = Math.round(shiftDurationMinutes(shift));
+      plain.paidLeaveShare = plain.status === 'leave' ? paidLeaveShareForDate(d) : 0;
+      // Set for any day a leave covers (a half-day leave can sit on a present day).
+      plain.leaveTypeName = plain.leaveTypeName ?? leaveTypeNameForDate(d);
+      plain.leaveHalfDaySession = leaveHalfForDate(d);
+      rows.push(plain);
+      continue;
+    }
+
     const isWeekOff = !!shift?.weeklyOffDays?.length && shift.weeklyOffDays.includes(new Date(`${d}T00:00:00`).getDay());
 
     let status;
@@ -413,7 +463,12 @@ async function listMyAttendanceHistory({ companyId, employeeId, from, to }) {
       status,
       overtimeMinutes: 0,
       checkoutMissed: false,
+      workedMinutes: null,
+      workedMinutesBasis: null,
+      shiftMinutes: Math.round(shiftDurationMinutes(shift)),
+      paidLeaveShare: status === 'leave' ? paidLeaveShareForDate(d) : 0,
       leaveTypeName: status === 'leave' ? leaveTypeNameForDate(d) : null,
+      leaveHalfDaySession: status === 'leave' ? leaveHalfForDate(d) : null,
     });
   }
 
@@ -459,7 +514,11 @@ const ORG_ORDER = [
 ];
 
 async function toRosterRow(employee, attendance, leaveTypeName) {
+  const shift = needsShiftForHours(attendance)
+    ? await resolveShiftForDate({ employeeId: employee.id, dateStr: attendance.date })
+    : null;
   return {
+    ...workedMinutesFor(attendance, shift),
     employeeId: employee.id,
     employeeCode: employee.employeeCode,
     name: employee.name,
@@ -620,7 +679,9 @@ function leaveDisplayCodeForType(leaveType) {
 // batching principle listAttendanceRoster already uses for a single day.
 // `brandIds` is req.auth.scopedBrandIds: null for a company-wide caller, an
 // array to restrict a Brand Admin to their own brand(s).
-async function listAttendanceBoard({ companyId, brandIds, year, month }) {
+// `employeeIds` (optional) narrows the board to those employees, whatever
+// their status (an employee's Monthly Report — they may be on notice).
+async function listAttendanceBoard({ companyId, brandIds, year, month, employeeIds: onlyEmployeeIds = null }) {
   const y = Number(year);
   const m = Number(month);
   if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) {
@@ -637,7 +698,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
   // than a misleading 'absent'.
   const dataEnd = monthEnd < todayStr ? monthEnd : todayStr;
 
-  const employeeWhere = { companyId, status: 'active' };
+  const employeeWhere = onlyEmployeeIds ? { companyId, id: { [Op.in]: onlyEmployeeIds } } : { companyId, status: 'active' };
   if (brandIds) employeeWhere.brandId = { [Op.in]: brandIds };
 
   const employees = await db.Employee.findAll({
@@ -654,7 +715,18 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
   const rosterGroupIds = [...new Set(employees.map((e) => e.rosterGroupId).filter(Boolean))];
 
   const fetchRange = dataEnd >= monthStart;
-  const [attendanceRows, holidays, leaveRequests, rosterEntries, employeeShifts, rosterGroupShiftLinks] = await Promise.all([
+  const [
+    attendanceRows,
+    holidays,
+    leaveRequests,
+    rosterEntries,
+    employeeShifts,
+    rosterGroupShiftLinks,
+    odRequests,
+    sandwichDays,
+    resignations,
+    payrolls,
+  ] = await Promise.all([
     fetchRange
       ? db.Attendance.findAll({
           where: { employeeId: { [Op.in]: employeeIds }, date: { [Op.gte]: monthStart, [Op.lte]: dataEnd } },
@@ -675,8 +747,8 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
         fromDate: { [Op.lte]: monthEnd },
         toDate: { [Op.gte]: monthStart },
       },
-      attributes: ['employeeId', 'fromDate', 'toDate'],
-      include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['code', 'name'] }],
+      attributes: ['employeeId', 'fromDate', 'toDate', 'halfDaySession'],
+      include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['code', 'name', 'isPaid'] }],
     }),
     fetchRange
       ? db.ShiftRoster.findAll({
@@ -702,7 +774,89 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
           include: [{ model: db.Shift, as: 'shift' }],
         })
       : [],
+    // Payable-day inputs (same sources payrollEngine.js::classifyDays reads).
+    db.OdRequest.findAll({
+      where: {
+        employeeId: { [Op.in]: employeeIds },
+        status: 'approved',
+        fromDate: { [Op.lte]: monthEnd },
+        toDate: { [Op.gte]: monthStart },
+      },
+      attributes: ['employeeId', 'fromDate', 'toDate'],
+    }),
+    db.LeaveSandwichDay.findAll({
+      where: { employeeId: { [Op.in]: employeeIds }, date: { [Op.gte]: monthStart, [Op.lte]: monthEnd } },
+      attributes: ['employeeId', 'date', 'isLop'],
+    }),
+    db.Resignation.findAll({
+      where: { employeeId: { [Op.in]: employeeIds }, status: 'accepted', lastWorkingDate: { [Op.ne]: null } },
+      attributes: ['employeeId', 'lastWorkingDate'],
+    }),
+    // The month's generated payroll (if any), so the sheet can be checked
+    // against what payroll actually paid.
+    db.EmployeePayroll.findAll({
+      where: { employeeId: { [Op.in]: employeeIds }, periodYear: y, periodMonth: m },
+      attributes: ['employeeId', 'paidDays', 'lopDays'],
+    }),
   ]);
+
+  // Payable-day lookups, keyed `${employeeId}|${date}`.
+  const dayKey = (employeeId, d) => `${employeeId}|${d}`;
+  const fullLeavePaidByDay = new Map(); // -> leave type is paid
+  const halfLeaveByDay = new Map(); // -> { leave, paid } in days
+  for (const lr of leaveRequests) {
+    const isPaid = !!lr.leaveType?.isPaid;
+    if (lr.halfDaySession) {
+      const k = dayKey(lr.employeeId, lr.fromDate);
+      const entry = halfLeaveByDay.get(k) || { leave: 0, paid: 0 };
+      entry.leave += 0.5;
+      if (isPaid) entry.paid += 0.5;
+      halfLeaveByDay.set(k, entry);
+    } else {
+      for (const d of datesBetween(lr.fromDate, lr.toDate)) fullLeavePaidByDay.set(dayKey(lr.employeeId, d), isPaid);
+    }
+  }
+  const odDays = new Set();
+  for (const od of odRequests) {
+    for (const d of datesBetween(od.fromDate, od.toDate)) odDays.add(dayKey(od.employeeId, d));
+  }
+  const sandwichByDay = new Map(sandwichDays.map((sd) => [dayKey(sd.employeeId, sd.date), sd]));
+  const lastWorkingDateByEmployee = new Map();
+  for (const r of resignations) {
+    const k = String(r.employeeId);
+    const prev = lastWorkingDateByEmployee.get(k);
+    if (!prev || r.lastWorkingDate > prev) lastWorkingDateByEmployee.set(k, r.lastWorkingDate);
+  }
+  const payrollByEmployee = new Map(payrolls.map((p) => [String(p.employeeId), p]));
+
+  // Mirrors payrollEngine.js::classifyDays for one day: how much of it is
+  // paid, and why the rest (if any) is loss of pay. `status` is the day's
+  // board status (real attendance row, or synthesized).
+  function payableForDay(employeeId, d, status) {
+    const k = dayKey(employeeId, d);
+    const sandwich = sandwichByDay.get(k);
+    const half = halfLeaveByDay.get(k);
+    if (sandwich) {
+      return sandwich.isLop ? { paid: 0, sandwichLop: 1, reason: 'Sandwich' } : { paid: 1 };
+    }
+    if (status === 'present' || status === 'on_duty' || status === 'half_day') {
+      if (half && half.leave > half.paid) {
+        const unpaid = half.leave - half.paid;
+        return { paid: 1 - unpaid, unpaidLeave: unpaid, reason: 'Unpaid half leave' };
+      }
+      return { paid: 1 };
+    }
+    if (odDays.has(k)) return { paid: 1 };
+    if (fullLeavePaidByDay.has(k)) {
+      return fullLeavePaidByDay.get(k) ? { paid: 1, paidLeave: 1 } : { paid: 0, unpaidLeave: 1, reason: 'Unpaid leave' };
+    }
+    if (half) {
+      return { paid: half.paid, paidLeave: half.paid, reason: half.paid < 1 ? 'Half leave, rest absent' : null };
+    }
+    if (status === 'leave') return { paid: 1, paidLeave: 1 };
+    if (status === 'holiday' || status === 'weekoff') return { paid: 1 };
+    return { paid: 0, reason: 'Absent' };
+  }
 
   const rosterGroupDefaultShiftByGroup = new Map(
     rosterGroupShiftLinks.map((link) => [String(link.rosterGroupId), link.shift])
@@ -759,6 +913,23 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
     const summary = {
       present: 0, absent: 0, half_day: 0, leave: 0, holiday: 0, weekoff: 0, on_duty: 0, workedMinutes: 0,
     };
+    // Payroll view of the same days (export only): counted, paid, LOP.
+    const lastWorkingDate = lastWorkingDateByEmployee.get(key) ?? null;
+    const pay = {
+      countedDays: 0, payableDays: 0, lopDays: 0, paidLeave: 0, unpaidLeave: 0, sandwichLop: 0,
+      missedCheckouts: 0, lopDates: [],
+    };
+    const tallyPay = (d, day, status) => {
+      if (lastWorkingDate && d > lastWorkingDate) return; // after the last working day: not on payroll
+      const r = payableForDay(employee.id, d, status);
+      pay.countedDays += 1;
+      pay.payableDays += r.paid;
+      pay.lopDays += 1 - r.paid;
+      pay.paidLeave += r.paidLeave ?? 0;
+      pay.unpaidLeave += r.unpaidLeave ?? 0;
+      pay.sandwichLop += r.sandwichLop ?? 0;
+      if (r.paid < 1) pay.lopDates.push(`${day}${r.paid > 0 ? ' (half)' : ''} ${r.reason ?? ''}`.trim());
+    };
 
     const days = [];
     for (let day = 1; day <= daysInMonth; day++) {
@@ -769,9 +940,16 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
         continue;
       }
 
+      while (shiftIdx + 1 < shiftHistory.length && shiftHistory[shiftIdx + 1].effectiveFrom <= d) {
+        shiftIdx++;
+      }
+      const defaultShift = shiftIdx >= 0 ? shiftHistory[shiftIdx].shift : null;
+      const shift = rosterByDate.get(d) || defaultShift || rosterGroupDefaultShift;
+
       const existing = attendanceByDate.get(d);
       if (existing) {
         const code = existing.status === 'leave' ? leaveCodeForDate(employee.id, d) : STATUS_DISPLAY_CODE[existing.status];
+        const hours = workedMinutesFor(existing, shift);
         days.push({
           day,
           code: code ?? existing.status,
@@ -779,19 +957,14 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
           checkIn: existing.checkIn,
           checkOut: existing.checkOut,
           checkoutMissed: isCheckoutMissed(existing),
+          ...hours,
         });
         summary[existing.status] = (summary[existing.status] ?? 0) + 1;
-        if (existing.checkIn && existing.checkOut) {
-          summary.workedMinutes += (new Date(existing.checkOut) - new Date(existing.checkIn)) / 60000;
-        }
+        if (isCheckoutMissed(existing)) pay.missedCheckouts += 1;
+        tallyPay(d, day, existing.status);
+        if (hours.workedMinutes) summary.workedMinutes += hours.workedMinutes;
         continue;
       }
-
-      while (shiftIdx + 1 < shiftHistory.length && shiftHistory[shiftIdx + 1].effectiveFrom <= d) {
-        shiftIdx++;
-      }
-      const defaultShift = shiftIdx >= 0 ? shiftHistory[shiftIdx].shift : null;
-      const shift = rosterByDate.get(d) || defaultShift || rosterGroupDefaultShift;
       const isWeekOff = !!shift?.weeklyOffDays?.length && shift.weeklyOffDays.includes(new Date(`${d}T00:00:00`).getDay());
       // Same Roster-Group-linkage rule as utils/workingDays.js::isHoliday —
       // no rosterGroupId means no holidays apply, and a linked holiday must
@@ -816,7 +989,10 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
       const code = status === 'leave' ? leaveCodeForDate(employee.id, d) : STATUS_DISPLAY_CODE[status];
       days.push({ day, code, category: status, checkIn: null, checkOut: null });
       summary[status] = (summary[status] ?? 0) + 1;
+      tallyPay(d, day, status);
     }
+
+    const payroll = payrollByEmployee.get(key);
 
     return {
       employeeId: employee.id,
@@ -828,6 +1004,13 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
       brandName: employee.brand ? employee.brand.name : null,
       days,
       summary: { ...summary, workedMinutes: Math.round(summary.workedMinutes) },
+      dateOfJoining: employee.dateOfJoining,
+      lastWorkingDate,
+      pay: {
+        ...pay,
+        payrollPaidDays: payroll ? Number(payroll.paidDays) : null,
+        payrollLopDays: payroll ? Number(payroll.lopDays) : null,
+      },
     };
   });
 
@@ -848,7 +1031,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month }) {
   }
   const leaveLegend = [...leaveLegendByCode].map(([code, name]) => ({ code, name }));
 
-  return { year: y, month: m, daysInMonth, rows, leaveLegend };
+  return { year: y, month: m, daysInMonth, dataEnd, rows, leaveLegend };
 }
 
 // present/half_day/absent go straight to the attendance row (below); 'leave'

@@ -5,6 +5,8 @@ const controller = require('./attendanceRegularization.controller');
 const { requireAuth } = require('../../middleware/auth.middleware');
 const { requirePermission, userHasPermission, getBrandScope } = require('../../middleware/rbac.middleware');
 const db = require('../../models');
+const { runAsCompany } = require('../../config/tenant-context');
+const { isGroupAdminCaller, companyInCallerGroup } = require('../../middleware/approvalAccess');
 
 const router = Router();
 router.use(requireAuth);
@@ -67,11 +69,47 @@ async function requireRevokeAccess(req, res, next) {
   }
 }
 
+// Group Admin (company-less) decides/reverts like a Company Admin, for any
+// company of their own Group: needs the plain code on their group role, and
+// the request runs under the REGULARIZATION's company (req.regularizationCompanyId).
+// Everyone else falls through to the existing gate unchanged.
+function allowGroupAdmin(code, fallback) {
+  return async function (req, res, next) {
+    if (!isGroupAdminCaller(req.auth)) return fallback(req, res, next);
+    try {
+      if (!(await userHasPermission(req.auth, code))) {
+        return res.status(403).json({ error: 'Forbidden', permission: code });
+      }
+      const regularization = await db.AttendanceRegularization.findOne({
+        where: { id: req.params.id },
+        attributes: ['id'],
+        include: [{ model: db.Employee, as: 'employee', attributes: ['companyId'], required: true }],
+      });
+      const companyId = regularization?.employee?.companyId;
+      if (!companyId || !(await companyInCallerGroup(req.auth, companyId))) {
+        return res.status(404).json({ error: 'Regularization request not found' });
+      }
+      req.regularizationCompanyId = companyId;
+      return runAsCompany(companyId, () => next());
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+
 router.get('/', requireReadAccess, controller.list);
 router.post('/', requirePermission('attendance_regularization:request'), controller.create);
 router.get('/:id/history', controller.history);
-router.patch('/:id/approve', requirePermission('attendance_regularization:approve'), controller.approve);
-router.patch('/:id/reject', requirePermission('attendance_regularization:reject'), controller.reject);
-router.patch('/:id/revoke', requireRevokeAccess, controller.revoke);
+router.patch(
+  '/:id/approve',
+  allowGroupAdmin('attendance_regularization:approve', requirePermission('attendance_regularization:approve')),
+  controller.approve
+);
+router.patch(
+  '/:id/reject',
+  allowGroupAdmin('attendance_regularization:reject', requirePermission('attendance_regularization:reject')),
+  controller.reject
+);
+router.patch('/:id/revoke', allowGroupAdmin('attendance_regularization:approve', requireRevokeAccess), controller.revoke);
 
 module.exports = router;

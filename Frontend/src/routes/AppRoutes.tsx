@@ -1,3 +1,4 @@
+import { EmployeeReportsPage } from '../pages/reports/EmployeeReportsPage';
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
@@ -263,6 +264,17 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/company-admin/monthly-report"
+        element={
+          <ProtectedRoute permission="employee:read">
+            <Layout navItems={COMPANY_ADMIN_NAV} portalLabel="Company Admin" title="Monthly Report">
+              <EmployeeReportsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/company-admin/attendance-board"
         element={
           <ProtectedRoute permission="attendance:read">
@@ -406,6 +418,17 @@ export function AppRoutes() {
       />
 
       <Route
+        path="/group-admin/monthly-report"
+        element={
+          <ProtectedRoute permission="employee:read">
+            <Layout navItems={GROUP_ADMIN_NAV} portalLabel="Group Admin" title="Monthly Report">
+              <EmployeeReportsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/group-admin/attendance-board"
         element={
           <ProtectedRoute permission="attendance:read">
@@ -510,6 +533,17 @@ export function AppRoutes() {
           <ProtectedRoute permission="attendance:read">
             <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Attendance Records">
               <BrandAdminAttendanceRecordsPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/brand-admin/monthly-report"
+        element={
+          <ProtectedRoute permission="employee:read">
+            <Layout navItems={BRAND_ADMIN_NAV} portalLabel="Brand Admin" title="Monthly Report">
+              <EmployeeReportsPage />
             </Layout>
           </ProtectedRoute>
         }

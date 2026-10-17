@@ -8,6 +8,11 @@ const { getManagersForEmployee } = require('../../utils/managerScope');
 const managerOptions = require('./managerOptions.service');
 const { listProbationAlerts } = require('./probationAlerts.service');
 const { parsePagination } = require('../../utils/pagination');
+const { getMyFaceProfileStatus: getEmployeeFaceProfileStatus } = require('../attendance/faceProfile.service');
+const { buildMonthlyReport } = require('./employeeMonthlyReport.service');
+const { writeEmployeeMonthlyReportXlsx } = require('../../utils/employeeMonthlyReportExport');
+const { buildPeriodReport } = require('./employeePeriodReport.service');
+const { writeEmployeePeriodReportXlsx } = require('../../utils/employeePeriodReportExport');
 const {
   resolveCompanyScope,
   requireCompanyScope,
@@ -46,22 +51,89 @@ async function list(req, res, next) {
   }
 }
 
+// Loads an employee for reading and applies the Group / Brand confinement
+// requireEmployeeReadAccess leaves to the controller.
+async function getReadableEmployee(req) {
+  const employee = await service.getEmployeeForRead(req.params.id);
+  // Group Admin is company-less, so the tenant-scope hook is dormant for
+  // them — confine them to their own Group's employees explicitly (same
+  // 404-not-403 convention as getEmployeeForWrite's groupId check).
+  if (!req.auth.companyId && req.auth.groupId) {
+    const inGroup = await db.Company.count({ where: { id: employee.companyId, groupId: req.auth.groupId } });
+    if (!inGroup) throw new HttpError(404, 'Employee not found');
+  }
+  const brandIds = req.auth.scopedBrandIds;
+  const isSelf = req.auth.employeeId != null && String(req.auth.employeeId) === String(employee.id);
+  if (brandIds && !isSelf && !brandIds.some((brandId) => String(brandId) === String(employee.brandId))) {
+    throw new HttpError(404, 'Employee not found');
+  }
+  return employee;
+}
+
 async function get(req, res, next) {
   try {
-    const employee = await service.getEmployeeForRead(req.params.id);
-    // Group Admin is company-less, so the tenant-scope hook is dormant for
-    // them — confine them to their own Group's employees explicitly (same
-    // 404-not-403 convention as getEmployeeForWrite's groupId check).
-    if (!req.auth.companyId && req.auth.groupId) {
-      const inGroup = await db.Company.count({ where: { id: employee.companyId, groupId: req.auth.groupId } });
-      if (!inGroup) throw new HttpError(404, 'Employee not found');
-    }
-    const brandIds = req.auth.scopedBrandIds;
-    const isSelf = req.auth.employeeId != null && String(req.auth.employeeId) === String(employee.id);
-    if (brandIds && !isSelf && !brandIds.some((brandId) => String(brandId) === String(employee.brandId))) {
-      throw new HttpError(404, 'Employee not found');
-    }
+    const employee = await getReadableEmployee(req);
     res.json({ data: employee });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// View-only registered Face ID photo for admins (Group / Company / Brand
+// Admin, HR, Manage-Employees power). Super Admin is excluded on purpose.
+async function getFacePhoto(req, res, next) {
+  try {
+    if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
+    const employee = await getReadableEmployee(req);
+    const result = await getEmployeeFaceProfileStatus({ employeeId: employee.id });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Monthly Report tab (admins only — Super Admin excluded, like getFacePhoto).
+async function getMonthlyReport(req, res, next) {
+  try {
+    if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
+    const employee = await getReadableEmployee(req);
+    const report = await buildMonthlyReport({ auth: req.auth, employee, year: req.query.year, month: req.query.month });
+    res.json({ data: report });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function exportMonthlyReport(req, res, next) {
+  try {
+    if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
+    const employee = await getReadableEmployee(req);
+    const report = await buildMonthlyReport({ auth: req.auth, employee, year: req.query.year, month: req.query.month });
+    await writeEmployeeMonthlyReportXlsx(res, report);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Employee Reports — many employees x a month range / year (admins only,
+// Super Admin excluded). Body: { employeeIds[], months: ['YYYY-MM', ...] } (or from/to).
+async function getPeriodReport(req, res, next) {
+  try {
+    if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
+    const { employeeIds, months, from, to } = req.body;
+    const report = await buildPeriodReport({ auth: req.auth, employeeIds, months, from, to });
+    res.json({ data: report });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function exportPeriodReport(req, res, next) {
+  try {
+    if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
+    const { employeeIds, months, from, to } = req.body;
+    const report = await buildPeriodReport({ auth: req.auth, employeeIds, months, from, to, includeDays: true });
+    await writeEmployeePeriodReportXlsx(res, report);
   } catch (err) {
     next(err);
   }
@@ -439,6 +511,11 @@ module.exports = {
   getManagerEmployees,
   list,
   get,
+  getFacePhoto,
+  getMonthlyReport,
+  exportMonthlyReport,
+  getPeriodReport,
+  exportPeriodReport,
   create,
   update,
   changeRoster,

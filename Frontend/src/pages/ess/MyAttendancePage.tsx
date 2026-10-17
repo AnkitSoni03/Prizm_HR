@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { workingHoursLabel } from '../../utils/workingHours';
 import { CalendarCheck, CalendarX2, Clock3, PlaneTakeoff, Timer } from 'lucide-react';
 import { Tabs } from '../../components/ui/Tabs';
 import { Table } from '../../components/ui/Table';
@@ -76,19 +77,10 @@ function formatRequestedTimes(r: AttendanceRegularization): string {
   return `${formatDisplayTime(r.requestedCheckIn)} → ${formatDisplayTime(r.requestedCheckOut)}`;
 }
 
-// Working hours for a single day — only meaningful once both punches exist
-// (an open check-in with no check-out yet, or a leave/holiday/weekoff day
-// with neither, both correctly contribute 0).
+// Working hours for a single day, as computed by the backend (actual punches,
+// or the shift's length for an On Duty / missed-checkout day) — 0 otherwise.
 function workedMinutes(record: Attendance): number {
-  if (!record.checkIn || !record.checkOut) return 0;
-  const minutes = (new Date(record.checkOut).getTime() - new Date(record.checkIn).getTime()) / 60000;
-  return minutes > 0 ? minutes : 0;
-}
-
-function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  return `${hours}h ${String(mins).padStart(2, '0')}m`;
+  return record.workedMinutes ?? 0;
 }
 
 export function MyAttendancePage() {
@@ -364,7 +356,7 @@ export function MyAttendancePage() {
             {
               key: 'workingHours',
               header: 'Working Hrs',
-              render: (r) => (r.checkIn && r.checkOut ? formatDuration(workedMinutes(r)) : '—'),
+              render: (r) => workingHoursLabel(r),
             },
             {
               key: 'status',

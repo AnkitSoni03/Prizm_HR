@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { workingHoursLabel } from '../../utils/workingHours';
 import {
   Briefcase,
   CalendarCheck,
@@ -106,17 +107,6 @@ const TONE_CLASSES: Record<'success' | 'warning' | 'danger' | 'neutral', string>
   neutral: 'bg-muted text-ink-muted',
 };
 
-// Same shape as MyAttendancePage's workedMinutes/formatDuration — only
-// meaningful once both punches exist for today.
-function workingHoursLabel(checkIn: string | null, checkOut: string | null): string {
-  if (!checkIn || !checkOut) return '—';
-  const minutes = (new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 60000;
-  if (minutes <= 0) return '—';
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  return `${hours}h ${String(mins).padStart(2, '0')}m`;
-}
-
 // "Ankit Soni" -> "AS" — same two-initial fallback shape as every other
 // avatar-with-photo pattern in this app (Avatar.tsx falls back to a plain
 // person icon instead; this card wants the initials specifically, to match
@@ -156,6 +146,8 @@ interface Summary {
   todayStatus: string | null;
   checkIn: string | null;
   checkOut: string | null;
+  workedMinutes: number | null;
+  workedMinutesBasis: 'actual' | 'shift' | null;
   leaveBalanceTotal: number;
   leaveBreakdown: LeaveBalanceEntry[];
   leaveUsage: LeaveUsageEntry[];
@@ -475,6 +467,8 @@ export function EssDashboard() {
           todayStatus: todayRecord?.status ?? null,
           checkIn: todayRecord?.checkIn ?? null,
           checkOut: todayRecord?.checkOut ?? null,
+          workedMinutes: todayRecord?.workedMinutes ?? null,
+          workedMinutesBasis: todayRecord?.workedMinutesBasis ?? null,
           monthPresent,
           monthWorkingDays,
           leaveBalanceTotal: limitedBalances.reduce((sum, b) => sum + Number(b.balance), 0),
@@ -747,7 +741,7 @@ export function EssDashboard() {
                 <span className="text-xs text-ink-muted sm:text-sm">Total Working Hours</span>
               </span>
               <span className="text-xs font-semibold text-ink sm:text-sm">
-                {workingHoursLabel(summary.checkIn, summary.checkOut)}
+                {workingHoursLabel(summary)}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3 rounded-lg bg-page px-3 py-2.5 sm:px-4 sm:py-3">

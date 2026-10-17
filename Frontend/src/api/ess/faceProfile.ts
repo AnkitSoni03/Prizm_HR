@@ -18,3 +18,9 @@ export async function getMyFaceProfileStatus(): Promise<FaceProfileStatus> {
   const { data } = await apiClient.get('/attendance/face-profile/me');
   return data.data;
 }
+
+// Admin view (read-only) of another employee's registered Face ID photo.
+export async function getEmployeeFaceProfileStatus(employeeId: string): Promise<FaceProfileStatus> {
+  const { data } = await apiClient.get(`/employees/${employeeId}/face-photo`);
+  return data.data;
+}

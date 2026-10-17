@@ -33,6 +33,7 @@ import { PhotoUploadField } from '../../../components/ui/PhotoUploadField';
 import { FileUploadField } from '../../../components/ui/FileUploadField';
 import { FilePreviewModal } from '../../../components/ui/FilePreviewModal';
 import { Avatar } from '../../../components/ui/Avatar';
+import { EmployeeFaceIdCard } from '../../../components/EmployeeFaceIdCard';
 import {
   listEmployeeDocuments,
   uploadEmployeeDocument,
@@ -175,6 +176,8 @@ export function EmployeeDetailModal({
   const availableRosterGroups = usesBrands ? rosterGroups.filter((rg) => rg.brandId === employee.brandId) : rosterGroups;
 
   const [activeTab, setActiveTab] = useState<'details' | 'documents' | 'powers' | 'leaves'>(initialTab);
+  // Face ID card: every admin except Super Admin.
+  const isSuperAdminViewer = !!user?.roles.some((role) => role.name === 'Super Admin');
 
   const [photoDownloadUrl, setPhotoDownloadUrl] = useState(employee.photoDownloadUrl ?? null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
@@ -923,6 +926,8 @@ export function EmployeeDetailModal({
               <Badge tone={statusTone(employee.status)}>{employee.status}</Badge>
             </p>
           </div>
+
+          {!isSuperAdminViewer && <EmployeeFaceIdCard employeeId={employee.id} />}
 
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-page px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">

@@ -70,8 +70,16 @@ async function requireManagerPickerAccess(req, res, next) {
 router.get('/manager-options/companies', requireManagerPickerAccess, controller.getManagerCompanies);
 router.get('/manager-options/employees', requireManagerPickerAccess, controller.getManagerEmployees);
 
+// Employee Reports (several employees x a month range). POST because the id
+// list can be long. Before '/:id' routes; employee scoping is in the service.
+router.post('/reports/period', requirePermission('employee:read'), controller.getPeriodReport);
+router.post('/reports/period/export', requirePermission('employee:read'), controller.exportPeriodReport);
+
 router.get('/', requirePermission('employee:read'), controller.list);
 router.get('/:id', requireEmployeeReadAccess, controller.get);
+router.get('/:id/face-photo', requireEmployeeReadAccess, controller.getFacePhoto);
+router.get('/:id/monthly-report', requireEmployeeReadAccess, controller.getMonthlyReport);
+router.get('/:id/monthly-report/export', requireEmployeeReadAccess, controller.exportMonthlyReport);
 router.post('/', requirePermission('employee:create'), controller.create);
 router.patch('/:id', requirePermission('employee:update'), controller.update);
 // Dedicated Roster-change action (carry-forward decision) — same

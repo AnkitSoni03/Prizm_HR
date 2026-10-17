@@ -1421,6 +1421,37 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
     the old cycle settings, re-keys still-in-probation employees' current row onto DOJ, drops
     leave-type cycle). Flow mock-tested offline (8 scenarios); **not live-tested, migrations not
     applied** (.env is prod).
+- ✅ Admins see employees' registered Face ID photo (2026-10-17): view-only Face ID card in both
+  employee popups via `GET /employees/:id/face-photo` (same read scoping as `GET /employees/:id`);
+  Super Admin refused server-side and hidden in UI.
+- ✅ Group Admin approve / reject / revert (2026-10-17): leave, OD, regularization, comp-off, for
+  any company of their Group. Seeder `20261017090000` grants the `:approve`/`:reject` codes;
+  `approvalAccess.js` gained a Group Admin path (item's company checked against the Group, then
+  `runAsCompany(item company)`); regularization uses `allowGroupAdmin` in its routes. UI is
+  permission-driven (Group Admin → Company → Approvals tab). **Not live-tested, seeder not applied.**
+- ✅ Attendance Board export — payroll cross-check columns (2026-10-17): `listAttendanceBoard` rows
+  gained `pay` (counted / payable / LOP days, paid + unpaid leave, sandwich LOP, missed checkouts,
+  LOP dates with reason, and the generated payroll's paid/LOP days) plus `dateOfJoining` /
+  `lastWorkingDate`; day rules mirror `payrollEngine.js::classifyDays` (`payableForDay`) — keep
+  the two in sync. Export adds those columns (payable/LOP highlighted, non-zero "Diff vs
+  Payroll" red) and a notes block. Mock-tested the xlsx only; not live-tested.
+- ✅ Working hours from the shift for OD / missed checkout (2026-10-17): backend computes
+  `workedMinutes` + `workedMinutesBasis` (`attendance.service.js::workedMinutesFor`) on history,
+  roster and board rows — both punches = actual; else On Duty or a missed checkout = the
+  assigned shift's length (9h fallback). Punch times are never filled in; a corrected checkout
+  switches back to actual on its own. Frontend reads it via `utils/workingHours.ts` ("(shift)"
+  suffix); export shows shift hours in italics. Not live-tested.
+- ✅ Monthly Report (2026-10-17), sidebar page `/company-admin|brand-admin|group-admin/monthly-report`
+  (`pages/reports/EmployeeReportsPage.tsx`), admins only (Super Admin refused server-side + no nav).
+  Pick many employees (Group Admin per company, selection kept across companies) + any months as
+  chips (`ReportMonthPicker.tsx`, non-consecutive allowed, ≤12; "Whole year" shortcut) → one
+  combined report: `POST /employees/reports/period[/export]` body `{ employeeIds, months: ['YYYY-MM'] }`
+  (`employeePeriodReport.service.js`, one `listAttendanceBoard` call per picked month — board gained
+  an `employeeIds` filter that also drops the active-only rule; ≤500 employees, ≤3000 employee-months).
+  Exactly 1 employee + 1 month shows the detailed view instead (`GET /employees/:id/monthly-report[/export]`,
+  `employeeMonthlyReport.service.js`, `components/reports/MonthlyReportDetail.tsx`). Payroll money only
+  where `resolvePayrollAccess` covers the employee. No tab in the employee popups (moved to sidebar).
+  Exports mock-tested; not live-tested.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

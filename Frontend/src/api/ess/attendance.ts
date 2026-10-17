@@ -15,6 +15,15 @@ export interface Attendance {
   // Only set (by the History endpoint) when status is 'leave' — the
   // specific leave type name (e.g. "Annual Leave") covering that date.
   leaveTypeName?: string | null;
+  // Backend-computed working hours (utils/workingHours.ts).
+  workedMinutes?: number | null;
+  workedMinutesBasis?: 'actual' | 'shift' | null;
+  // History rows only: the assigned shift's length that day (9h fallback),
+  // and how much of the day is paid leave (1 / 0.5 / 0).
+  shiftMinutes?: number;
+  paidLeaveShare?: number;
+  // History rows only: set when the day's leave is a half-day one.
+  leaveHalfDaySession?: 'first_half' | 'second_half' | null;
 }
 
 export interface AttendanceRegularization {
