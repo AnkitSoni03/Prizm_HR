@@ -19,6 +19,22 @@ export interface MonthlyReportDay {
   source: string | null;
 }
 
+// One assigned leave type with its current balance (as of today).
+export interface ReportLeaveBalance {
+  leaveTypeName: string;
+  leaveTypeCode: string | null;
+  isPaid: boolean;
+  isUnlimited: boolean;
+  accrual: string | null;
+  linkedToName: string | null; // e.g. Half Day drawing on Annual Leave
+  periodStart: string | null;
+  periodEnd: string | null;
+  carriedForward: number | null;
+  allotted: number | null;
+  used: number | null;
+  balance: number | null;
+}
+
 export interface EmployeeMonthlyReport {
   employee: {
     id: string;
@@ -92,15 +108,8 @@ export interface EmployeeMonthlyReport {
     rejectionReason: string | null;
   }[];
   compOffCredits: { id: string; earnedDate: string; expiryDate: string | null; status: string }[];
-  leaveBalances: {
-    leaveTypeName: string;
-    periodStart: string;
-    periodEnd: string | null;
-    carriedForward: number | null;
-    allotted: number | null;
-    used: number | null;
-    balance: number | null;
-  }[];
+  // Assigned leave types (Roster leave policies) with their CURRENT balance.
+  leaveBalances: ReportLeaveBalance[];
   // null = the caller can't view payroll for this employee.
   payroll:
     | null

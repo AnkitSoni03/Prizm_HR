@@ -1451,6 +1451,9 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   Exactly 1 employee + 1 month shows the detailed view instead (`GET /employees/:id/monthly-report[/export]`,
   `employeeMonthlyReport.service.js`, `components/reports/MonthlyReportDetail.tsx`). Payroll money only
   where `resolvePayrollAccess` covers the employee. No tab in the employee popups (moved to sidebar).
+  Both reports also list each employee's assigned leave types (Roster leave policies) with Assigned /
+  Carried Fwd / Used / Balance as of today (`modules/org/reportLeaveBalances.js` — seeds + filters exactly
+  like the employee's own Leave Balance page; linked types like Half Day included).
   Exports mock-tested; not live-tested.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.

@@ -9,6 +9,7 @@ import {
 } from '../../api/employeeMonthlyReport';
 import { formatDisplayDate, formatDisplayDateRange, formatDisplayTime } from '../../utils/dateDisplay';
 import { workingHoursLabel, formatDuration } from '../../utils/workingHours';
+import { LeaveBalanceTable } from './LeaveBalanceTable';
 
 // Detailed one-employee, one-month view of the Monthly Report page
 // (pages/reports/EmployeeReportsPage.tsx) — shown when exactly one employee
@@ -345,35 +346,11 @@ function ReportBody({ report, isFutureMonth }: { report: Report; isFutureMonth: 
         )}
       </Section>
 
-      <Section title="Leave Balances">
+      <Section title="Assigned Leaves & Balance (as of today)">
         {report.leaveBalances.length === 0 ? (
-          <Empty text="No leave balances." />
+          <Empty text="No leave types assigned (no Roster leave policy)." />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-page text-ink-muted">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Leave Type</th>
-                  <th className="px-3 py-2 font-medium">Allotted</th>
-                  <th className="px-3 py-2 font-medium">Used</th>
-                  <th className="px-3 py-2 font-medium">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.leaveBalances.map((b) => (
-                  <tr key={b.leaveTypeName + b.periodStart} className="border-t border-border">
-                    <td className="px-3 py-1.5 text-ink">{b.leaveTypeName}</td>
-                    <td className="px-3 py-1.5 text-ink">
-                      {b.allotted ?? 0}
-                      {!!b.carriedForward && <span className="text-ink-muted"> (+{b.carriedForward} CF)</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-ink">{b.used ?? 0}</td>
-                    <td className="px-3 py-1.5 font-medium text-ink">{b.balance ?? 0}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <LeaveBalanceTable rows={report.leaveBalances} />
         )}
       </Section>
     </div>

@@ -7,12 +7,13 @@ const { runAsCompany } = require('../../config/tenant-context');
 const { dateOnly } = require('../../utils/dateRange');
 const attendanceService = require('../attendance/attendance.service');
 const { resolvePayrollAccess } = require('../payroll/payrollAccess');
+const { currentLeaveBalances } = require('./reportLeaveBalances');
 
 // One employee's Monthly Report (Employee popup → "Monthly Report" tab):
 // day-by-day attendance with working hours, the month's totals with
 // payable / LOP days (attendanceService.listAttendanceBoard — same rules as
 // payroll), and every leave / OD / regularization / comp-off record touching
-// the month, the leave balances in force, and — only for a caller who can
+// the month, the assigned leave types with their current balance, and — only for a caller who can
 // view payroll for this employee — that month's payroll figures.
 //
 // The caller has already been confined to this employee by the controller
@@ -53,7 +54,7 @@ async function buildMonthlyReport({ auth, employee, year, month }) {
 
   return runAsCompany(companyId, async () => {
     const historyTo = monthEnd < todayStr ? monthEnd : todayStr;
-    const [board, history, leaveRequests, odRequests, regularizations, compOffCredits, leaveBalances, payroll, shift] =
+    const [board, history, leaveRequests, odRequests, regularizations, compOffCredits, balances, payroll, shift] =
       await Promise.all([
         attendanceService.listAttendanceBoard({ companyId, brandIds: null, year: y, month: m, employeeIds: [employee.id] }),
         monthStart <= historyTo
@@ -85,15 +86,7 @@ async function buildMonthlyReport({ auth, employee, year, month }) {
           where: { employeeId: employee.id, earnedDate: { [Op.gte]: monthStart, [Op.lte]: monthEnd } },
           order: [['earnedDate', 'ASC']],
         }),
-        db.LeaveBalance.findAll({
-          where: {
-            employeeId: employee.id,
-            periodStart: { [Op.lte]: monthEnd },
-            [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: monthStart } }],
-          },
-          include: [{ model: db.LeaveType, as: 'leaveType', attributes: ['name', 'code'] }],
-          order: [['periodStart', 'DESC']],
-        }),
+        currentLeaveBalances(employee),
         showPayroll
           ? db.EmployeePayroll.findOne({ where: { employeeId: employee.id, periodYear: y, periodMonth: m } })
           : null,
@@ -121,23 +114,6 @@ async function buildMonthlyReport({ auth, employee, year, month }) {
         workedMinutes: h?.workedMinutes ?? null,
         workedMinutesBasis: h?.workedMinutesBasis ?? null,
         source: h?.source ?? null,
-      });
-    }
-
-    // Only one balance row per leave type: the newest period overlapping the month.
-    const seenTypes = new Set();
-    const balances = [];
-    for (const b of leaveBalances) {
-      if (seenTypes.has(String(b.leaveTypeId))) continue;
-      seenTypes.add(String(b.leaveTypeId));
-      balances.push({
-        leaveTypeName: b.leaveType?.name ?? 'Leave',
-        periodStart: b.periodStart,
-        periodEnd: b.periodEnd,
-        carriedForward: num(b.carriedForward),
-        allotted: num(b.allotted),
-        used: num(b.used),
-        balance: num(b.balance),
       });
     }
 

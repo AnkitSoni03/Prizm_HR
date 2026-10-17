@@ -1,6 +1,7 @@
 'use strict';
 
 const ExcelJS = require('exceljs');
+const { leaveBalanceCells } = require('./reportLeaveBalanceCells');
 
 // .xlsx version of employeePeriodReport.service.js::buildPeriodReport
 // (built with includeDays). Sheets: Summary (one row per employee, period
@@ -230,6 +231,28 @@ async function writeEmployeePeriodReportXlsx(res, report) {
   buildSummary(workbook, report, anyPayroll);
   buildMonthly(workbook, report, anyPayroll);
   buildDaily(workbook, report);
+  const balanceSheet = sheetWithHeader(workbook, 'Leave Balances', [
+    ...IDENTITY,
+    { header: 'Leave Type', key: 'type', width: 22 },
+    { header: 'Assigned', key: 'assigned', width: 10 },
+    { header: 'Carried Fwd', key: 'cf', width: 11 },
+    { header: 'Used', key: 'used', width: 8 },
+    { header: 'Balance', key: 'balance', width: 10 },
+    { header: 'Note', key: 'note', width: 34 },
+  ]);
+  for (const r of report.rows) {
+    if (!(r.leaveBalances ?? []).length) {
+      balanceSheet.addRow([r.employee.employeeCode ?? '', r.employee.name ?? '', 'No leave types assigned']);
+      continue;
+    }
+    for (const b of r.leaveBalances) {
+      const row = balanceSheet.addRow([r.employee.employeeCode ?? '', r.employee.name ?? '', ...leaveBalanceCells(b, fmtDate)]);
+      row.getCell(7).font = { bold: true };
+    }
+  }
+  const balanceNote = balanceSheet.addRow([]);
+  balanceNote.getCell(1).value = 'Balances are as of today (current leave period), not as of the picked months.';
+  balanceNote.getCell(1).font = { italic: true, color: { argb: 'FF6B7280' } };
   buildList(
     workbook,
     'Leave Requests',

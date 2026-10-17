@@ -7,6 +7,7 @@ const { getBrandScope } = require('../../middleware/rbac.middleware');
 const { dateOnly, datesBetween } = require('../../utils/dateRange');
 const attendanceService = require('../attendance/attendance.service');
 const { resolvePayrollAccess } = require('../payroll/payrollAccess');
+const { currentLeaveBalancesFor } = require('./reportLeaveBalances');
 
 // Employee Reports — several employees x several months (a month range or a
 // whole year) in one report: per-employee totals for the period, a per-month
@@ -210,6 +211,9 @@ async function buildPeriodReport({ auth, employeeIds, months: pickedMonths, from
   const regularizations = allRegularizations.filter((r) => r.attendance && touchesPicked(r.attendance.date));
   const compOffCredits = allCompOffCredits.filter((c) => touchesPicked(c.earnedDate));
 
+  // Assigned leave types + current balance (as of today) per employee.
+  const balancesByEmployee = await currentLeaveBalancesFor(employees);
+
   const payrollByKey = new Map(payrolls.map((p) => [`${p.employeeId}|${p.periodYear}-${p.periodMonth}`, p]));
   const employeeById = new Map(employees.map((e) => [String(e.id), e]));
   const nameOf = (employeeId) => employeeById.get(String(employeeId))?.name ?? '—';
@@ -279,6 +283,7 @@ async function buildPeriodReport({ auth, employeeIds, months: pickedMonths, from
       },
       totals: { ...totals, netPay: netPayTotal == null ? null : round2(netPayTotal) },
       payrollVisible: showPayroll,
+      leaveBalances: balancesByEmployee.get(key) ?? [],
       months: monthRows,
       ...(includeDays ? { days } : {}),
     };

@@ -4,6 +4,7 @@ import { Badge } from '../ui/Badge';
 import type { EmployeePeriodReport } from '../../api/employeeReports';
 import { formatDisplayDate, formatDisplayDateRange, formatDisplayTime } from '../../utils/dateDisplay';
 import { formatDuration } from '../../utils/workingHours';
+import { LeaveBalanceTable } from './LeaveBalanceTable';
 
 // On-screen view of a combined Monthly Report (several employees x picked months).
 // One row per employee with period totals; click a row for its month-by-month
@@ -177,6 +178,33 @@ export function EmployeePeriodReportView({ report, showEmployeeColumn = true }: 
                         )}
                       </tr>
                     ))}
+                  {open && (
+                    <tr className="bg-page/60">
+                      <td colSpan={anyPayroll ? 12 : 11} className="px-3 py-2 pl-9">
+                        <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+                          Assigned leaves &amp; balance (as of today)
+                        </p>
+                        {row.leaveBalances.length === 0 ? (
+                          <p className="text-[11px] text-ink-muted">No leave types assigned.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {row.leaveBalances.map((b) => (
+                              <span
+                                key={b.leaveTypeName}
+                                className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-ink"
+                                title={b.linkedToName ? `Uses ${b.linkedToName} balance` : undefined}
+                              >
+                                {b.leaveTypeName}:{' '}
+                                <span className="font-semibold text-success">{b.isUnlimited ? 'Unlimited' : b.balance ?? 0}</span>
+                                {!b.isUnlimited && <span className="text-ink-muted"> left of {b.allotted ?? 0}</span>}
+                                {!!b.used && <span className="text-ink-muted"> · used {b.used}</span>}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               );
             })}
@@ -185,6 +213,20 @@ export function EmployeePeriodReportView({ report, showEmployeeColumn = true }: 
       </div>
 
       <div className="space-y-2">
+        <Collapsible
+          title="Assigned Leaves & Balance (as of today)"
+          count={report.rows.reduce((n, r) => n + r.leaveBalances.length, 0)}
+        >
+          <LeaveBalanceTable
+            rows={report.rows.flatMap((r) =>
+              r.leaveBalances.map((b) => ({
+                ...b,
+                employeeLabel: `${r.employee.name ?? '—'}${r.employee.employeeCode ? ` (${r.employee.employeeCode})` : ''}`,
+              }))
+            )}
+          />
+        </Collapsible>
+
         <Collapsible title="Leave Requests" count={report.leaveRequests.length}>
           <table className="w-full text-xs">
             <thead className="bg-page text-ink-muted">

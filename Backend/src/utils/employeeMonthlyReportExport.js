@@ -1,6 +1,7 @@
 'use strict';
 
 const ExcelJS = require('exceljs');
+const { leaveBalanceCells } = require('./reportLeaveBalanceCells');
 
 // .xlsx version of employeeMonthlyReport.service.js::buildMonthlyReport —
 // three sheets: Summary (employee, totals, payroll, leave balances), Daily
@@ -144,20 +145,14 @@ function buildSummarySheet(workbook, report) {
   }
 
   sheet.addRow([]);
-  titleRow(sheet, 'Leave Balances');
+  titleRow(sheet, 'Assigned Leaves & Balance (as of today)');
   if (!report.leaveBalances.length) {
-    sheet.addRow(['No leave balances']);
+    sheet.addRow(['No leave types assigned (no Roster leave policy)']);
   } else {
-    headerRow(sheet, ['Leave Type', 'Period', 'Carried Fwd', 'Allotted', 'Used', 'Balance']);
+    headerRow(sheet, ['Leave Type', 'Assigned', 'Carried Fwd', 'Used', 'Balance', 'Note']);
     for (const b of report.leaveBalances) {
-      sheet.addRow([
-        b.leaveTypeName,
-        `${fmtDate(b.periodStart)} – ${b.periodEnd ? fmtDate(b.periodEnd) : 'open'}`,
-        b.carriedForward,
-        b.allotted,
-        b.used,
-        b.balance,
-      ]);
+      const row = sheet.addRow(leaveBalanceCells(b, fmtDate));
+      row.getCell(5).font = { bold: true };
     }
   }
 }

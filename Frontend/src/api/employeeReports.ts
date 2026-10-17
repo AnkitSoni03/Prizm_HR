@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import type { ReportLeaveBalance } from './employeeMonthlyReport';
 
 // Monthly Report — several employees x any picked months
 // (Backend employeePeriodReport.service.js). Admins only; Super Admin refused.
@@ -50,6 +51,8 @@ export interface PeriodReportRow {
   };
   totals: PeriodTotals & { netPay: number | null };
   payrollVisible: boolean;
+  // Assigned leave types with their current balance (as of today).
+  leaveBalances: ReportLeaveBalance[];
   months: PeriodMonthRow[];
 }
 
