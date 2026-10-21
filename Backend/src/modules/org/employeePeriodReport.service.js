@@ -77,7 +77,7 @@ async function payrollVisibility(auth) {
   const access = await resolvePayrollAccess(auth);
   return (employee) => {
     if (!access) return false;
-    if (access.canManage) return !!employee.company && String(employee.company.groupId) === access.groupId;
+    if (access.level === 'group') return !!employee.company && String(employee.company.groupId) === access.groupId;
     if (String(employee.companyId) !== access.companyId) return false;
     return !access.scopedBrandIds || access.scopedBrandIds.includes(String(employee.brandId));
   };

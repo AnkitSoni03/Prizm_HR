@@ -17,12 +17,15 @@ import {
   listCustomItems,
   updateCustomItem,
   monthKeyLabel,
+  ownerLabel,
   type BuiltInItem,
+  type PayrollAccess,
   type GroupEmployee,
   type PayrollCustomItem,
 } from '../../../api/payroll';
 import { MonthMultiPicker } from '../components/MonthMultiPicker';
 import { EmployeeMultiPicker } from '../components/EmployeeMultiPicker';
+import { OwnerLevelSelect, type OwnerChoice } from '../components/OwnerLevelSelect';
 
 function describe(item: PayrollCustomItem) {
   if (item.calcType === 'fixed') return `₹${Number(item.value)} per month`;
@@ -38,7 +41,8 @@ const KIND_LABEL: Record<PayrollCustomItem['kind'], string> = {
 // Extra allowances / deductions / employer contributions on top of the
 // template. Each applies only to the employees chosen on it (and, if set,
 // only in chosen months) — everyone else is paid by their template alone.
-export function DeductionsTab({ canManage }: { canManage: boolean }) {
+export function DeductionsTab({ access }: { access: PayrollAccess }) {
+  const { canManage } = access;
   const confirm = useConfirm();
   const showToast = useToast();
   const [rows, setRows] = useState<PayrollCustomItem[]>([]);
@@ -105,6 +109,7 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
         emptyMessage="No extra allowances or deductions added."
         columns={[
           { key: 'name', header: 'Name', render: (r) => <span className="font-medium text-ink">{r.name}</span> },
+          { key: 'owner', header: 'Made for', render: (r) => (r.ownerLevel ? <Badge tone="neutral">{ownerLabel(r)}</Badge> : '—') },
           {
             key: 'kind',
             header: 'Type',
@@ -138,16 +143,17 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
                 key: 'actions',
                 header: '',
                 className: 'w-24 text-right',
-                render: (r: PayrollCustomItem) => (
-                  <div className="flex justify-end gap-1">
-                    <button type="button" title="Edit" className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-primary" onClick={() => setOpen(r)}>
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button type="button" title="Delete" className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-danger" onClick={() => handleDelete(r)}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ),
+                render: (r: PayrollCustomItem) =>
+                  r.canEdit && (
+                    <div className="flex justify-end gap-1">
+                      <button type="button" title="Edit" className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-primary" onClick={() => setOpen(r)}>
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button type="button" title="Delete" className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-danger" onClick={() => handleDelete(r)}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ),
               },
             ]
             : []),
@@ -157,6 +163,7 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
       {open && (
         <CustomItemFormModal
           item={open === 'new' ? null : open}
+          access={access}
           onClose={() => setOpen(null)}
           onSaved={() => {
             setOpen(null);
@@ -171,14 +178,17 @@ export function DeductionsTab({ canManage }: { canManage: boolean }) {
 
 function CustomItemFormModal({
   item,
+  access,
   onClose,
   onSaved,
 }: {
   item: PayrollCustomItem | null;
+  access: PayrollAccess;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(item?.name ?? '');
+  const [owner, setOwner] = useState<OwnerChoice>({ companyId: null, brandId: null });
   const [kind, setKind] = useState<PayrollCustomItem['kind']>(item?.kind ?? 'deduction');
   const [calcType, setCalcType] = useState<PayrollCustomItem['calcType']>(item?.calcType ?? 'fixed');
   const [basis, setBasis] = useState<'basic' | 'gross' | 'ctc'>(item?.basis ?? 'gross');
@@ -216,7 +226,7 @@ function CustomItemFormModal({
         employeeIds: [...employees.keys()],
       };
       if (item) await updateCustomItem(String(item.id), body);
-      else await createCustomItem(body);
+      else await createCustomItem({ ...body, ...owner });
       onSaved();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save.'));
@@ -228,6 +238,22 @@ function CustomItemFormModal({
   return (
     <Modal title={item ? 'Edit item' : 'Add allowance or deduction'} onClose={onClose} widthClassName="max-w-3xl">
       <div className="space-y-3">
+        {item ? (
+          item.ownerLevel && (
+            <p className="text-sm text-ink-muted">
+              Made for: <span className="font-medium text-ink">{ownerLabel(item)}</span>
+            </p>
+          )
+        ) : (
+          <OwnerLevelSelect
+            access={access}
+            value={owner}
+            onChange={(v) => {
+              setOwner(v);
+              setEmployees(new Map());
+            }}
+          />
+        )}
         <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === 'earning' ? 'e.g. Conveyance, Medical allowance' : 'e.g. Canteen, Loan EMI'} />
         <Select
           label="Type"
@@ -269,7 +295,7 @@ function CustomItemFormModal({
           <p className="text-xs text-ink-muted">
             Only these employees get it. Pick one, several, or use “select all” after filtering by company / brand.
           </p>
-          {isLoadingEmployees ? <p className="text-sm text-ink-muted">Loading…</p> : <EmployeeMultiPicker selected={employees} onChange={setEmployees} />}
+          {isLoadingEmployees ? <p className="text-sm text-ink-muted">Loading…</p> : <EmployeeMultiPicker selected={employees} onChange={setEmployees} lockTo={item ? { companyId: item.companyId ?? null, brandId: item.brandId ?? null } : owner} />}
         </div>
 
         <Select

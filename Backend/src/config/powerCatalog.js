@@ -147,13 +147,13 @@ const POWER_CATALOG = [
   {
     key: 'run_payroll',
     label: 'Manage Payroll',
-    // Payroll is group-level (modules/payroll/): salary templates,
-    // deductions and salary assignment span every company of the Group, so
-    // only a Group-level grant makes sense — and only a Group Admin / Super
-    // Admin can grant Group level (utils/powerAuthority.js).
-    levels: ['group'],
+    // Brand = own brand's payroll, Company = own company + its brands, Group
+    // = every company of the Group (modules/payroll/payrollAccess.js). As
+    // with every power, nobody grants wider than they hold
+    // (utils/powerAuthority.js) — Group level only by Group Admin / Super Admin.
+    levels: ['brand', 'company', 'group'],
     description:
-      'Create salary templates and deductions, assign salary (CTC) to employees of the Group, and approve payslip requests.',
+      'Create salary templates and deductions, assign salary (CTC), add bonuses, generate and share payslips — for the chosen level (Brand, Company or whole Group).',
     // The payroll pages use their own employee/company pickers
     // (/payroll/employees, /payroll/companies), so nothing else is needed.
     permissionCodes: ['payroll:manage'],

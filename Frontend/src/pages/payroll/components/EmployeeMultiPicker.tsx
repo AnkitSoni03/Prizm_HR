@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Select } from '../../../components/ui/Select';
 import { Input } from '../../../components/ui/Input';
-import { listGroupEmployees, listScopeCompanies, type GroupEmployee, type ScopeCompany } from '../../../api/payroll';
+import { LEVEL_LABEL, listGroupEmployees, listScopeCompanies, type GroupEmployee, type ScopeCompany } from '../../../api/payroll';
 
 const PAGE = 100;
 const MAX_SELECT = 2000;
@@ -10,6 +10,12 @@ const MAX_SELECT = 2000;
 interface Props {
   selected: Map<string, GroupEmployee>;
   onChange: (next: Map<string, GroupEmployee>) => void;
+  // Only this company / brand's employees (an item made for one company or
+  // brand can't apply to anyone else).
+  lockTo?: { companyId: string | null; brandId: string | null } | null;
+  // Assigning salary: employees whose salary is owned above the caller's
+  // level can't be picked (they need a release first).
+  skipLocked?: boolean;
 }
 
 const nameOf = (e: GroupEmployee) => `${e.name ?? '—'}${e.employeeCode ? ` (${e.employeeCode})` : ''}`;
@@ -19,10 +25,12 @@ const orgOf = (e: GroupEmployee) => [e.company?.name, e.brand?.name].filter(Bool
 // filters (server-side), checkboxes, "select all matching" (every page, not
 // just the visible one). The selection survives changing the filters, so
 // people from several companies can be picked in one go.
-export function EmployeeMultiPicker({ selected, onChange }: Props) {
+export function EmployeeMultiPicker({ selected, onChange, lockTo = null, skipLocked = false }: Props) {
   const [companies, setCompanies] = useState<ScopeCompany[]>([]);
-  const [companyId, setCompanyId] = useState('');
-  const [brandId, setBrandId] = useState('');
+  const [pickedCompanyId, setCompanyId] = useState('');
+  const [pickedBrandId, setBrandId] = useState('');
+  const companyId = lockTo?.companyId ? String(lockTo.companyId) : pickedCompanyId;
+  const brandId = lockTo?.brandId ? String(lockTo.brandId) : pickedBrandId;
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<GroupEmployee[]>([]);
   const [total, setTotal] = useState(0);
@@ -65,7 +73,10 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
     }
   }
 
+  const isBlocked = (e: GroupEmployee) => skipLocked && e.locked;
+
   function toggle(e: GroupEmployee) {
+    if (isBlocked(e) && !selected.has(String(e.id))) return;
     const next = new Map(selected);
     if (next.has(String(e.id))) next.delete(String(e.id));
     else next.set(String(e.id), e);
@@ -80,7 +91,9 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
       let offset = 0;
       for (;;) {
         const r = await listGroupEmployees({ ...filter, limit: PAGE, offset });
-        r.data.forEach((e) => next.set(String(e.id), e));
+        r.data.forEach((e) => {
+          if (!isBlocked(e)) next.set(String(e.id), e);
+        });
         offset += r.data.length;
         if (r.data.length === 0 || offset >= r.pagination.total || next.size >= MAX_SELECT) break;
       }
@@ -101,7 +114,8 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
 
   const company = companies.length === 1 ? companies[0] : companies.find((c) => String(c.id) === companyId);
   const brands = company?.brands ?? [];
-  const allVisibleSelected = rows.length > 0 && rows.every((e) => selected.has(String(e.id)));
+  const pickable = rows.filter((e) => !isBlocked(e));
+  const allVisibleSelected = pickable.length > 0 && pickable.every((e) => selected.has(String(e.id)));
   const chips = [...selected.values()];
 
   return (
@@ -112,7 +126,7 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
       </div>
 
       <div className="grid gap-2 sm:grid-cols-3">
-        {companies.length > 1 && (
+        {companies.length > 1 && !lockTo?.companyId && (
           <Select
             label="Company"
             value={companyId}
@@ -124,7 +138,7 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
             options={companies.map((c) => ({ value: String(c.id), label: c.name }))}
           />
         )}
-        {brands.length > 0 && (
+        {brands.length > 0 && !lockTo?.brandId && (
           <Select
             label="Brand"
             value={brandId}
@@ -158,14 +172,19 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
         ) : (
           rows.map((e) => {
             const hasSalary = (e.salaryAssignments ?? []).length > 0;
+            const blocked = isBlocked(e);
             return (
               <label
                 key={e.id}
-                className="flex cursor-pointer items-center gap-2.5 border-b border-border px-3 py-2 text-sm text-ink last:border-b-0 hover:bg-page"
+                className={`flex items-center gap-2.5 border-b border-border px-3 py-2 text-sm text-ink last:border-b-0 ${
+                  blocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-page'
+                }`}
+                title={blocked ? 'Salary managed at a higher level — request a release in Employee Salaries' : undefined}
               >
                 <input
                   type="checkbox"
                   checked={selected.has(String(e.id))}
+                  disabled={blocked && !selected.has(String(e.id))}
                   onChange={() => toggle(e)}
                   className="h-4 w-4 shrink-0 rounded border-border text-primary focus:ring-2 focus:ring-primary/20"
                 />
@@ -174,6 +193,11 @@ export function EmployeeMultiPicker({ selected, onChange }: Props) {
                   <span className="block truncate text-xs text-ink-muted">{orgOf(e)}</span>
                 </span>
                 {!hasSalary && <span className="shrink-0 text-xs text-warning">No current salary</span>}
+                {blocked && e.ownerLevel && (
+                  <span className="shrink-0 text-xs text-ink-muted">
+                    {e.releaseRequested ? 'Release requested' : `Locked · ${LEVEL_LABEL[e.ownerLevel]}`}
+                  </span>
+                )}
               </label>
             );
           })

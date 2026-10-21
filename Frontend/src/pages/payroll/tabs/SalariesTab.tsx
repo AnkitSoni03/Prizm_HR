@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pencil, Plus, StopCircle, Users } from 'lucide-react';
+import { Lock, Pencil, Plus, StopCircle, Users } from 'lucide-react';
 import { Table } from '../../../components/ui/Table';
 import { Pagination } from '../../../components/ui/Pagination';
 import { Select } from '../../../components/ui/Select';
@@ -12,12 +12,17 @@ import { apiErrorMessage } from '../../../utils/apiError';
 import {
   endAssignment,
   formatRupees,
+  LEVEL_LABEL,
   listAssignments,
   orgLabel,
   periodLabel,
+  releaseEmployees,
   type EmployeePayroll,
+  type PayrollAccess,
   type SalaryAssignment,
+  type SkippedEmployee,
 } from '../../../api/payroll';
+import { RequestReleaseModal } from '../components/RequestReleaseModal';
 import { ExtrasChips } from '../components/EmployeeExtras';
 import { PayrollFilters, type PayrollFilterValue } from '../components/PayrollFilters';
 import { AssignSalaryModal } from '../components/AssignSalaryModal';
@@ -25,7 +30,16 @@ import { BulkAssignSalaryModal } from '../components/BulkAssignSalaryModal';
 
 const LIMIT = 50;
 
-export function SalariesTab({ canManage }: { canManage: boolean }) {
+// A salary belongs to the level that assigned it (row.ownerLevel). Rows owned
+// above the caller are locked (row.canEdit false): tick them → "Request
+// release". The owner can hand ticked employees down a level directly.
+export function SalariesTab({ access }: { access: PayrollAccess }) {
+  const { canManage } = access;
+  const showToast = useToast();
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [asking, setAsking] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  const [releaseSkipped, setReleaseSkipped] = useState<SkippedEmployee[] | null>(null);
   const [filters, setFilters] = useState<PayrollFilterValue>({ companyId: '', brandId: '', search: '' });
   const [status, setStatus] = useState('active');
   const [rows, setRows] = useState<SalaryAssignment[]>([]);
@@ -51,6 +65,7 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
       });
       setRows(result.data);
       setTotal(result.pagination.total);
+      setChecked(new Set());
     } catch {
       setError('Could not load salaries.');
     } finally {
@@ -63,6 +78,37 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, status, offset]);
+
+  const picked = rows.filter((r) => checked.has(String(r.id)));
+  const toRequest = picked.filter((r) => !r.canEdit && !r.releaseRequested);
+  const toRelease = picked.filter((r) => r.canEdit);
+  const releaseTargets: ('company' | 'brand')[] = access.level === 'group' ? ['company', 'brand'] : access.level === 'company' ? ['brand'] : [];
+  const selectable = rows.filter((r) => r.status === 'active');
+  const allChecked = selectable.length > 0 && selectable.every((r) => checked.has(String(r.id)));
+
+  function toggle(id: string) {
+    const next = new Set(checked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setChecked(next);
+  }
+
+  async function releaseTo(to: 'company' | 'brand') {
+    setReleasing(true);
+    try {
+      const r = await releaseEmployees(
+        toRelease.map((a) => String(a.employeeId)),
+        to
+      );
+      if (r.data.released > 0) showToast(`Released ${r.data.released} employee${r.data.released === 1 ? '' : 's'} to their ${to}.`, 'success');
+      if (r.skipped.length > 0) setReleaseSkipped(r.skipped);
+      load();
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Could not release.'), 'error');
+    } finally {
+      setReleasing(false);
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -101,12 +147,48 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
       />
 
       {error && <p className="text-sm text-danger">{error}</p>}
+      {canManage && picked.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-page px-3 py-2 text-sm">
+          <span className="text-ink-muted">{picked.length} selected</span>
+          {access.level !== 'group' && (
+            <Button variant="secondary" disabled={toRequest.length === 0} onClick={() => setAsking(true)}>
+              Request release ({toRequest.length})
+            </Button>
+          )}
+          {releaseTargets.map((to) => (
+            <Button key={to} variant="secondary" disabled={toRelease.length === 0} isLoading={releasing} onClick={() => releaseTo(to)}>
+              Release to their {to} ({toRelease.length})
+            </Button>
+          ))}
+          <button type="button" className="text-xs font-medium text-ink-muted hover:underline" onClick={() => setChecked(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
       <Table
         isLoading={isLoading}
         rows={rows}
         rowKey={(r) => String(r.id)}
         emptyMessage="No salaries assigned yet."
         columns={[
+          ...(canManage
+            ? [
+              {
+                key: 'pick',
+                header: '',
+                render: (r: SalaryAssignment) =>
+                  r.status === 'active' ? (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${r.employee?.name ?? 'employee'}`}
+                      checked={checked.has(String(r.id))}
+                      onChange={() => toggle(String(r.id))}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+                    />
+                  ) : null,
+              },
+            ]
+            : []),
           {
             key: 'employee',
             header: 'Employee',
@@ -120,6 +202,11 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
             ),
           },
           { key: 'template', header: 'Template', render: (r) => r.template?.name ?? '—' },
+          {
+            key: 'owner',
+            header: 'Managed by',
+            render: (r) => (r.ownerLevel ? <Badge tone="neutral">{LEVEL_LABEL[r.ownerLevel]}</Badge> : '—'),
+          },
           {
             key: 'ctc',
             header: 'CTC',
@@ -159,7 +246,15 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
                 key: 'actions',
                 header: '',
                 className: 'w-24 text-right',
-                render: (r: SalaryAssignment) => (
+                render: (r: SalaryAssignment) =>
+                  !r.canEdit ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-xs text-ink-muted"
+                      title="Assigned at a higher level — tick it and request a release to change it"
+                    >
+                      <Lock className="h-3.5 w-3.5" /> {r.releaseRequested ? 'Release requested' : 'Locked'}
+                    </span>
+                  ) : (
                   <div className="flex justify-end gap-1">
                     <button type="button" title="Correct this salary" className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-primary" onClick={() => setEditing(r)}>
                       <Pencil className="h-4 w-4" />
@@ -176,7 +271,46 @@ export function SalariesTab({ canManage }: { canManage: boolean }) {
             : []),
         ]}
       />
+      {canManage && selectable.length > 0 && (
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-ink-muted">
+          <input
+            type="checkbox"
+            checked={allChecked}
+            onChange={() => setChecked(allChecked ? new Set() : new Set(selectable.map((r) => String(r.id))))}
+            className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+          />
+          Select all on this page
+        </label>
+      )}
       <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
+
+      {asking && (
+        <RequestReleaseModal
+          employees={toRequest.map((r) => ({ id: String(r.employeeId), name: r.employee?.name ?? null, employeeCode: r.employee?.employeeCode }))}
+          onClose={() => setAsking(false)}
+          onDone={() => {
+            setAsking(false);
+            load();
+          }}
+        />
+      )}
+      {releaseSkipped && (
+        <Modal title="Some were not released" onClose={() => setReleaseSkipped(null)} compact>
+          <div className="space-y-3 text-sm">
+            <ul className="max-h-60 space-y-1 overflow-y-auto rounded-xl border border-border p-2">
+              {releaseSkipped.map((s) => (
+                <li key={s.employeeId} className="flex flex-wrap justify-between gap-x-2">
+                  <span className="text-ink">{s.name ?? `Employee #${s.employeeId}`}</span>
+                  <span className="text-warning">{s.reason}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end">
+              <Button onClick={() => setReleaseSkipped(null)}>Done</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {editing && (
         <AssignSalaryModal

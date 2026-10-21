@@ -1455,6 +1455,42 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   Carried Fwd / Used / Balance as of today (`modules/org/reportLeaveBalances.js` — seeds + filters exactly
   like the employee's own Leave Balance page; linked types like Half Day included).
   Exports mock-tested; not live-tested.
+- ✅ Payroll managed at three levels (2026-10-21) — **supersedes "Company/Brand Admin view only"** in the
+  Group-level payroll entry above. `payrollAccess.js::resolvePayrollAccess` now returns `level`:
+  `group` (Group Admin / Group-level power, unchanged) → every company; `company` (`payroll:manage` on a
+  company-wide grant: Company Admin, HR Manager, Company-level power) → own company + its brands;
+  `brand` (`payroll:manage` on a brand grant: Brand Admin, Brand-level power) → own brand. `payroll:read`
+  alone = same scope read-only. Seeder `20261021090000` grants `payroll:manage` to Company Admin / HR
+  Manager / Brand Admin; `run_payroll` power levels are now brand/company/group. **Templates and extra
+  items have an owner level** (`payroll_templates` / `payroll_custom_items` `.company_id` / `.brand_id`,
+  both NULL = Group; migration `20261021090000`, existing rows stay Group; template names unique per
+  owner): a caller sees own level + above (`ownerVisibleWhere`), edits own level + below
+  (`canEditOwner`; Group edits everything; Brand can't edit Company templates), and a template/item
+  only applies to employees inside its owner (`ownerCoversEmployee` — checked on assign, bulk assign,
+  item members). Salaries, bonuses, generate, share, recalc are bounded by the caller's scope
+  (`scopedEmployeeWhere` / `employeeInScope`). UI: "Made for" picker on new template/item
+  (`OwnerLevelSelect.tsx`), "Made for" column, edit buttons per row by `canEdit`, the employee picker
+  is locked to an item's company/brand. Scope rules tested offline; tsc/eslint/vite build clean.
+  **Not live-tested, migration + seeder not applied** (.env is prod).
+  **Templates take several targets** (same day, migration `20261021090100`): `payroll_templates.targets`
+  JSONB `[{ companyId, brandId|null }]` (null/[] = whole Group) replaces the template's single
+  company_id/brand_id (backfilled, columns dropped; extra items keep single owner). Rules per target
+  (`templateVisible` = any target in caller's scope, `templateEditable` = ALL targets in caller's edit
+  scope, `templateCovers` = any target covers the employee, `cleanTargets` validates/dedupes). Targets
+  editable later, refused (409) if an employee on the template would fall outside. Template names: no
+  DB unique index anymore — unique among templates the caller can see. UI: checkbox tree
+  `TemplateTargetPicker.tsx` (Whole Group / company = all brands / single brands).
+  **Salary ownership + release requests** (same day, migration `20261021090200`): `salary_assignments.
+  owner_company_id/owner_brand_id` (NULL = Group; existing rows Group) = level that assigned it. Only that
+  level or above can assign a new salary / correct / end it (`payrollAccess.js::canChangeSalary`; 409
+  `SALARY_LOCKED`, bulk assign skips). A lower level ticks locked employees (Salaries tab / assign modal) →
+  `POST /payroll/releases` (one `payroll_release_requests` row per employee, one pending per employee+level)
+  → owner-level managers notified (dashboard + email, `ownerManagerRecipients`; none → Group). Owner (or
+  above) approves/rejects on the "Release Requests" tab (`/releases/decide`, reject needs a reason);
+  **approve hands the CURRENT salary down** (owner columns move, salary keeps running — no pay gap), then
+  the requester assigns their own template as a normal revision. Owner can also release directly
+  (`/releases/direct`, to company/brand; closes matching pending requests). Requester can cancel.
+  Service: `payrollRelease.service.js`. Lock rules tested offline; tsc/eslint clean. **Migration not applied.**
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

@@ -38,7 +38,7 @@ const num = (v) => (v == null ? null : Number(v));
 async function canViewPayroll(auth, employee) {
   const access = await resolvePayrollAccess(auth);
   if (!access) return false;
-  if (access.canManage) {
+  if (access.level === 'group') {
     const company = await runAsCompany(null, () => db.Company.findByPk(employee.companyId, { attributes: ['groupId'] }));
     return !!company && String(company.groupId) === access.groupId;
   }

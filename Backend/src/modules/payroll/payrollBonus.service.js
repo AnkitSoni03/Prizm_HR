@@ -5,7 +5,7 @@ const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { runAsCompany } = require('../../config/tenant-context');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
-const { employeeScopeWhere } = require('./payrollAccess');
+const { employeeScopeWhere, scopedEmployeeWhere } = require('./payrollAccess');
 const { BONUS_TYPES, normalizeRules, resolveCustomItems, computeSalary } = require('./payrollRules');
 const { memberItemIds } = require('./customItemMembers');
 const { monthBounds, queuePayrollRecalc, recalculatePayroll } = require('./payrollEngine');
@@ -13,8 +13,8 @@ const { monthBounds, queuePayrollRecalc, recalculatePayroll } = require('./payro
 const MAX_BULK = 2000;
 
 // One-time extra pay (bonus, incentive, overtime, reimbursement…) for one
-// employee in one month. Managers add/edit/delete; viewers read within their
-// scope. A month that's already generated is recalculated on every change —
+// employee in one month. Managers add/edit/delete within their scope (Group /
+// own company / own brand); viewers read within theirs. A month that's already generated is recalculated on every change —
 // the difference reaches the next salary as arrears/recovery.
 
 const asGroup = (fn) => runAsCompany(null, fn);
@@ -183,7 +183,7 @@ function cleanPeriods(body) {
 
 // Adds the same bonus to one or many employees (`employeeIds`, or a single
 // `employeeId`) in one or several months (`periods`) — one bonus row per
-// employee per month. Anyone outside the Group, or without a salary in one
+// employee per month. Anyone outside the caller's scope, or without a salary in one
 // of the months, is skipped for that month and reported back, so a bulk add
 // still works when a few people aren't on payroll.
 async function createBonuses(access, { body, userId }) {
@@ -197,16 +197,15 @@ async function createBonuses(access, { body, userId }) {
   delete input.periodMonth;
 
   const { created, skipped } = await asGroup(async () => {
-    const companyIds = (await db.Company.findAll({ where: { groupId: access.groupId }, attributes: ['id'] })).map((c) => c.id);
     const employees = await db.Employee.findAll({
-      where: { id: { [Op.in]: ids }, companyId: { [Op.in]: companyIds } },
+      where: { ...(await scopedEmployeeWhere(access)), id: { [Op.in]: ids } },
       attributes: ['id', 'name', 'employeeCode', 'companyId'],
     });
     const found = new Map(employees.map((e) => [String(e.id), e]));
 
     const skippedRows = [];
     for (const id of ids) {
-      if (!found.has(id)) skippedRows.push({ employeeId: id, name: null, reason: 'Not found in your Group' });
+      if (!found.has(id)) skippedRows.push({ employeeId: id, name: null, reason: 'Not in your payroll scope' });
     }
     const toCreate = [];
     for (const period of periods) {
@@ -259,7 +258,7 @@ async function createBonuses(access, { body, userId }) {
         400,
         ids.length === 1 && periods.length === 1
           ? found.size === 0
-            ? 'Employee not found in your Group'
+            ? 'Employee not found in your payroll scope'
             : 'This employee has no salary in that month — assign a salary first'
           : 'None of the selected employees has a salary in the chosen month(s)'
       );
@@ -292,7 +291,12 @@ async function createBonuses(access, { body, userId }) {
 }
 
 async function getBonus(access, id) {
-  const bonus = await asGroup(() => db.PayrollBonus.findOne({ where: { id, groupId: access.groupId } }));
+  const bonus = await asGroup(() =>
+    db.PayrollBonus.findOne({
+      where: { id, groupId: access.groupId },
+      include: [{ model: db.Employee, as: 'employee', attributes: ['id'], where: employeeScopeWhere(access), required: true }],
+    })
+  );
   if (!bonus) throw new HttpError(404, 'Not found');
   return bonus;
 }

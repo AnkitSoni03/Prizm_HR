@@ -7,11 +7,24 @@ const { runAsCompany } = require('../../config/tenant-context');
 const { addDays, dateOnly } = require('../../utils/dateRange');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { BUILT_IN_ITEMS } = require('./payrollRules');
-const { employeeScopeWhere } = require('./payrollAccess');
+const {
+  employeeScopeWhere,
+  scopedEmployeeWhere,
+  employeeInScope,
+  groupCompanyIds,
+  templateVisible,
+  templateCovers,
+  canEditOwner,
+  salaryOwner,
+  ownerLevelOf,
+  callerOwnerFor,
+  canChangeSalary,
+} = require('./payrollAccess');
 const { catchUpEmployee, queuePayrollRecalc, recalculatePayroll, previousMonth, monthBounds, generateEmployeeMonth, isMonthComplete } = require('./payrollEngine');
 
-// Every query here runs with the tenant hook off — managers work across all
-// companies of their Group, and viewers are bounded by employeeScopeWhere.
+// Every query here runs with the tenant hook off — a Group-level caller
+// works across all companies of their Group; Company / Brand-level callers
+// (manage or view) are bounded by employeeScopeWhere / employeeInScope.
 const asGroup = (fn) => runAsCompany(null, fn);
 
 const EMPLOYEE_ATTRS = ['id', 'name', 'employeeCode', 'companyId', 'brandId', 'workState', 'status', 'dateOfJoining'];
@@ -30,7 +43,7 @@ const EMPLOYEE_INCLUDE = (where) => ({
 // Companies (and their Brands) a caller can filter by.
 async function listScopeCompanies(access) {
   return asGroup(async () => {
-    const where = access.canManage ? { groupId: access.groupId } : { id: access.companyId };
+    const where = access.level === 'group' ? { groupId: access.groupId } : { id: access.companyId };
     const companies = await db.Company.findAll({
       where,
       attributes: ['id', 'name', 'usesBrands'],
@@ -45,13 +58,19 @@ async function listScopeCompanies(access) {
   });
 }
 
-// Employee picker for assigning salary: every employee of the manager's Group.
+// Employee picker for assigning salary: every employee in the manager's
+// scope (whole Group / own company / own brand).
 async function listGroupEmployees(access, { companyId, brandId, search, limit = 50, offset = 0 }) {
   return asGroup(async () => {
-    const companyIds = (await db.Company.findAll({ where: { groupId: access.groupId }, attributes: ['id'] })).map((c) => c.id);
-    const where = { companyId: { [Op.in]: companyIds }, status: { [Op.notIn]: ['exited', 'archived'] } };
-    if (companyId) where.companyId = companyIds.map(String).includes(String(companyId)) ? companyId : -1;
-    if (brandId) where.brandId = brandId;
+    const where = { ...(await scopedEmployeeWhere(access)), status: { [Op.notIn]: ['exited', 'archived'] } };
+    if (companyId) {
+      if (access.level === 'group') {
+        where.companyId = (await groupCompanyIds(access.groupId)).includes(String(companyId)) ? companyId : -1;
+      } else if (String(companyId) !== access.companyId) {
+        where.companyId = -1;
+      }
+    }
+    if (brandId) where.brandId = access.scopedBrandIds && !access.scopedBrandIds.includes(String(brandId)) ? -1 : brandId;
     if (search) Object.assign(where, employeeSearchWhere(search));
     const { rows, count } = await db.Employee.findAndCountAll({
       where,
@@ -64,7 +83,7 @@ async function listGroupEmployees(access, { companyId, brandId, search, limit = 
           as: 'salaryAssignments',
           where: { status: 'active' },
           required: false,
-          attributes: ['id', 'templateId', 'monthlyCtc', 'effectiveFrom'],
+          attributes: ['id', 'templateId', 'monthlyCtc', 'effectiveFrom', 'ownerCompanyId', 'ownerBrandId'],
         },
       ],
       order: [['name', 'ASC']],
@@ -72,8 +91,43 @@ async function listGroupEmployees(access, { companyId, brandId, search, limit = 
       offset,
       distinct: true,
     });
-    return { rows, count };
+    const pending = await pendingReleaseFor(access, rows);
+    return {
+      rows: rows.map((e) => {
+        const active = e.salaryAssignments[0];
+        return {
+          ...e.get({ plain: true }),
+          ...lockInfo(access, active),
+          releaseRequested: pending.has(String(e.id)),
+        };
+      }),
+      count,
+    };
   });
+}
+
+// Who owns an employee's current salary and whether the caller may change
+// it: { ownerLevel: 'group' | 'company' | 'brand' | null, locked }.
+function lockInfo(access, active) {
+  if (!active) return { ownerLevel: null, locked: false };
+  return { ownerLevel: ownerLevelOf(salaryOwner(active)), locked: !canChangeSalary(access, active) };
+}
+
+// Employee ids (of `employees`) with a release request from the caller's own
+// level still waiting.
+async function pendingReleaseFor(access, employees) {
+  if (access.level === 'group' || employees.length === 0) return new Set();
+  const requests = await db.PayrollReleaseRequest.findAll({
+    where: { employeeId: { [Op.in]: employees.map((e) => e.id) }, status: 'pending', toCompanyId: access.companyId },
+    attributes: ['employeeId', 'toBrandId'],
+  });
+  const byId = new Map(employees.map((e) => [String(e.id), e]));
+  const out = new Set();
+  for (const r of requests) {
+    const target = callerOwnerFor(access, byId.get(String(r.employeeId)));
+    if (String(r.toBrandId ?? '') === String(target.brandId ?? '')) out.add(String(r.employeeId));
+  }
+  return out;
 }
 
 async function listAssignments(access, { companyId, brandId, templateId, search, status = 'active', limit = 50, offset = 0 }) {
@@ -93,8 +147,15 @@ async function listAssignments(access, { companyId, brandId, templateId, search,
       distinct: true,
     });
     const extras = await employeeExtras(access.groupId, rows.map((r) => r.employeeId));
+    const pending = await pendingReleaseFor(access, rows.filter((r) => r.status === 'active').map((r) => r.employee));
     return {
-      rows: rows.map((r) => ({ ...r.get({ plain: true }), extras: extras.get(String(r.employeeId)) })),
+      rows: rows.map((r) => ({
+        ...r.get({ plain: true }),
+        extras: extras.get(String(r.employeeId)),
+        ownerLevel: ownerLevelOf(salaryOwner(r)),
+        canEdit: canEditOwner(access, salaryOwner(r)),
+        releaseRequested: r.status === 'active' && pending.has(String(r.employeeId)),
+      })),
       count,
     };
   });
@@ -162,11 +223,15 @@ async function listEmployeeHistory(access, employeeId) {
 // the employees chosen on the item itself.
 const VALID_ITEM_KEYS = new Set(BUILT_IN_ITEMS.map((i) => i.key));
 
-async function cleanInput(groupId, body, { partial = false } = {}) {
+// `template` (when one was chosen) is returned alongside so the caller can
+// check it covers the employee (templateCovers) — a template made for some
+// companies / brands can't pay anyone outside them.
+async function cleanInput(access, body, { partial = false } = {}) {
   const out = {};
+  let template = null;
   if (!partial || body.templateId !== undefined) {
-    const template = await db.PayrollTemplate.findOne({ where: { id: body.templateId, groupId } });
-    if (!template) throw new HttpError(400, 'Choose a salary template of your Group');
+    template = await db.PayrollTemplate.findOne({ where: { id: body.templateId, groupId: access.groupId } });
+    if (!template || !templateVisible(access, template)) throw new HttpError(400, 'Choose one of your salary templates');
     if (!template.isActive) throw new HttpError(400, 'That salary template is switched off');
     out.templateId = template.id;
   }
@@ -186,8 +251,28 @@ async function cleanInput(groupId, body, { partial = false } = {}) {
     out.disabledItems = [...new Set(list)];
   }
   if (body.note !== undefined) out.note = body.note || null;
-  return out;
+  return { input: out, template };
 }
+
+const NOT_COVERED = 'That template is not made for this employee’s company / brand — choose one that applies to them';
+
+// The employee (by id), or 404 when outside the caller's scope.
+async function findEmployeeInScope(access, employeeId) {
+  const employee = await db.Employee.findByPk(employeeId, { attributes: EMPLOYEE_ATTRS });
+  const companyIds = access.level === 'group' ? await groupCompanyIds(access.groupId) : null;
+  if (!employeeInScope(access, employee, companyIds)) throw new HttpError(404, 'Employee not found in your payroll scope');
+  return employee;
+}
+
+const LEVEL_NAMES = { group: 'the Group', company: 'their company', brand: 'their brand' };
+
+// A salary owned above the caller's level: they ask for a release instead.
+function lockedError(assignment) {
+  const level = ownerLevelOf(salaryOwner(assignment));
+  return new HttpError(409, `Salary is managed by ${LEVEL_NAMES[level]} — request a release first`, 'SALARY_LOCKED');
+}
+
+const ownerColumns = (owner) => ({ ownerCompanyId: owner.companyId, ownerBrandId: owner.brandId });
 
 function isDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -203,6 +288,7 @@ async function createAssignmentFor({ access, employee, input, effectiveFrom, use
       lock: t.LOCK.UPDATE,
     });
     if (active) {
+      if (!canChangeSalary(access, active)) throw lockedError(active);
       if (effectiveFrom <= active.effectiveFrom) {
         throw new HttpError(
           400,
@@ -219,6 +305,7 @@ async function createAssignmentFor({ access, employee, input, effectiveFrom, use
         ...input,
         companyId: employee.companyId,
         groupId: access.groupId,
+        ...ownerColumns(callerOwnerFor(access, employee)),
         employeeId: employee.id,
         effectiveFrom,
         effectiveTo: null,
@@ -237,12 +324,9 @@ async function createAssignmentFor({ access, employee, input, effectiveFrom, use
 async function assignSalary(access, { body, userId }) {
   if (!isDate(body.effectiveFrom)) throw new HttpError(400, 'Choose the date this salary starts from');
   const result = await asGroup(async () => {
-    const employee = await db.Employee.findByPk(body.employeeId, { attributes: EMPLOYEE_ATTRS });
-    const company = employee ? await db.Company.findByPk(employee.companyId, { attributes: ['id', 'groupId'] }) : null;
-    if (!employee || !company || String(company.groupId) !== String(access.groupId)) {
-      throw new HttpError(404, 'Employee not found in your Group');
-    }
-    const input = await cleanInput(access.groupId, body);
+    const employee = await findEmployeeInScope(access, body.employeeId);
+    const { input, template } = await cleanInput(access, body);
+    if (!templateCovers(template, employee)) throw new HttpError(400, NOT_COVERED);
     return createAssignmentFor({ access, employee, input, effectiveFrom: body.effectiveFrom, userId });
   });
 
@@ -254,8 +338,9 @@ const MAX_BULK = 2000;
 
 // The same template / start date / deduction switches for many employees,
 // each with their own CTC: body.items = [{ employeeId, ctcAmount }]. One
-// employee's problem (not in the Group, no CTC, a start date before their
-// current salary's) skips just them and is reported back.
+// employee's problem (outside the caller's scope or the template's, no CTC,
+// a start date before their current salary's) skips just them and is
+// reported back.
 async function bulkAssignSalary(access, { body, userId }) {
   if (!isDate(body.effectiveFrom)) throw new HttpError(400, 'Choose the date this salary starts from');
   const items = Array.isArray(body.items) ? body.items : [];
@@ -271,14 +356,13 @@ async function bulkAssignSalary(access, { body, userId }) {
 
   const { created, skipped } = await asGroup(async () => {
     // Template, switches and items are checked once; CTC per employee below.
-    const shared = await cleanInput(access.groupId, { ...body, ctcAmount: 1 });
+    const { input: shared, template } = await cleanInput(access, { ...body, ctcAmount: 1 });
     delete shared.ctcAmount;
     delete shared.monthlyCtc;
     const { ctcPeriod } = shared;
 
-    const companyIds = (await db.Company.findAll({ where: { groupId: access.groupId }, attributes: ['id'] })).map((c) => c.id);
     const employees = await db.Employee.findAll({
-      where: { id: { [Op.in]: unique.map((i) => String(i.employeeId)) }, companyId: { [Op.in]: companyIds } },
+      where: { ...(await scopedEmployeeWhere(access)), id: { [Op.in]: unique.map((i) => String(i.employeeId)) } },
       attributes: EMPLOYEE_ATTRS,
     });
     const byId = new Map(employees.map((e) => [String(e.id), e]));
@@ -296,7 +380,11 @@ async function bulkAssignSalary(access, { body, userId }) {
           reason,
         });
       if (!employee) {
-        skip('Not found in your Group');
+        skip('Not in your payroll scope');
+        continue;
+      }
+      if (!templateCovers(template, employee)) {
+        skip('The template is not made for their company / brand');
         continue;
       }
       const ctcAmount = Number(item.ctcAmount);
@@ -337,7 +425,9 @@ async function bulkAssignSalary(access, { body, userId }) {
 }
 
 async function getAssignment(access, id) {
-  const assignment = await asGroup(() => db.SalaryAssignment.findOne({ where: { id, groupId: access.groupId } }));
+  const assignment = await asGroup(() =>
+    db.SalaryAssignment.findOne({ where: { id, groupId: access.groupId }, include: [EMPLOYEE_INCLUDE(employeeScopeWhere(access))] })
+  );
   if (!assignment) throw new HttpError(404, 'Salary not found');
   return assignment;
 }
@@ -346,7 +436,9 @@ async function getAssignment(access, id) {
 // changed in place, and every generated month it covers is recalculated.
 async function updateAssignment(access, { id, body, userId }) {
   const assignment = await getAssignment(access, id);
-  const input = await asGroup(() => cleanInput(access.groupId, body, { partial: true }));
+  if (!canChangeSalary(access, assignment)) throw lockedError(assignment);
+  const { input, template } = await asGroup(() => cleanInput(access, body, { partial: true }));
+  if (template && !templateCovers(template, assignment.employee)) throw new HttpError(400, NOT_COVERED);
   await asGroup(() => assignment.update({ ...input, updatedByUserId: userId }));
   await afterSalaryChange(assignment.employeeId, assignment.effectiveFrom, assignment.effectiveTo);
   return assignment;
@@ -356,6 +448,7 @@ async function updateAssignment(access, { id, body, userId }) {
 // generated; the month containing it is recalculated (partial month).
 async function endAssignment(access, { id, endDate, userId }) {
   const assignment = await getAssignment(access, id);
+  if (!canChangeSalary(access, assignment)) throw lockedError(assignment);
   if (assignment.status !== 'active') throw new HttpError(409, 'Only the current salary can be ended');
   if (!isDate(endDate) || endDate < assignment.effectiveFrom) {
     throw new HttpError(400, `The last salary date can't be before ${assignment.effectiveFrom}`);

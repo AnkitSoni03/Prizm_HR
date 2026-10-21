@@ -92,6 +92,11 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return null;
   }
 
+  // Salary release requests → the payroll manager's own Payroll page.
+  if (notification.requestType === 'payroll' && notification.type.startsWith('payroll_release')) {
+    return `${portal}/payroll?tab=releases`;
+  }
+
   // Salary generated / revised → the employee's own salary page.
   if (notification.requestType === 'payroll') return '/ess/salary';
 

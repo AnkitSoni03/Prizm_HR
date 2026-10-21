@@ -6,7 +6,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { useConfirm } from '../../../context/confirm-context';
 import { useToast } from '../../../context/toast-context';
 import { apiErrorMessage } from '../../../utils/apiError';
-import { deleteTemplate, listTemplates, type PayrollRules, type PayrollTemplate } from '../../../api/payroll';
+import { deleteTemplate, listTemplates, targetLabel, type PayrollAccess, type PayrollRules, type PayrollTemplate } from '../../../api/payroll';
 import { TemplateFormModal } from '../components/TemplateFormModal';
 
 function summary(rules: PayrollRules) {
@@ -19,7 +19,8 @@ function summary(rules: PayrollRules) {
   return on.length ? on.join(' · ') : 'No deductions';
 }
 
-export function TemplatesTab({ canManage }: { canManage: boolean }) {
+export function TemplatesTab({ access }: { access: PayrollAccess }) {
+  const { canManage } = access;
   const confirm = useConfirm();
   const showToast = useToast();
   const [rows, setRows] = useState<PayrollTemplate[]>([]);
@@ -66,7 +67,7 @@ export function TemplatesTab({ canManage }: { canManage: boolean }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ink-muted">
           A template holds the salary split and every deduction rule. Editing one changes every employee on it from their next
-          generated month.
+          generated month. Templates made above your level can be used but only changed there.
         </p>
         {canManage && (
           <Button onClick={() => setOpen('new')}>
@@ -91,6 +92,20 @@ export function TemplatesTab({ canManage }: { canManage: boolean }) {
               </div>
             ),
           },
+          {
+            key: 'owner',
+            header: 'Made for',
+            render: (r) =>
+              r.targets.length === 0 ? (
+                <Badge tone="neutral">Whole Group</Badge>
+              ) : (
+                <div className="flex max-w-xs flex-wrap gap-1">
+                  {r.targets.map((t) => (
+                    <Badge key={`${t.companyId}-${t.brandId ?? ''}`} tone="neutral">{targetLabel(t)}</Badge>
+                  ))}
+                </div>
+              ),
+          },
           { key: 'split', header: 'Split', render: (r) => `Basic ${r.rules.basicPercentOfCtc}% · HRA ${r.rules.hraPercentOfBasic}% of Basic` },
           { key: 'ded', header: 'Deductions', render: (r) => summary(r.rules) },
           { key: 'sandwich', header: 'Sandwich', render: (r) => (r.rules.sandwichRule ? 'On' : 'Off') },
@@ -102,10 +117,10 @@ export function TemplatesTab({ canManage }: { canManage: boolean }) {
             className: 'w-24 text-right',
             render: (r) => (
               <div className="flex justify-end gap-1">
-                <button type="button" title={canManage ? 'Edit' : 'View'} className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-primary" onClick={() => setOpen(r)}>
-                  {canManage ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                <button type="button" title={r.canEdit ? 'Edit' : 'View'} className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-primary" onClick={() => setOpen(r)}>
+                  {r.canEdit ? <Pencil className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
-                {canManage && (
+                {r.canEdit && (
                   <button type="button" title="Delete" className="rounded-lg p-1.5 text-ink-muted hover:bg-page hover:text-danger" onClick={() => handleDelete(r)}>
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -119,7 +134,8 @@ export function TemplatesTab({ canManage }: { canManage: boolean }) {
       {open && (
         <TemplateFormModal
           template={open === 'new' ? null : open}
-          readOnly={!canManage}
+          access={access}
+          readOnly={open === 'new' ? !canManage : !open.canEdit}
           onClose={() => setOpen(null)}
           onSaved={() => {
             setOpen(null);

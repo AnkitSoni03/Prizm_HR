@@ -92,7 +92,12 @@ async function generateMonth(access, { year, month }) {
   const m = Number(month);
   if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) throw new HttpError(400, 'Choose a month');
   if (!isMonthComplete(y, m)) throw new HttpError(400, 'Payroll for a month can only be generated after the month is over');
-  const result = await generateMonthForAll({ year: y, month: m, groupId: access.groupId });
+  const result = await generateMonthForAll({
+    year: y,
+    month: m,
+    groupId: access.groupId,
+    employeeWhere: access.level === 'group' ? null : employeeScopeWhere(access),
+  });
   await processPendingRecalcs();
   return result;
 }

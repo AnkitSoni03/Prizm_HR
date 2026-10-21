@@ -583,7 +583,9 @@ async function generateFinalSettlements(today = dateOnly(new Date())) {
 
 // Generates every employee's payroll for one month (idempotent — existing
 // rows are left alone). groupId narrows it to one Group.
-async function generateMonthForAll({ year, month, groupId = null }) {
+// `employeeWhere` (Employee where-clause) narrows it to a Company / Brand
+// manager's own employees; omitted = everyone (in the Group, if given).
+async function generateMonthForAll({ year, month, groupId = null, employeeWhere = null }) {
   return runAsCompany(null, async () => {
     if (!isMonthComplete(year, month)) return { created: 0 };
     const { start, end } = monthBounds(year, month);
@@ -592,7 +594,11 @@ async function generateMonthForAll({ year, month, groupId = null }) {
       [Op.or]: [{ effectiveTo: null }, { effectiveTo: { [Op.gte]: start } }],
     };
     if (groupId) where.groupId = groupId;
-    const assignments = await db.SalaryAssignment.findAll({ where, attributes: ['employeeId'] });
+    const assignments = await db.SalaryAssignment.findAll({
+      where,
+      attributes: ['employeeId'],
+      include: employeeWhere ? [{ model: db.Employee, as: 'employee', attributes: [], where: employeeWhere, required: true }] : [],
+    });
     const employeeIds = [...new Set(assignments.map((a) => String(a.employeeId)))];
     let created = 0;
     for (const employeeId of employeeIds) {

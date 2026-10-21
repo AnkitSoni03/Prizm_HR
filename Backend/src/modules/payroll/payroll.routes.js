@@ -6,9 +6,11 @@ const { requirePermission } = require('../../middleware/rbac.middleware');
 const { requirePayrollView, requirePayrollManage } = require('./payrollAccess');
 const c = require('./payroll.controller');
 
-// Group-level payroll. Managers (Group Admin / group-level "Manage Payroll"
-// power) change things; Company/Brand Admins only read (payrollAccess.js).
-// /payroll/me/* is every employee's own salary (payroll:read_own).
+// Payroll at three levels (payrollAccess.js): Group (Group Admin / Group-level
+// "Manage Payroll" power) → every company; Company (Company Admin, HR Manager,
+// Company-level power) → own company + its brands; Brand (Brand Admin,
+// Brand-level power) → own brand. Each service call is bounded by the
+// caller's level. /payroll/me/* is every employee's own salary (payroll:read_own).
 const router = express.Router();
 router.use(requireAuth);
 
@@ -44,6 +46,12 @@ router.post('/assignments', requirePayrollManage, c.assign);
 router.post('/assignments/bulk', requirePayrollManage, c.bulkAssign);
 router.put('/assignments/:id', requirePayrollManage, c.updateAssignment);
 router.post('/assignments/:id/end', requirePayrollManage, c.endAssignment);
+router.get('/releases', requirePayrollManage, c.listReleases);
+router.get('/releases/count', requirePayrollView, c.releaseCount);
+router.post('/releases', requirePayrollManage, c.requestRelease);
+router.post('/releases/cancel', requirePayrollManage, c.cancelRelease);
+router.post('/releases/decide', requirePayrollManage, c.decideRelease);
+router.post('/releases/direct', requirePayrollManage, c.releaseDirect);
 router.post('/bonuses', requirePayrollManage, c.createBonus);
 router.put('/bonuses/:id', requirePayrollManage, c.updateBonus);
 router.delete('/bonuses/:id', requirePayrollManage, c.deleteBonus);

@@ -12,6 +12,7 @@ import {
   isItemOnInTemplate,
   listCustomItems,
   listTemplates,
+  templateOptionLabel,
   previewSalary,
   type BuiltInItem,
   type GroupEmployee,
@@ -172,7 +173,7 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
   return (
     <Modal title="Bulk assign salary" onClose={onClose} widthClassName="max-w-4xl">
       <div className="space-y-4">
-        <EmployeeMultiPicker selected={selected} onChange={setSelected} />
+        <EmployeeMultiPicker selected={selected} onChange={setSelected} skipLocked />
 
         <div className="grid gap-3 sm:grid-cols-3">
           <Select
@@ -180,7 +181,7 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
             value={templateId}
             onChange={(e) => setTemplateId(e.target.value)}
             placeholder="Choose…"
-            options={templates.filter((t) => t.isActive).map((t) => ({ value: String(t.id), label: t.name }))}
+            options={templates.filter((t) => t.isActive).map((t) => ({ value: String(t.id), label: templateOptionLabel(t) }))}
           />
           <Select
             label="CTC is"

@@ -38,8 +38,54 @@ export interface PayrollRules {
   customItems: Record<string, { enabled: boolean; value?: number }>;
 }
 
+// Who made a template / extra item: the Group (both null), one Company (and
+// its brands), or one Brand. canEdit = the caller may change it.
+export type PayrollLevel = 'group' | 'company' | 'brand';
+export interface PayrollOwner {
+  companyId: string | null;
+  brandId: string | null;
+  ownerLevel: PayrollLevel;
+  canEdit: boolean;
+  company?: { id: string; name: string } | null;
+  brand?: { id: string; name: string } | null;
+}
+export const ownerLabel = (o: Partial<Pick<PayrollOwner, 'ownerLevel' | 'company' | 'brand'>>) =>
+  o.ownerLevel === 'group' ? 'Group' : o.ownerLevel === 'company' ? o.company?.name ?? 'Company' : o.brand?.name ?? 'Brand';
+// "Standard" for a Group template, "Standard · Acme, Beta" otherwise.
+export const templateOptionLabel = (t: { name: string; targets?: TemplateTarget[] | null }) =>
+  t.targets && t.targets.length > 0 ? `${t.name} · ${templateTargetsLabel(t)}` : t.name;
+// Does a template / item made at this level apply to this employee?
+export const ownerCovers = (o: Partial<Pick<PayrollOwner, 'companyId' | 'brandId'>>, e: { companyId?: string | null; brandId?: string | null }) =>
+  !o.companyId || (String(o.companyId) === String(e.companyId) && (!o.brandId || String(o.brandId) === String(e.brandId)));
+
+export interface PayrollAccess {
+  level: PayrollLevel;
+  canManage: boolean;
+  groupId: string | null;
+  companyId: string | null;
+  brandIds: string[] | null;
+}
+
+// A template is made for one or more companies / brands (brandId null =
+// that whole company); an empty list = the whole Group.
+export interface TemplateTarget {
+  companyId: string;
+  brandId: string | null;
+  companyName?: string | null;
+  brandName?: string | null;
+}
+export const targetLabel = (t: TemplateTarget) =>
+  t.brandId ? `${t.companyName ?? 'Company'} › ${t.brandName ?? 'Brand'}` : t.companyName ?? 'Company';
+export const templateTargetsLabel = (t: { targets?: TemplateTarget[] | null }) =>
+  t.targets && t.targets.length > 0 ? t.targets.map(targetLabel).join(', ') : 'Whole Group';
+export const templateCovers = (t: { targets?: TemplateTarget[] | null }, e: { companyId?: string | null; brandId?: string | null }) =>
+  !t.targets || t.targets.length === 0 || t.targets.some((x) => ownerCovers(x, e));
+
 export interface PayrollTemplate {
   id: string;
+  targets: TemplateTarget[];
+  ownerLevel: PayrollLevel;
+  canEdit: boolean;
   groupId: string;
   name: string;
   description: string | null;
@@ -50,7 +96,7 @@ export interface PayrollTemplate {
 
 // 'earning' = a recurring allowance inside CTC (taken out of the Special allowance).
 export type CustomItemKind = 'deduction' | 'employer_contribution' | 'earning';
-export interface PayrollCustomItem {
+export interface PayrollCustomItem extends Partial<PayrollOwner> {
   id: string;
   name: string;
   kind: CustomItemKind;
@@ -63,7 +109,12 @@ export interface PayrollCustomItem {
   // How many employees it applies to (list only).
   employeeCount?: number;
 }
-export type CustomItemInput = Omit<PayrollCustomItem, 'id' | 'employeeCount'> & { employeeIds?: string[] };
+export type CustomItemInput = Omit<PayrollCustomItem, 'id' | 'employeeCount' | keyof PayrollOwner> & {
+  employeeIds?: string[];
+  // New items only: the level it's made at (omitted = the caller's own).
+  companyId?: string | null;
+  brandId?: string | null;
+};
 
 export interface BuiltInItem {
   key: string;
@@ -139,6 +190,11 @@ export interface SalaryAssignment {
   disabledItems: string[];
   status: 'active' | 'superseded' | 'ended';
   note: string | null;
+  // List only: the level that owns this salary, whether the caller may
+  // change it, and whether the caller's level already asked for a release.
+  ownerLevel?: PayrollLevel;
+  canEdit?: boolean;
+  releaseRequested?: boolean;
   employee?: EmployeeRef;
   template?: { id: string; name: string } | null;
   // List only: what the employee gets on top of the template.
@@ -219,9 +275,7 @@ export const formatRupees = (value: number | string | null | undefined) =>
 
 // ---- Access / scope ----
 export async function getPayrollAccess() {
-  const { data } = await apiClient.get<{ data: { canManage: boolean; groupId: string | null; companyId: string | null } }>(
-    '/payroll/access'
-  );
+  const { data } = await apiClient.get<{ data: PayrollAccess }>('/payroll/access');
   return data.data;
 }
 export async function listScopeCompanies() {
@@ -240,13 +294,25 @@ export async function getTemplateDefaults() {
   }>('/payroll/templates/defaults');
   return data.data;
 }
-export async function createTemplate(body: { name: string; description?: string | null; rules: PayrollRules; isActive?: boolean }) {
+export async function createTemplate(body: {
+  name: string;
+  description?: string | null;
+  rules: PayrollRules;
+  isActive?: boolean;
+  targets?: { companyId: string; brandId: string | null }[];
+}) {
   const { data } = await apiClient.post<{ data: PayrollTemplate }>('/payroll/templates', body);
   return data.data;
 }
 export async function updateTemplate(
   id: string,
-  body: { name?: string; description?: string | null; rules?: PayrollRules; isActive?: boolean }
+  body: {
+    name?: string;
+    description?: string | null;
+    rules?: PayrollRules;
+    isActive?: boolean;
+    targets?: { companyId: string; brandId: string | null }[];
+  }
 ) {
   const { data } = await apiClient.put<{ data: PayrollTemplate }>(`/payroll/templates/${id}`, body);
   return data.data;
@@ -369,7 +435,13 @@ export async function deleteBonus(id: string) {
 // ---- Salary assignments ----
 export interface GroupEmployee extends EmployeeRef {
   salaryAssignments: { id: string; templateId: string; monthlyCtc: string; effectiveFrom: string }[];
+  // Current salary owned above the caller's level → can't be assigned until
+  // released (requestSalaryRelease).
+  ownerLevel?: PayrollLevel | null;
+  locked?: boolean;
+  releaseRequested?: boolean;
 }
+export const LEVEL_LABEL: Record<PayrollLevel, string> = { group: 'Group', company: 'Company', brand: 'Brand' };
 export async function listGroupEmployees(params: { companyId?: string; brandId?: string; search?: string; limit?: number; offset?: number }) {
   const { data } = await apiClient.get<Paged<GroupEmployee>>('/payroll/employees', { params });
   return data;
@@ -431,6 +503,54 @@ export async function endAssignment(id: string, endDate: string) {
     { endDate }
   );
   return data.data;
+}
+
+// ---- Salary release ----
+// A salary belongs to the level that assigned it; a lower level asks that
+// level to release the employee. Approving hands the current salary down
+// (it keeps running) so the requester can then assign their own template.
+export type ReleaseStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export interface ReleaseRequest {
+  id: string;
+  employeeId: string;
+  status: ReleaseStatus;
+  reason: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  ownerLevel: PayrollLevel;
+  toLevel: 'company' | 'brand';
+  canDecide: boolean;
+  employee?: EmployeeRef;
+  assignment?: { id: string; monthlyCtc: string; effectiveFrom: string; template?: { id: string; name: string } | null } | null;
+  toCompany?: { id: string; name: string } | null;
+  toBrand?: { id: string; name: string } | null;
+  requestedBy?: { id: string; email: string } | null;
+  decidedBy?: { id: string; email: string } | null;
+}
+export async function listReleaseRequests(params: { direction: 'incoming' | 'outgoing'; status?: string; limit?: number; offset?: number }) {
+  const { data } = await apiClient.get<Paged<ReleaseRequest>>('/payroll/releases', { params });
+  return data;
+}
+export async function getPendingReleaseCount() {
+  const { data } = await apiClient.get<{ data: { pending: number } }>('/payroll/releases/count');
+  return data.data.pending;
+}
+export async function requestSalaryRelease(employeeIds: string[], reason?: string) {
+  const { data } = await apiClient.post<{ data: ReleaseRequest[]; skipped: SkippedEmployee[] }>('/payroll/releases', { employeeIds, reason });
+  return data;
+}
+export async function cancelReleaseRequests(ids: string[]) {
+  const { data } = await apiClient.post<{ data: { cancelled: number } }>('/payroll/releases/cancel', { ids });
+  return data.data;
+}
+export async function decideReleaseRequests(ids: string[], approve: boolean, note?: string) {
+  const { data } = await apiClient.post<{ data: { decided: number } }>('/payroll/releases/decide', { ids, approve, note });
+  return data.data;
+}
+export async function releaseEmployees(employeeIds: string[], to: 'company' | 'brand') {
+  const { data } = await apiClient.post<{ data: { released: number }; skipped: SkippedEmployee[] }>('/payroll/releases/direct', { employeeIds, to });
+  return data;
 }
 
 // ---- Monthly payroll ----

@@ -12,6 +12,8 @@ module.exports = (sequelize, DataTypes) => {
       SalaryAssignment.belongsTo(models.Employee, { foreignKey: 'employeeId', as: 'employee' });
       SalaryAssignment.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
       SalaryAssignment.belongsTo(models.PayrollTemplate, { foreignKey: 'templateId', as: 'template' });
+      SalaryAssignment.belongsTo(models.Company, { foreignKey: 'ownerCompanyId', as: 'ownerCompany' });
+      SalaryAssignment.belongsTo(models.Brand, { foreignKey: 'ownerBrandId', as: 'ownerBrand' });
     }
   }
 
@@ -30,6 +32,11 @@ module.exports = (sequelize, DataTypes) => {
       disabledItems: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
       status: { type: DataTypes.ENUM('active', 'superseded', 'ended'), allowNull: false, defaultValue: 'active' },
       note: { type: DataTypes.TEXT, allowNull: true },
+      // The level that owns this salary (both NULL = Group): only it, or a
+      // level above it, may change the employee's salary — see
+      // payrollRelease.service.js for handing an employee down a level.
+      ownerCompanyId: { type: DataTypes.BIGINT, allowNull: true },
+      ownerBrandId: { type: DataTypes.BIGINT, allowNull: true },
       createdByUserId: { type: DataTypes.BIGINT, allowNull: true },
       updatedByUserId: { type: DataTypes.BIGINT, allowNull: true },
     },

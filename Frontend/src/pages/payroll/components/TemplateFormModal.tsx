@@ -11,15 +11,19 @@ import {
   getTemplateDefaults,
   previewSalary,
   updateTemplate,
+  templateTargetsLabel,
+  type PayrollAccess,
   type PayrollRules,
   type PayrollTemplate,
   type RateRule,
   type SalaryBreakdown,
 } from '../../../api/payroll';
 import { SalaryBreakdownView } from './SalaryBreakdownView';
+import { TemplateTargetPicker, type TargetChoice } from './TemplateTargetPicker';
 
 interface Props {
   template: PayrollTemplate | null; // null = new
+  access: PayrollAccess;
   readOnly?: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -66,8 +70,13 @@ function RuleCard({ title, description, enabled, onToggle, disabled, children }:
 
 // Salary template: every %, cap and on/off switch the Group's payroll follows.
 // Kept as one plain form — no wizard.
-export function TemplateFormModal({ template, readOnly = false, onClose, onSaved }: Props) {
+export function TemplateFormModal({ template, access, readOnly = false, onClose, onSaved }: Props) {
   const [name, setName] = useState(template?.name ?? '');
+  // A new template starts with nothing ticked; Whole Group is its own choice.
+  const [targets, setTargets] = useState<TargetChoice[]>(
+    template ? template.targets.map((t) => ({ companyId: t.companyId, brandId: t.brandId })) : []
+  );
+  const [wholeGroup, setWholeGroup] = useState(!!template && template.targets.length === 0);
   const [description, setDescription] = useState(template?.description ?? '');
   const [isActive, setIsActive] = useState(template?.isActive ?? true);
   const [rules, setRules] = useState<PayrollRules | null>(template?.rules ?? null);
@@ -122,12 +131,17 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
       setError('Give the template a name.');
       return;
     }
+    if (!wholeGroup && targets.length === 0) {
+      setError('Under “Made for”, tick Whole Group or at least one company / brand.');
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
       const body = { name: name.trim(), description: description.trim() || null, rules: rules!, isActive };
-      if (template) await updateTemplate(template.id, body);
-      else await createTemplate(body);
+      const chosen = wholeGroup ? [] : targets;
+      if (template) await updateTemplate(template.id, { ...body, targets: chosen });
+      else await createTemplate({ ...body, targets: chosen });
       onSaved();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save the template.'));
@@ -143,6 +157,20 @@ export function TemplateFormModal({ template, readOnly = false, onClose, onSaved
           <Input label="Template name" value={name} disabled={ro} onChange={(e) => setName(e.target.value)} placeholder="e.g. Standard staff" />
           <Input label="Description (optional)" value={description} disabled={ro} onChange={(e) => setDescription(e.target.value)} />
         </div>
+        {ro && template ? (
+          <p className="text-sm text-ink-muted">
+            Made for: <span className="font-medium text-ink">{templateTargetsLabel(template)}</span>
+            {access.canManage && ' — shared beyond your company / brand, so only the level above (or the Group) can change it.'}
+          </p>
+        ) : (
+          <TemplateTargetPicker
+            access={access}
+            value={targets}
+            onChange={setTargets}
+            wholeGroup={wholeGroup && access.level === 'group'}
+            onWholeGroupChange={setWholeGroup}
+          />
+        )}
         <Toggle checked={isActive} onChange={setIsActive} disabled={ro} label="Active" description="Only active templates can be given to employees." />
 
         <section>

@@ -7,6 +7,7 @@ const templates = require('./payrollTemplate.service');
 const assignments = require('./salaryAssignment.service');
 const payrolls = require('./employeePayroll.service');
 const bonuses = require('./payrollBonus.service');
+const releases = require('./payrollRelease.service');
 const { buildPayslipPdfBuffer } = require('./payslipPdf.service');
 const { BUILT_IN_ITEMS, BONUS_TYPES } = require('./payrollRules');
 
@@ -45,7 +46,8 @@ async function sendPdf(res, payroll) {
 module.exports = {
   // ---- Access / scope ----
   access: wrap(async (req, res) => {
-    res.json({ data: { canManage: req.payroll.canManage, groupId: req.payroll.groupId, companyId: req.payroll.companyId } });
+    const { level, canManage, groupId, companyId, scopedBrandIds } = req.payroll;
+    res.json({ data: { level, canManage, groupId, companyId, brandIds: scopedBrandIds } });
   }),
   companies: wrap(async (req, res) => {
     res.json({ data: await assignments.listScopeCompanies(req.payroll) });
@@ -53,40 +55,40 @@ module.exports = {
 
   // ---- Templates ----
   listTemplates: wrap(async (req, res) => {
-    res.json({ data: await templates.listTemplates(req.payroll.groupId) });
+    res.json({ data: await templates.listTemplates(req.payroll) });
   }),
   templateDefaults: wrap(async (req, res) => {
     res.json({ data: await templates.getTemplateDefaults() });
   }),
   createTemplate: wrap(async (req, res) => {
-    res.status(201).json({ data: await templates.createTemplate({ groupId: req.payroll.groupId, body: req.body, userId: req.auth.userId }) });
+    res.status(201).json({ data: await templates.createTemplate(req.payroll, { body: req.body, userId: req.auth.userId }) });
   }),
   updateTemplate: wrap(async (req, res) => {
-    res.json({ data: await templates.updateTemplate({ groupId: req.payroll.groupId, id: req.params.id, body: req.body, userId: req.auth.userId }) });
+    res.json({ data: await templates.updateTemplate(req.payroll, { id: req.params.id, body: req.body, userId: req.auth.userId }) });
   }),
   deleteTemplate: wrap(async (req, res) => {
-    await templates.deleteTemplate({ groupId: req.payroll.groupId, id: req.params.id });
+    await templates.deleteTemplate(req.payroll, { id: req.params.id });
     res.status(204).end();
   }),
   preview: wrap(async (req, res) => {
-    res.json({ data: await templates.previewSalary({ groupId: req.payroll.groupId, body: req.body }) });
+    res.json({ data: await templates.previewSalary(req.payroll, { body: req.body }) });
   }),
 
   // ---- Custom deductions ----
   listCustomItems: wrap(async (req, res) => {
-    res.json({ data: await templates.listCustomItems(req.payroll.groupId), builtInItems: BUILT_IN_ITEMS });
+    res.json({ data: await templates.listCustomItems(req.payroll), builtInItems: BUILT_IN_ITEMS });
   }),
   customItemEmployees: wrap(async (req, res) => {
-    res.json({ data: await templates.listCustomItemEmployees({ groupId: req.payroll.groupId, id: req.params.id }) });
+    res.json({ data: await templates.listCustomItemEmployees(req.payroll, req.params.id) });
   }),
   createCustomItem: wrap(async (req, res) => {
-    res.status(201).json({ data: await templates.createCustomItem({ groupId: req.payroll.groupId, body: req.body, userId: req.auth.userId }) });
+    res.status(201).json({ data: await templates.createCustomItem(req.payroll, { body: req.body, userId: req.auth.userId }) });
   }),
   updateCustomItem: wrap(async (req, res) => {
-    res.json({ data: await templates.updateCustomItem({ groupId: req.payroll.groupId, id: req.params.id, body: req.body, userId: req.auth.userId }) });
+    res.json({ data: await templates.updateCustomItem(req.payroll, { id: req.params.id, body: req.body, userId: req.auth.userId }) });
   }),
   deleteCustomItem: wrap(async (req, res) => {
-    await templates.deleteCustomItem({ groupId: req.payroll.groupId, id: req.params.id });
+    await templates.deleteCustomItem(req.payroll, { id: req.params.id });
     res.status(204).end();
   }),
 
@@ -131,6 +133,29 @@ module.exports = {
   }),
   updateAssignment: wrap(async (req, res) => {
     res.json({ data: await assignments.updateAssignment(req.payroll, { id: req.params.id, body: req.body, userId: req.auth.userId }) });
+  }),
+  // ---- Salary release (a lower level asking for an employee) ----
+  listReleases: wrap(async (req, res) => {
+    const { limit, offset } = parsePagination(req.query);
+    const { rows, count } = await releases.listReleaseRequests(req.payroll, { ...req.query, limit, offset });
+    res.json({ data: rows, pagination: { total: count, limit, offset } });
+  }),
+  releaseCount: wrap(async (req, res) => {
+    res.json({ data: { pending: await releases.pendingIncomingCount(req.payroll) } });
+  }),
+  requestRelease: wrap(async (req, res) => {
+    const { created, skipped } = await releases.requestRelease(req.payroll, { body: req.body, userId: req.auth.userId });
+    res.status(201).json({ data: created, skipped });
+  }),
+  cancelRelease: wrap(async (req, res) => {
+    res.json({ data: await releases.cancelRelease(req.payroll, { body: req.body, userId: req.auth.userId }) });
+  }),
+  decideRelease: wrap(async (req, res) => {
+    res.json({ data: await releases.decideRelease(req.payroll, { body: req.body, userId: req.auth.userId }) });
+  }),
+  releaseDirect: wrap(async (req, res) => {
+    const { released, skipped } = await releases.releaseDirect(req.payroll, { body: req.body, userId: req.auth.userId });
+    res.json({ data: { released }, skipped });
   }),
   endAssignment: wrap(async (req, res) => {
     res.json({ data: await assignments.endAssignment(req.payroll, { id: req.params.id, endDate: req.body.endDate, userId: req.auth.userId }) });

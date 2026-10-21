@@ -2,9 +2,10 @@
 
 const { Model } = require('sequelize');
 
-// Group-level, no company_id — deliberately NOT tenant-scoped (same as
-// kiosk_locations): a template is shared by every company in the Group.
-// Every query filters on group_id explicitly.
+// Deliberately NOT tenant-scoped (same as kiosk_locations): a Group-level
+// template is shared by every company in the Group; `targets` narrows it to
+// chosen companies / brands. Every query filters on group_id explicitly
+// (visibility / edit rights: payrollAccess.js template target helpers).
 module.exports = (sequelize, DataTypes) => {
   class PayrollTemplate extends Model {
     static associate(models) {
@@ -16,6 +17,9 @@ module.exports = (sequelize, DataTypes) => {
   PayrollTemplate.init(
     {
       groupId: { type: DataTypes.BIGINT, allowNull: false },
+      // Who it's for (migration 20261021090100): [{ companyId, brandId }] —
+      // brandId null = the whole company; null / [] = the whole Group.
+      targets: { type: DataTypes.JSONB, allowNull: true },
       name: { type: DataTypes.STRING, allowNull: false },
       description: { type: DataTypes.TEXT, allowNull: true },
       // Shape: modules/payroll/payrollRules.js

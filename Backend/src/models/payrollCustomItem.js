@@ -9,6 +9,8 @@ module.exports = (sequelize, DataTypes) => {
   class PayrollCustomItem extends Model {
     static associate(models) {
       PayrollCustomItem.belongsTo(models.Group, { foreignKey: 'groupId', as: 'group' });
+      PayrollCustomItem.belongsTo(models.Company, { foreignKey: 'companyId', as: 'company' });
+      PayrollCustomItem.belongsTo(models.Brand, { foreignKey: 'brandId', as: 'brand' });
       PayrollCustomItem.hasMany(models.PayrollCustomItemEmployee, { foreignKey: 'customItemId', as: 'members' });
     }
   }
@@ -16,6 +18,10 @@ module.exports = (sequelize, DataTypes) => {
   PayrollCustomItem.init(
     {
       groupId: { type: DataTypes.BIGINT, allowNull: false },
+      // Owner level (migration 20261021090000): both null = Group, companyId =
+      // that Company + its Brands, brandId = that Brand only.
+      companyId: { type: DataTypes.BIGINT, allowNull: true },
+      brandId: { type: DataTypes.BIGINT, allowNull: true },
       name: { type: DataTypes.STRING, allowNull: false },
       kind: { type: DataTypes.ENUM('deduction', 'employer_contribution', 'earning'), allowNull: false },
       calcType: { type: DataTypes.ENUM('percent', 'fixed'), allowNull: false },

@@ -11,8 +11,11 @@ import {
   isItemOnInTemplate,
   listCustomItems,
   listGroupEmployees,
+  LEVEL_LABEL,
   listScopeCompanies,
   listTemplates,
+  templateCovers,
+  templateOptionLabel,
   previewSalary,
   updateAssignment,
   type BuiltInItem,
@@ -23,6 +26,7 @@ import {
   type ScopeCompany,
 } from '../../../api/payroll';
 import { SalaryBreakdownView } from './SalaryBreakdownView';
+import { RequestReleaseModal } from './RequestReleaseModal';
 import { ExtrasDetails, InHandByMonth } from './EmployeeExtras';
 
 interface Props {
@@ -57,6 +61,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [askRelease, setAskRelease] = useState(false);
 
   useEffect(() => {
     listTemplates().then((t) => setTemplates(t)).catch(() => setError('Could not load salary templates.'));
@@ -80,6 +85,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
 
   const employee = isEdit ? assignment?.employee : employees.find((e) => String(e.id) === employeeId);
   const currentSalary = !isEdit ? (employee as GroupEmployee | undefined)?.salaryAssignments?.[0] : undefined;
+  const lockedEmployee = !isEdit && employee && (employee as GroupEmployee).locked ? (employee as GroupEmployee) : null;
   const template = templates.find((t) => String(t.id) === templateId);
   const items = useMemo(() => {
     if (!template) return [];
@@ -117,6 +123,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
 
   async function handleSave() {
     if (!isEdit && !employeeId) return setError('Choose an employee.');
+    if (lockedEmployee) return setError('This employee’s salary is managed at a higher level — request a release first.');
     if (!templateId) return setError('Choose a salary template.');
     if (!amount || amount <= 0) return setError('Enter the CTC.');
     setIsSaving(true);
@@ -159,12 +166,40 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
               placeholder={employees.length ? 'Choose…' : 'No employees found'}
-              options={employees.map((e) => ({ value: String(e.id), label: employeeLabel(e) }))}
+              options={employees.map((e) => ({
+                value: String(e.id),
+                label: e.locked ? `${employeeLabel(e)} — locked · ${LEVEL_LABEL[e.ownerLevel ?? 'group']}` : employeeLabel(e),
+              }))}
             />
           </div>
         )}
 
-        {currentSalary && (
+        {lockedEmployee && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
+            <span>
+              Salary managed by the {LEVEL_LABEL[lockedEmployee.ownerLevel ?? 'group']} level — you can assign one only after they
+              release this employee.
+            </span>
+            {lockedEmployee.releaseRequested ? (
+              <span className="font-medium">Release requested</span>
+            ) : (
+              <Button variant="secondary" onClick={() => setAskRelease(true)}>
+                Request release
+              </Button>
+            )}
+          </div>
+        )}
+        {askRelease && lockedEmployee && (
+          <RequestReleaseModal
+            employees={[lockedEmployee]}
+            onClose={() => setAskRelease(false)}
+            onDone={() => {
+              setAskRelease(false);
+              setEmployees((list) => list.map((e) => (String(e.id) === String(lockedEmployee.id) ? { ...e, releaseRequested: true } : e)));
+            }}
+          />
+        )}
+        {currentSalary && !lockedEmployee && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
             Currently on {formatRupees(currentSalary.monthlyCtc)}/month since {currentSalary.effectiveFrom}. The new salary
             replaces it from the date below.
@@ -177,7 +212,9 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
             value={templateId}
             onChange={(e) => setTemplateId(e.target.value)}
             placeholder="Choose…"
-            options={templates.filter((t) => t.isActive || String(t.id) === templateId).map((t) => ({ value: String(t.id), label: t.name }))}
+            options={templates
+              .filter((t) => String(t.id) === templateId || (t.isActive && (!employee || templateCovers(t, employee))))
+              .map((t) => ({ value: String(t.id), label: templateOptionLabel(t) }))}
           />
           <Select
             label="CTC is"
