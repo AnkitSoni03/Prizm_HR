@@ -305,10 +305,10 @@ export function ApprovalsPage({ extraParams = {} }: ApprovalsPageProps = {}) {
   function loadHistory() {
     if (!historyTarget) return Promise.resolve([]);
     const { tab, id } = historyTarget;
-    if (tab === 'leave') return getLeaveRequestHistory(id);
-    if (tab === 'od') return getOdRequestHistory(id);
-    if (tab === 'regularization') return getRegularizationHistory(id);
-    return getCompOffHistory(id);
+    if (tab === 'leave') return getLeaveRequestHistory(id, extraParams.companyId);
+    if (tab === 'od') return getOdRequestHistory(id, extraParams.companyId);
+    if (tab === 'regularization') return getRegularizationHistory(id, extraParams.companyId);
+    return getCompOffHistory(id, extraParams.companyId);
   }
 
   return (

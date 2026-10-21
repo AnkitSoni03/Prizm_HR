@@ -212,8 +212,11 @@ export async function revokeLeaveRequest(id: string, reason: string): Promise<Le
   return data.data;
 }
 
-export async function getLeaveRequestHistory(id: string): Promise<ApprovalHistoryEntry[]> {
-  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/leave/requests/${id}/history`);
+// companyId: a Group Admin's company drill-in (they have no company of their own).
+export async function getLeaveRequestHistory(id: string, companyId?: string): Promise<ApprovalHistoryEntry[]> {
+  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/leave/requests/${id}/history`, {
+    params: companyId ? { companyId } : undefined,
+  });
   return data.data;
 }
 
@@ -239,8 +242,11 @@ export async function revokeOdRequest(id: string, reason: string): Promise<OdReq
   return data.data;
 }
 
-export async function getOdRequestHistory(id: string): Promise<ApprovalHistoryEntry[]> {
-  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/attendance/od-requests/${id}/history`);
+// companyId: a Group Admin's company drill-in (they have no company of their own).
+export async function getOdRequestHistory(id: string, companyId?: string): Promise<ApprovalHistoryEntry[]> {
+  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/attendance/od-requests/${id}/history`, {
+    params: companyId ? { companyId } : undefined,
+  });
   return data.data;
 }
 
@@ -285,8 +291,11 @@ export async function revokeRegularization(id: string, reason: string): Promise<
   return data.data;
 }
 
-export async function getRegularizationHistory(id: string): Promise<ApprovalHistoryEntry[]> {
-  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/attendance/regularizations/${id}/history`);
+// companyId: a Group Admin's company drill-in (they have no company of their own).
+export async function getRegularizationHistory(id: string, companyId?: string): Promise<ApprovalHistoryEntry[]> {
+  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/attendance/regularizations/${id}/history`, {
+    params: companyId ? { companyId } : undefined,
+  });
   return data.data;
 }
 
@@ -328,7 +337,10 @@ export async function revokeCompOffCredit(id: string, reason: string): Promise<C
   return data.data;
 }
 
-export async function getCompOffHistory(id: string): Promise<ApprovalHistoryEntry[]> {
-  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/leave/comp-off/${id}/history`);
+// companyId: a Group Admin's company drill-in (they have no company of their own).
+export async function getCompOffHistory(id: string, companyId?: string): Promise<ApprovalHistoryEntry[]> {
+  const { data } = await apiClient.get<{ data: ApprovalHistoryEntry[] }>(`/leave/comp-off/${id}/history`, {
+    params: companyId ? { companyId } : undefined,
+  });
   return data.data;
 }
