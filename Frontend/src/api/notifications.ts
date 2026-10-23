@@ -33,6 +33,7 @@ export interface AppNotification {
     | 'resignation'
     | null;
   requestId: string | null;
+  companyId: string;
   title: string;
   body: string | null;
   isRead: boolean;

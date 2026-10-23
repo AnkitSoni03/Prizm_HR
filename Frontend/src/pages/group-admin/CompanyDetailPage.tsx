@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Pencil, Power, Trash2 } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { Tabs } from '../../components/ui/Tabs';
@@ -58,7 +58,12 @@ export function CompanyDetailPage() {
   const canDeleteBrand = hasPermission('brand:delete');
   const canDeleteEmployee = hasPermission('employee:delete');
 
-  const [activeTab, setActiveTab] = useState<Tab>('employees');
+  // ?section=approvals deep-links here from a Group Admin's notification bell
+  // (ApprovalsPage itself reads ?tab= for its own Leave/OD/... tab).
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<Tab>(() =>
+    searchParams.get('section') === 'approvals' ? 'approvals' : 'employees'
+  );
   const [company, setCompany] = useState<Company | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);

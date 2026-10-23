@@ -144,6 +144,10 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     const tab = APPROVAL_TABS[notification.requestType];
     if (portal === '/company-admin') return `/company-admin/approvals?tab=${tab}`;
     if (portal === '/brand-admin') return `/brand-admin/approvals?tab=${tab}`;
+    // Group Admin decides from the item's company drill-in (Approvals tab).
+    if (portal === '/group-admin' && notification.companyId) {
+      return `/group-admin/companies/${notification.companyId}?section=approvals&tab=${tab}`;
+    }
     // Leave/OD/comp-off have a manager path in ESS (Team Approvals — the
     // manager may even be in another company of the Group);
     // attendance_regularization has none (only Company Admin/Brand Admin/HR
