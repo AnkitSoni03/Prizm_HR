@@ -17,6 +17,7 @@ interface Tile {
   value: number;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   accentColor: string;
+  to: string;
 }
 
 // A distinct hue for the one "count" metric (from the same categorical
@@ -25,11 +26,11 @@ interface Tile {
 // your attention") together instead of a decorative rainbow.
 function tilesFor(summary: DashboardSummary, categorical: string[]): Tile[] {
   return [
-    { label: 'Employees', value: summary.employeeCount, icon: Users, accentColor: categorical[0] },
-    { label: 'Pending Leave Requests', value: summary.pendingLeaveRequests, icon: CalendarClock, accentColor: 'var(--warning)' },
-    { label: 'Pending OD Requests', value: summary.pendingOdRequests, icon: Send, accentColor: 'var(--warning)' },
-    { label: 'Pending Regularizations', value: summary.pendingRegularizations, icon: ClipboardCheck, accentColor: 'var(--warning)' },
-    { label: 'Pending Comp-Off Credits', value: summary.pendingCompOffCredits, icon: RefreshCw, accentColor: 'var(--warning)' },
+    { label: 'Employees', value: summary.employeeCount, icon: Users, accentColor: categorical[0], to: '/brand-admin/employees' },
+    { label: 'Pending Leave Requests', value: summary.pendingLeaveRequests, icon: CalendarClock, accentColor: 'var(--warning)', to: '/brand-admin/approvals?tab=leave' },
+    { label: 'Pending OD Requests', value: summary.pendingOdRequests, icon: Send, accentColor: 'var(--warning)', to: '/brand-admin/approvals?tab=od' },
+    { label: 'Pending Regularizations', value: summary.pendingRegularizations, icon: ClipboardCheck, accentColor: 'var(--warning)', to: '/brand-admin/approvals?tab=regularization' },
+    { label: 'Pending Comp-Off Credits', value: summary.pendingCompOffCredits, icon: RefreshCw, accentColor: 'var(--warning)', to: '/brand-admin/approvals?tab=compOff' },
   ];
 }
 
@@ -81,7 +82,7 @@ export function BrandAdminDashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tilesFor(summary, palette.categorical).map((tile) => (
-          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} accentColor={tile.accentColor} />
+          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} accentColor={tile.accentColor} to={tile.to} />
         ))}
       </div>
 

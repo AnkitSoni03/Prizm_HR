@@ -1,4 +1,5 @@
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType, CSSProperties, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 
 interface HeroStatTileProps {
@@ -11,6 +12,28 @@ interface HeroStatTileProps {
   /** Optional secondary line under the value — a plain string or a small
    * custom node (e.g. a two-line holiday name + date block). */
   hint?: ReactNode;
+  /** Optional route — makes the whole tile a link. Navigating mounts the
+   * target page, so it always loads fresh data. */
+  to?: string;
+}
+
+function TileShell({ to, className, style, children }: { to?: string; className: string; style: CSSProperties; children: ReactNode }) {
+  if (!to) {
+    return (
+      <div className={className} style={style}>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <Link
+      to={to}
+      className={`${className} cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary`}
+      style={style}
+    >
+      {children}
+    </Link>
+  );
 }
 
 /** ESS-dashboard-only "hero" stat card — a colorful, compact variant of the
@@ -20,10 +43,11 @@ interface HeroStatTileProps {
  * (sm: and up) — the row shape doesn't scale up cleanly to a multi-column
  * grid, so rather than one shared markup this swaps wholesale at the
  * breakpoint, same as EssDashboard's mobile ID card / desktop banner split. */
-export function HeroStatTile({ label, value, icon: Icon, accentColor, hint }: HeroStatTileProps) {
+export function HeroStatTile({ label, value, icon: Icon, accentColor, hint, to }: HeroStatTileProps) {
   return (
     <>
-      <div
+      <TileShell
+        to={to}
         className="flex items-center gap-3 rounded-2xl p-4 shadow-xs sm:hidden"
         style={{ backgroundColor: `${accentColor}14` }}
       >
@@ -46,10 +70,11 @@ export function HeroStatTile({ label, value, icon: Icon, accentColor, hint }: He
         >
           <ChevronRight className="h-4 w-4" strokeWidth={2} />
         </span>
-      </div>
+      </TileShell>
 
-      <div
-        className="hidden items-center gap-2.5 rounded-xl border border-t-[3px] border-border bg-card p-2.5 shadow-xs transition-shadow hover:shadow-md sm:flex sm:gap-3 sm:p-3.5"
+      <TileShell
+        to={to}
+        className={`hidden items-center gap-2.5 rounded-xl border border-t-[3px] border-border bg-card p-2.5 shadow-xs transition-all hover:shadow-md sm:flex sm:gap-3 sm:p-3.5 ${to ? 'hover:-translate-y-0.5' : ''}`}
         style={{ borderTopColor: accentColor }}
       >
         <span
@@ -63,7 +88,7 @@ export function HeroStatTile({ label, value, icon: Icon, accentColor, hint }: He
           <p className="truncate text-base font-bold tracking-tight text-ink sm:text-lg">{value}</p>
           {hint && <div className="text-[10px] text-ink-muted sm:text-[11px]">{hint}</div>}
         </div>
-      </div>
+      </TileShell>
     </>
   );
 }

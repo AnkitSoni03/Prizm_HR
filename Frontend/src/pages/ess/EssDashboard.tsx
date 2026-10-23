@@ -153,6 +153,8 @@ interface Summary {
   leaveUsage: LeaveUsageEntry[];
   leaveUsedTotal: number;
   pendingRequests: number;
+  /** Where the Pending Requests tile links — the first kind that has any. */
+  pendingRequestsPath: string;
   monthAttendance: Attendance[];
   monthPresent: number;
   monthWorkingDays: number;
@@ -482,6 +484,12 @@ export function EssDashboard() {
           leaveUsedTotal: ownBalances.reduce((sum, b) => sum + Number(b.used), 0),
           pendingRequests:
             leaveRequests.pagination.total + odRequests.pagination.total + regularizations.pagination.total,
+          pendingRequestsPath:
+            leaveRequests.pagination.total === 0 && odRequests.pagination.total > 0
+              ? '/ess/od'
+              : leaveRequests.pagination.total === 0 && regularizations.pagination.total > 0
+                ? '/ess/attendance?tab=requests'
+                : '/ess/leave',
           monthAttendance: attendance.data,
         });
       })
@@ -656,6 +664,7 @@ export function EssDashboard() {
           value={summary.todayStatus ? STATUS_LABEL[summary.todayStatus] ?? summary.todayStatus : 'Not marked yet'}
           icon={CalendarCheck}
           accentColor={palette.categorical[0]}
+          to="/ess/attendance"
           hint={
             summary.checkIn && (
               <span className="inline-flex items-center gap-1 text-success">
@@ -670,6 +679,7 @@ export function EssDashboard() {
           value={summary.leaveBalanceTotal}
           icon={Wallet}
           accentColor={palette.categorical[1]}
+          to="/ess/leave-balance"
           hint={`${summary.leaveUsedTotal} used this year`}
         />
         <HeroStatTile
@@ -677,6 +687,7 @@ export function EssDashboard() {
           value={summary.pendingRequests}
           icon={ClipboardList}
           accentColor={palette.categorical[2]}
+          to={summary.pendingRequestsPath}
           hint={summary.pendingRequests > 0 ? 'Awaiting approval' : 'All caught up'}
         />
         <HeroStatTile
@@ -684,6 +695,7 @@ export function EssDashboard() {
           value={nextHoliday ? `${daysUntil(nextHoliday.date)}d` : '—'}
           icon={PartyPopper}
           accentColor={palette.categorical[3]}
+          to="/ess/holidays"
           hint={
             nextHoliday ? (
               <>

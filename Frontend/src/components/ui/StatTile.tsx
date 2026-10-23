@@ -1,4 +1,5 @@
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Skeleton } from './Skeleton';
 
 type StatTileTone = 'soft' | 'filled';
@@ -19,20 +20,24 @@ interface StatTileProps {
   /** Optional secondary caption under the value, e.g. a breakdown or
    * timestamp — kept short, truncates rather than wraps. */
   hint?: string;
+  /** Optional route — makes the whole tile a link. Navigating mounts the
+   * target page, so it always loads fresh data. */
+  to?: string;
 }
 
-export function StatTile({ label, value, icon: Icon, tone = 'soft', accentColor, hint }: StatTileProps) {
+const TILE_CLASS =
+  'group relative block overflow-hidden rounded-xl border border-border bg-card p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] sm:p-5';
+
+export function StatTile({ label, value, icon: Icon, tone = 'soft', accentColor, hint, to }: StatTileProps) {
   const iconStyle = accentColor
     ? tone === 'filled'
       ? { backgroundColor: accentColor, color: '#fff' }
       : { backgroundColor: `${accentColor}1f`, color: accentColor }
     : undefined;
 
-  return (
-    <div
-      className="group relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] sm:p-5"
-      style={accentColor ? { borderTopColor: accentColor, borderTopWidth: 2 } : undefined}
-    >
+  const style = accentColor ? { borderTopColor: accentColor, borderTopWidth: 2 } : undefined;
+  const content: ReactNode = (
+    <>
       {accentColor && (
         <div
           className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full opacity-[0.08] transition-transform duration-300 group-hover:scale-110"
@@ -54,6 +59,23 @@ export function StatTile({ label, value, icon: Icon, tone = 'soft', accentColor,
           <Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" strokeWidth={1.75} />
         </div>
       </div>
+    </>
+  );
+
+  if (to) {
+    return (
+      <Link
+        to={to}
+        className={`${TILE_CLASS} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary`}
+        style={style}
+      >
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <div className={TILE_CLASS} style={style}>
+      {content}
     </div>
   );
 }

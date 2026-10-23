@@ -13,14 +13,15 @@ interface Tile {
   value: number;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   tone: 'soft' | 'filled';
+  to: string;
 }
 
 function tilesFor(summary: PlatformDashboardSummary): Tile[] {
   return [
-    { label: 'Groups', value: summary.groupCount, icon: Layers, tone: 'filled' },
-    { label: 'Companies', value: summary.companyCount, icon: Building2, tone: 'soft' },
-    { label: 'Brands', value: summary.brandCount, icon: Tag, tone: 'filled' },
-    { label: 'Employees', value: summary.employeeCount, icon: Users, tone: 'soft' },
+    { label: 'Groups', value: summary.groupCount, icon: Layers, tone: 'filled', to: '/super-admin/companies' },
+    { label: 'Companies', value: summary.companyCount, icon: Building2, tone: 'soft', to: '/super-admin/companies' },
+    { label: 'Brands', value: summary.brandCount, icon: Tag, tone: 'filled', to: '/super-admin/companies' },
+    { label: 'Employees', value: summary.employeeCount, icon: Users, tone: 'soft', to: '/super-admin/users' },
   ];
 }
 
@@ -67,7 +68,7 @@ export function SuperAdminDashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {tilesFor(summary).map((tile) => (
-          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} tone={tile.tone} />
+          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} tone={tile.tone} to={tile.to} />
         ))}
       </div>
 

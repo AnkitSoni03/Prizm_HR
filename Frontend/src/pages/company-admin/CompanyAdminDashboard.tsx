@@ -23,6 +23,7 @@ interface Tile {
   value: number;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
   accentColor: string;
+  to: string;
 }
 
 // A distinct hue per "count" metric (from the same categorical palette the
@@ -32,11 +33,11 @@ interface Tile {
 // decorative rainbow, while still giving the row real color variety.
 function tilesFor(summary: DashboardSummary, categorical: string[]): Tile[] {
   return [
-    { label: 'Brands', value: summary.brandCount, icon: Building2, accentColor: categorical[0] },
-    { label: 'Employees', value: summary.employeeCount, icon: Users, accentColor: categorical[1] },
-    { label: 'Pending Leave Requests', value: summary.pendingLeaveRequests, icon: CalendarClock, accentColor: 'var(--warning)' },
-    { label: 'Pending OD Requests', value: summary.pendingOdRequests, icon: Send, accentColor: 'var(--warning)' },
-    { label: 'Pending Regularizations', value: summary.pendingRegularizations, icon: ClipboardCheck, accentColor: 'var(--warning)' },
+    { label: 'Brands', value: summary.brandCount, icon: Building2, accentColor: categorical[0], to: '/company-admin/organization' },
+    { label: 'Employees', value: summary.employeeCount, icon: Users, accentColor: categorical[1], to: '/company-admin/employees' },
+    { label: 'Pending Leave Requests', value: summary.pendingLeaveRequests, icon: CalendarClock, accentColor: 'var(--warning)', to: '/company-admin/approvals?tab=leave' },
+    { label: 'Pending OD Requests', value: summary.pendingOdRequests, icon: Send, accentColor: 'var(--warning)', to: '/company-admin/approvals?tab=od' },
+    { label: 'Pending Regularizations', value: summary.pendingRegularizations, icon: ClipboardCheck, accentColor: 'var(--warning)', to: '/company-admin/approvals?tab=regularization' },
   ];
 }
 
@@ -82,7 +83,7 @@ export function CompanyAdminDashboard() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tilesFor(summary, palette.categorical).map((tile) => (
-          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} accentColor={tile.accentColor} />
+          <StatTile key={tile.label} label={tile.label} value={tile.value} icon={tile.icon} accentColor={tile.accentColor} to={tile.to} />
         ))}
       </div>
 

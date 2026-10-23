@@ -201,7 +201,10 @@ export function Sidebar({
               <NavLink
                 key={item.path}
                 to={item.path}
-                end
+                // Only the portal root (Dashboard, e.g. /group-admin) matches
+                // exactly — every other item stays active on its sub-pages
+                // too (e.g. Companies on /group-admin/companies/1).
+                end={item.path.split("/").filter(Boolean).length <= 1}
                 onClick={onClose}
                 className={({ isActive }) =>
                   [
