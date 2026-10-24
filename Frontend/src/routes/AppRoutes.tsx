@@ -1,5 +1,6 @@
 import { EmployeeReportsPage } from '../pages/reports/EmployeeReportsPage';
 import { lazy, Suspense } from 'react';
+import { FullScreenLoader } from '../components/ui/FullScreenLoader';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { ProtectedRoute } from '../components/ProtectedRoute';
@@ -111,7 +112,7 @@ export function AppRoutes() {
       <Route
         path="/kiosk"
         element={
-          <Suspense fallback={<div className="flex h-dvh w-full items-center justify-center bg-sidebar text-sm text-white/70">Loading…</div>}>
+          <Suspense fallback={<FullScreenLoader message="Loading…" />}>
             <KioskPage />
           </Suspense>
         }

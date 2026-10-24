@@ -82,9 +82,13 @@ async function doRefresh(epochAtStart: number): Promise<string | null> {
   if (!refreshToken) return null;
 
   try {
-    const { data } = await axios.post(`${apiClient.defaults.baseURL}/auth/refresh`, {
-      refreshToken,
-    });
+    // Timeout: on a very slow connection this fails as a transient error
+    // (caller retries / shows "Connecting…") instead of hanging forever.
+    const { data } = await axios.post(
+      `${apiClient.defaults.baseURL}/auth/refresh`,
+      { refreshToken },
+      { timeout: 15000 }
+    );
     // A logout, or a login as someone else, happened while this request was
     // in flight — the response belongs to a session that's no longer
     // current. Applying it now would silently overwrite whatever the newer

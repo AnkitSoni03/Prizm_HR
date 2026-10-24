@@ -9,9 +9,17 @@ import {
 } from '../api/tokenStore';
 import { AuthContext, type AuthContextValue, type AuthUser } from './auth-context';
 import { PROBATION_POPUP_KEY_PREFIX } from '../utils/probation';
+import { FullScreenLoader } from '../components/ui/FullScreenLoader';
+
+const STARTUP_REQUEST_TIMEOUT_MS = 15000;
+// Still on "Loading…" after this long → tell the user it's the connection.
+const SLOW_HINT_AFTER_MS = 5000;
 
 async function fetchCurrentUser(): Promise<AuthUser> {
-  const { data } = await apiClient.get<AuthUser>('/auth/me');
+  // Timeout so a very slow connection counts as a (transient) failure and
+  // the startup screen switches to "Connecting…" + retries, instead of
+  // waiting forever on "Loading…".
+  const { data } = await apiClient.get<AuthUser>('/auth/me', { timeout: STARTUP_REQUEST_TIMEOUT_MS });
   return data;
 }
 
@@ -62,6 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // retry until the server actually answers. Only a definitive rejection
   // (401/403, handled inside refreshAccessToken) ends the session.
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    if (!isBootstrapping) return;
+    const timer = window.setTimeout(() => setIsSlow(true), SLOW_HINT_AFTER_MS);
+    return () => window.clearTimeout(timer);
+  }, [isBootstrapping]);
   useEffect(() => {
     if (!getTokens().refreshToken) return;
     let cancelled = false;
@@ -163,11 +177,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // still in flight.
   if (isBootstrapping) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-page">
-        <div className="px-4 text-center text-sm text-ink-muted">
-          {isReconnecting ? 'Connecting… please check your internet connection.' : 'Loading…'}
-        </div>
-      </div>
+      <FullScreenLoader
+        message={
+          isReconnecting
+            ? 'Connecting… please check your internet connection.'
+            : isSlow
+              ? 'Slow connection, still loading…'
+              : 'Loading…'
+        }
+      />
     );
   }
 
