@@ -134,6 +134,7 @@ async function bulkUpdateStatus(req, res, next) {
       date: req.body.date,
       status: req.body.status,
       leaveTypeId: req.body.leaveTypeId,
+      halfDaySession: req.body.halfDaySession,
       actorUserId: req.auth.userId,
     });
     res.json({ data: result });

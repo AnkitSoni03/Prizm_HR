@@ -22,6 +22,8 @@ const {
 // matters (Render's containers default to UTC, unlike a dev machine's IST).
 const { dateOnly, addDays, datesBetween } = require('../../utils/dateRange');
 const { workedStatusFor } = require('../../utils/halfDayLeave');
+const { isWorkingDay } = require('../../utils/workingDays');
+const { getOrCreateBalance, resolveLeavePolicy } = require('../leave/leaveBalance.service');
 const {
   isOvernightShift,
   scheduledEndDateTime,
@@ -1063,6 +1065,48 @@ async function revertLeavesForStatusChange({ companyId, leaves, date, actorUserI
   }
 }
 
+// Checked BEFORE any existing leave on the day is reverted, so an employee
+// whose paid leave can't be filed is left exactly as they were (the admin
+// must pick an unpaid type instead). Counts the refund from leaves about to
+// be reverted that charge the same balance. Unpaid / unlimited types have
+// nothing to check; comp-off (credit-based) is left to createLeaveRequest.
+async function assertLeaveAffordable({ companyId, employee, leaveType, date, existingLeaves }) {
+  if (leaveType.code === 'CO' || !leaveType.isPaid) return;
+  const isLinked = !!leaveType.deductFromLeaveTypeId;
+  const balanceType = isLinked
+    ? await db.LeaveType.findOne({ where: { id: leaveType.deductFromLeaveTypeId, companyId } })
+    : leaveType;
+  if (!balanceType || !balanceType.isPaid) return;
+
+  const working = await isWorkingDay({
+    employeeId: employee.id,
+    companyId,
+    brandId: employee.brandId,
+    rosterGroupId: employee.rosterGroupId,
+    dateStr: date,
+  });
+  if (!working) throw new HttpError(422, `${date} is not a working day for this employee`);
+
+  const policy = await resolveLeavePolicy({ companyId, leaveTypeId: balanceType.id, rosterGroupId: employee.rosterGroupId });
+  if (!policy) {
+    throw new HttpError(422, `${balanceType.name} isn't on this employee's Roster — choose an unpaid leave type`);
+  }
+  if (policy.isUnlimited) return;
+
+  const needed = isLinked ? Number(leaveType.deductionPerUse) || 1 : 1;
+  const balance = await getOrCreateBalance({ employeeId: employee.id, leaveTypeId: balanceType.id, dateStr: date });
+  const refund = existingLeaves
+    .filter((leave) => String(leave.balanceLeaveTypeId || leave.leaveTypeId) === String(balanceType.id))
+    .reduce((sum, leave) => sum + Number(leave.days || 0), 0);
+  const available = Number(balance?.balance || 0) + refund;
+  if (available < needed) {
+    throw new HttpError(
+      422,
+      `Insufficient ${balanceType.name} balance (${Math.max(0, available)} left, needs ${needed}) — choose an unpaid leave type`
+    );
+  }
+}
+
 // Admin bulk-correction for employees who forgot to mark their own
 // attendance: sets the same status across any number of employees for one
 // date in a single call.
@@ -1080,7 +1124,7 @@ async function revertLeavesForStatusChange({ companyId, leaves, date, actorUserI
 // independently (not one big transaction) so one employee's failure (e.g.
 // insufficient balance, an existing overlapping request) doesn't block the
 // rest of the batch — failures are collected and returned, not thrown.
-async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date, status, leaveTypeId, actorUserId }) {
+async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date, status, leaveTypeId, halfDaySession, actorUserId }) {
   if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
     throw new HttpError(400, 'employeeIds must be a non-empty array');
   }
@@ -1099,7 +1143,10 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
   const employeeWhere = { id: { [Op.in]: uniqueIds }, companyId };
   if (brandIds) employeeWhere.brandId = { [Op.in]: brandIds };
 
-  const employees = await db.Employee.findAll({ where: employeeWhere, attributes: ['id', 'name', 'userId'] });
+  const employees = await db.Employee.findAll({
+    where: employeeWhere,
+    attributes: ['id', 'name', 'userId', 'brandId', 'rosterGroupId'],
+  });
   if (employees.length !== uniqueIds.length) {
     throw new HttpError(400, 'One or more selected employees are not in scope');
   }
@@ -1114,11 +1161,15 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
   if (status === 'leave') {
     const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId } });
     if (!leaveType) throw new HttpError(400, 'Leave type not found for this company');
-    // Marking a day as 'leave' is a full day — a half-day type (0.5 per use)
-    // can only be applied for, with a first/second half.
-    if (leaveType.deductFromLeaveTypeId && Number(leaveType.deductionPerUse) === 0.5) {
-      throw new HttpError(400, `${leaveType.name} is a half-day leave and can't be used to mark a full day`);
+    // A half-day type (0.5 per use) files a half-day leave for the chosen
+    // half (first half by default) — charged 0.5 against its source balance
+    // — and the day shows 'half_day' (the employee worked the other half).
+    const isHalfDay = !!leaveType.deductFromLeaveTypeId && Number(leaveType.deductionPerUse) === 0.5;
+    const session = isHalfDay ? halfDaySession || 'first_half' : null;
+    if (isHalfDay && !['first_half', 'second_half'].includes(session)) {
+      throw new HttpError(400, 'halfDaySession must be first_half or second_half');
     }
+    const dayStatus = isHalfDay ? 'half_day' : 'leave';
 
     let updated = 0;
     const failures = [];
@@ -1132,7 +1183,7 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
         const existingLeaves = await findApprovedLeavesOnDate({ employeeId: employee.id, date });
         const sameLeave = existingLeaves.find(
           (leave) =>
-            !leave.halfDaySession &&
+            (leave.halfDaySession || null) === session &&
             String(leave.leaveTypeId) === String(leaveTypeId) &&
             leave.fromDate <= date &&
             leave.toDate >= date
@@ -1140,10 +1191,10 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
         if (existingLeaves.length === 1 && sameLeave) {
           const [attendance, created] = await db.Attendance.findOrCreate({
             where: { employeeId: employee.id, date },
-            defaults: { employeeId: employee.id, date, status: 'leave' },
+            defaults: { employeeId: employee.id, date, status: dayStatus },
           });
-          if (!created && attendance.status === 'leave') continue;
-          if (!created) await attendance.update({ status: 'leave' });
+          if (!created && attendance.status === dayStatus) continue;
+          if (!created) await attendance.update({ status: dayStatus });
           await recordApprovalDecision({
             companyId,
             requestType: 'attendance_correction',
@@ -1164,6 +1215,7 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
           }
           continue;
         }
+        await assertLeaveAffordable({ companyId, employee, leaveType, date, existingLeaves });
         await revertLeavesForStatusChange({
           companyId,
           leaves: existingLeaves,
@@ -1178,6 +1230,7 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
           leaveTypeId,
           fromDate: date,
           toDate: date,
+          halfDaySession: session,
           reason: `Marked by ${actorName} via Attendance Records`,
           notify: false,
         });
@@ -1188,6 +1241,16 @@ async function bulkSetAttendanceStatus({ companyId, brandIds, employeeIds, date,
           approverUserId: actorUserId,
           notify: false,
         });
+        // Approval only turns an existing 'present' row into 'half_day' —
+        // an admin marking half day means the other half was worked, so the
+        // day shows it even with no punch (or after a reverted leave).
+        if (isHalfDay) {
+          const [attendance, created] = await db.Attendance.findOrCreate({
+            where: { employeeId: employee.id, date },
+            defaults: { employeeId: employee.id, date, status: 'half_day' },
+          });
+          if (!created && attendance.status !== 'half_day') await attendance.update({ status: 'half_day' });
+        }
         updated++;
         if (employee.userId) {
           await notifyUser({

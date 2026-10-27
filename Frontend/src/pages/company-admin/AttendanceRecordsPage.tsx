@@ -252,10 +252,28 @@ export function AttendanceRecordsPage({ groupMode = false }: { groupMode?: boole
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
 
+  const [bulkHalfDaySession, setBulkHalfDaySession] = useState<'first_half' | 'second_half'>('first_half');
+
+  // A linked type (Half Day → Annual Leave) is labeled with the balance it
+  // uses — two types can share the name "Half Day".
+  const leaveTypeNameById = new Map(leaveTypes.map((lt) => [String(lt.id), lt.name]));
+  const leaveTypeLabel = (lt: LeaveType) => {
+    const source = lt.deductFromLeaveTypeId ? leaveTypeNameById.get(String(lt.deductFromLeaveTypeId)) : null;
+    return source ? `${lt.name} — from ${source}` : lt.name;
+  };
   const statusOptions = [
     ...BASE_STATUS_OPTIONS,
-    ...leaveTypes.map((lt) => ({ value: `leave:${lt.id}`, label: lt.name })),
+    ...leaveTypes.map((lt) => ({ value: `leave:${lt.id}`, label: leaveTypeLabel(lt) })),
   ];
+  // In Change Status the plain 'Half Day' touches no leave balance; the
+  // half-day leave types below it charge 0.5 to their source balance.
+  const bulkStatusOptions = statusOptions.map((option) =>
+    option.value === 'half_day' ? { ...option, label: 'Half Day (no leave deducted)' } : option
+  );
+  const bulkLeaveType = bulkStatusValue.startsWith('leave:')
+    ? leaveTypes.find((lt) => `leave:${lt.id}` === bulkStatusValue)
+    : undefined;
+  const bulkIsHalfDayLeave = !!bulkLeaveType?.deductFromLeaveTypeId && Number(bulkLeaveType.deductionPerUse) === 0.5;
 
   // Leave types are per company, so a group-wide view filters on "any
   // leave" instead (the backend accepts status=leave with no leaveTypeId).
@@ -352,6 +370,7 @@ export function AttendanceRecordsPage({ groupMode = false }: { groupMode?: boole
         date,
         status,
         leaveTypeId,
+        halfDaySession: bulkIsHalfDayLeave ? bulkHalfDaySession : undefined,
       });
 
       if (result.updated > 0) {
@@ -648,8 +667,27 @@ export function AttendanceRecordsPage({ groupMode = false }: { groupMode?: boole
               label="Status"
               value={bulkStatusValue}
               onChange={(event) => setBulkStatusValue(event.target.value)}
-              options={statusOptions}
+              options={bulkStatusOptions}
             />
+            {bulkIsHalfDayLeave && (
+              <>
+                <Select
+                  id="bulk-half-day-session"
+                  label="Leave half"
+                  value={bulkHalfDaySession}
+                  onChange={(event) => setBulkHalfDaySession(event.target.value as 'first_half' | 'second_half')}
+                  options={[
+                    { value: 'first_half', label: 'First Half' },
+                    { value: 'second_half', label: 'Second Half' },
+                  ]}
+                />
+                <p className="text-xs text-ink-muted">
+                  Deducts {bulkLeaveType?.deductionPerUse} day from{' '}
+                  {leaveTypeNameById.get(String(bulkLeaveType?.deductFromLeaveTypeId)) ?? 'the linked leave'} balance; the
+                  day shows as Half Day.
+                </p>
+              </>
+            )}
             {bulkError && <p className="text-sm text-danger">{bulkError}</p>}
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setIsBulkModalOpen(false)}>

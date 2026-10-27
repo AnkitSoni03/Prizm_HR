@@ -153,6 +153,8 @@ export async function bulkUpdateAttendanceStatus(input: {
   date: string;
   status: ManualAttendanceStatus;
   leaveTypeId?: string;
+  // Only for a half-day leave type (0.5 per use); defaults to first half.
+  halfDaySession?: 'first_half' | 'second_half';
 }): Promise<{ updated: number; total: number; failures: BulkStatusFailure[] }> {
   const { data } = await apiClient.patch<{ data: { updated: number; total: number; failures: BulkStatusFailure[] } }>(
     '/attendance/bulk-status',
