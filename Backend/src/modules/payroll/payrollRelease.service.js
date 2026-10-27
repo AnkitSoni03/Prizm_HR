@@ -234,7 +234,7 @@ async function listReleaseRequests(access, { direction = 'incoming', status = 'p
         {
           model: db.SalaryAssignment,
           as: 'assignment',
-          attributes: ['id', 'monthlyCtc', 'effectiveFrom', 'templateId'],
+          attributes: ['id', 'monthlyGross', 'effectiveFrom', 'templateId'],
           include: [{ model: db.PayrollTemplate, as: 'template', attributes: ['id', 'name'], paranoid: false }],
         },
         { model: db.Company, as: 'toCompany', attributes: ['id', 'name'] },

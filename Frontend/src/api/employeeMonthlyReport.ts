@@ -118,7 +118,7 @@ export interface EmployeeMonthlyReport {
         generated: true;
         paidDays: number | null;
         lopDays: number | null;
-        monthlyCtc: number | null;
+        monthlyGross: number | null;
         grossEarned: number | null;
         totalDeductions: number | null;
         bonusTotal: number | null;

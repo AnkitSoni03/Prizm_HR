@@ -133,7 +133,7 @@ function buildSummarySheet(workbook, report) {
       pairs(sheet, [
         ['Paid Days', p.paidDays],
         ['LOP Days', p.lopDays],
-        ['Monthly CTC', p.monthlyCtc],
+        ['Monthly gross', p.monthlyGross],
         ['Gross Earned', p.grossEarned],
         ['Deductions', p.totalDeductions],
         ['Bonuses', p.bonusTotal],

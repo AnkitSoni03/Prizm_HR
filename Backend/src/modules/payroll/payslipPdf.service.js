@@ -174,7 +174,7 @@ function buildDocument(payroll) {
         info('Designation', employee.designation && employee.designation.title),
         info('Department', employee.department && employee.department.name),
         info('Brand', employee.brand && employee.brand.name),
-        info('Monthly CTC', rs(payroll.monthlyCtc))
+        info('Monthly gross', rs(payroll.monthlyGross))
       ),
       e(
         View,
@@ -229,7 +229,7 @@ function buildDocument(payroll) {
         ? e(
           View,
           { style: styles.section },
-          e(Text, { style: styles.sectionTitle }, 'Employer contributions (part of CTC, not paid as salary)'),
+          e(Text, { style: styles.sectionTitle }, 'Employer contributions (paid by the company on top of gross, not part of salary)'),
           e(
             View,
             { style: styles.box },

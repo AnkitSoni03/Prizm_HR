@@ -189,6 +189,9 @@ export interface Employee {
   // employee.service.js::setEmployeeActiveStatus). Cascades to the linked
   // ESS login's own isActive when toggled.
   isActive: boolean;
+  // Last working day — set when marked exited / archived or switched off;
+  // payroll pays up to it.
+  lastWorkingDate?: string | null;
   createdAt: string;
   updatedAt: string;
   // Optional, admin-assigned dedicated Role holding this employee's

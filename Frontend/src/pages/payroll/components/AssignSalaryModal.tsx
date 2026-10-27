@@ -51,8 +51,8 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
   const [templates, setTemplates] = useState<PayrollTemplate[]>([]);
   const [builtIn, setBuiltIn] = useState<BuiltInItem[]>([]);
   const [templateId, setTemplateId] = useState(assignment?.templateId ? String(assignment.templateId) : '');
-  const [ctcPeriod, setCtcPeriod] = useState<'monthly' | 'yearly'>(assignment?.ctcPeriod ?? 'monthly');
-  const [ctcAmount, setCtcAmount] = useState(assignment ? String(Number(assignment.ctcAmount)) : '');
+  const [grossPeriod, setGrossPeriod] = useState<'monthly' | 'yearly'>(assignment?.grossPeriod ?? 'monthly');
+  const [grossAmount, setGrossAmount] = useState(assignment ? String(Number(assignment.grossAmount)) : '');
   const [effectiveFrom, setEffectiveFrom] = useState(firstOfThisMonth());
   const [deductionsEnabled, setDeductionsEnabled] = useState(assignment?.deductionsEnabled ?? true);
   const [disabledItems, setDisabledItems] = useState<string[]>(assignment?.disabledItems ?? []);
@@ -94,15 +94,15 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
   const deductionItems = items;
   const previewEmployeeId = employee ? String(employee.id) : undefined;
 
-  const amount = Number(ctcAmount);
+  const amount = Number(grossAmount);
   const canPreview = !!templateId && amount > 0;
   useEffect(() => {
     if (!templateId || !amount || amount <= 0) return undefined;
     const handle = setTimeout(() => {
       previewSalary({
         templateId,
-        ctcPeriod,
-        ctcAmount: amount,
+        grossPeriod,
+        grossAmount: amount,
         deductionsEnabled,
         disabledItems,
         workState: employee?.workState ?? null,
@@ -115,7 +115,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
         .catch((err) => setPreviewError(apiErrorMessage(err, 'Could not calculate the preview.')));
     }, 350);
     return () => clearTimeout(handle);
-  }, [templateId, ctcPeriod, amount, deductionsEnabled, disabledItems, employee?.workState, previewEmployeeId]);
+  }, [templateId, grossPeriod, amount, deductionsEnabled, disabledItems, employee?.workState, previewEmployeeId]);
 
   function toggleItem(key: string, on: boolean) {
     setDisabledItems((list) => (on ? list.filter((k) => k !== key) : [...new Set([...list, key])]));
@@ -125,11 +125,11 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
     if (!isEdit && !employeeId) return setError('Choose an employee.');
     if (lockedEmployee) return setError('This employee’s salary is managed at a higher level — request a release first.');
     if (!templateId) return setError('Choose a salary template.');
-    if (!amount || amount <= 0) return setError('Enter the CTC.');
+    if (!amount || amount <= 0) return setError('Enter the gross salary.');
     setIsSaving(true);
     setError(null);
     try {
-      const body = { templateId, ctcPeriod, ctcAmount: amount, deductionsEnabled, disabledItems, note: note.trim() || null };
+      const body = { templateId, grossPeriod, grossAmount: amount, deductionsEnabled, disabledItems, note: note.trim() || null };
       if (isEdit) await updateAssignment(assignment!.id, body);
       else await assignSalary({ ...body, employeeId, effectiveFrom });
       onSaved();
@@ -201,7 +201,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
         )}
         {currentSalary && !lockedEmployee && (
           <p className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning">
-            Currently on {formatRupees(currentSalary.monthlyCtc)}/month since {currentSalary.effectiveFrom}. The new salary
+            Currently on {formatRupees(currentSalary.monthlyGross)}/month since {currentSalary.effectiveFrom}. The new salary
             replaces it from the date below.
           </p>
         )}
@@ -217,20 +217,20 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
               .map((t) => ({ value: String(t.id), label: templateOptionLabel(t) }))}
           />
           <Select
-            label="CTC is"
-            value={ctcPeriod}
-            onChange={(e) => setCtcPeriod(e.target.value as 'monthly' | 'yearly')}
+            label="Gross salary is"
+            value={grossPeriod}
+            onChange={(e) => setGrossPeriod(e.target.value as 'monthly' | 'yearly')}
             options={[
               { value: 'monthly', label: 'Per month' },
               { value: 'yearly', label: 'Per year' },
             ]}
           />
-          <Input label={`CTC (₹ per ${ctcPeriod === 'yearly' ? 'year' : 'month'})`} type="number" min={0} value={ctcAmount} onChange={(e) => setCtcAmount(e.target.value)} />
+          <Input label={`Gross salary (₹ per ${grossPeriod === 'yearly' ? 'year' : 'month'})`} type="number" min={0} value={grossAmount} onChange={(e) => setGrossAmount(e.target.value)} />
           {!isEdit && (
             <Input label="Salary starts from" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
           )}
         </div>
-        {ctcPeriod === 'yearly' && amount > 0 && (
+        {grossPeriod === 'yearly' && amount > 0 && (
           <p className="-mt-2 text-xs text-ink-muted">= {formatRupees(Math.round((amount / 12) * 100) / 100)} per month</p>
         )}
 
@@ -239,7 +239,7 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
             checked={deductionsEnabled}
             onChange={setDeductionsEnabled}
             label="Apply deductions"
-            description={deductionsEnabled ? 'Turn off any single deduction below for this employee.' : 'No deductions and no employer contributions — in-hand = CTC.'}
+            description={deductionsEnabled ? 'Turn off any single deduction below for this employee.' : 'No deductions and no employer contributions — in-hand = gross.'}
           />
           {deductionsEnabled && template && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -265,10 +265,10 @@ export function AssignSalaryModal({ assignment, onClose, onSaved }: Props) {
           <h3 className="mb-2 text-sm font-semibold text-ink">
             Monthly salary{employee?.workState ? ` · ${employee.workState}` : ''}
           </h3>
-          {(!canPreview || (!preview && !previewError)) && <p className="text-sm text-ink-muted">Choose a template and enter the CTC to see the breakdown.</p>}
+          {(!canPreview || (!preview && !previewError)) && <p className="text-sm text-ink-muted">Choose a template and enter the gross salary to see the breakdown.</p>}
           {previewError && <p className="text-sm text-danger">{previewError}</p>}
           {canPreview && preview && !previewError && <InHandByMonth regular={preview.full.inHand} months={preview.months} />}
-          {canPreview && preview && !previewError && <SalaryBreakdownView breakdown={preview} monthlyCtc={preview.monthlyCtc} mode="full" />}
+          {canPreview && preview && !previewError && <SalaryBreakdownView breakdown={preview} monthlyGross={preview.monthlyGross} mode="full" />}
         </section>
 
         {error && <p className="text-sm text-danger">{error}</p>}

@@ -3,7 +3,7 @@
 const { Model } = require('sequelize');
 
 // Group-level, not tenant-scoped (see payrollTemplate.js). kind 'earning' =
-// a recurring allowance inside CTC (migration 20261014090000). Applies only
+// a recurring allowance inside gross (migration 20261014090000). Applies only
 // to the employees chosen on it (payroll_custom_item_employees).
 module.exports = (sequelize, DataTypes) => {
   class PayrollCustomItem extends Model {
@@ -25,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       name: { type: DataTypes.STRING, allowNull: false },
       kind: { type: DataTypes.ENUM('deduction', 'employer_contribution', 'earning'), allowNull: false },
       calcType: { type: DataTypes.ENUM('percent', 'fixed'), allowNull: false },
-      basis: { type: DataTypes.ENUM('basic', 'gross', 'ctc'), allowNull: true },
+      basis: { type: DataTypes.ENUM('basic', 'gross'), allowNull: true },
       value: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       // null = every month; ['2026-10', '2026-12'] = only those months.
       months: { type: DataTypes.JSONB, allowNull: true },

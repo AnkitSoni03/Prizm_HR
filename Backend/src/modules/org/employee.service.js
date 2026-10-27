@@ -418,12 +418,58 @@ async function createEmployee({
 // automatic switch.
 const UPDATABLE_FIELDS = ['employeeCode', 'designationId', 'employmentType', 'status', 'dateOfJoining', 'dateOfBirth', 'gender', 'managerId', 'hrEmployeeId', 'userId', 'workState', 'weekOffLeaveBlockedDays', 'probationPeriodDays', 'probationPeriodUnit', 'nextRosterGroupId', 'yearlyCycleStartMonth'];
 
+const EXIT_STATUSES = ['exited', 'archived'];
+
+function isDateString(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+// The last working day an exit (status exited / archived, or switched off)
+// needs: the one given, else the one already recorded; 400 when neither.
+function exitDateFor(employee, given) {
+  const value = given !== undefined && given !== null && given !== '' ? given : employee.lastWorkingDate;
+  if (!value) throw new HttpError(400, 'Enter the last working day — salary is paid up to that date');
+  if (!isDateString(value)) throw new HttpError(400, 'lastWorkingDate must be YYYY-MM-DD');
+  if (employee.dateOfJoining && value < employee.dateOfJoining) {
+    throw new HttpError(400, 'The last working day cannot be before the joining date');
+  }
+  return value;
+}
+
+// Payroll follows pay-relevant employee changes: months not locked yet are
+// redone (and a final settlement made once the last day has come).
+function syncPayrollAfterEmployeeChange(employee, before) {
+  const { afterEmployeePayChange } = require('../payroll/payrollEngine');
+  const changed = (field) => String(before[field] ?? '') !== String(employee[field] ?? '');
+  if (changed('lastWorkingDate') || changed('dateOfJoining')) {
+    const dates = [before.lastWorkingDate, employee.lastWorkingDate, before.dateOfJoining, employee.dateOfJoining].filter(Boolean).sort();
+    afterEmployeePayChange(employee.id, dates[0] || null);
+  } else if (changed('workState')) {
+    afterEmployeePayChange(employee.id, null);
+  }
+}
+
 async function updateEmployee({ companyId, id, updates, scopedBrandIds, actorUserId }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
+  const before = {
+    dateOfJoining: employee.dateOfJoining,
+    workState: employee.workState,
+    lastWorkingDate: employee.lastWorkingDate,
+  };
 
   const patch = {};
   for (const field of UPDATABLE_FIELDS) {
     if (updates[field] !== undefined) patch[field] = updates[field];
+  }
+  // Marking someone exited / archived asks for their last working day (pay
+  // stops after it); making them current again clears it unless they're
+  // still switched off.
+  if (patch.status !== undefined && EXIT_STATUSES.includes(patch.status)) {
+    patch.lastWorkingDate = exitDateFor(employee, updates.lastWorkingDate);
+  } else if (patch.status !== undefined && employee.isActive) {
+    patch.lastWorkingDate = null;
+  } else if (updates.lastWorkingDate !== undefined && (EXIT_STATUSES.includes(employee.status) || !employee.isActive)) {
+    patch.lastWorkingDate = exitDateFor(employee, updates.lastWorkingDate);
   }
 
   if (patch.gender !== null && patch.gender !== undefined && !GENDER_VALUES.includes(patch.gender)) {
@@ -544,6 +590,7 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds, actorUse
     }
   }
 
+  syncPayrollAfterEmployeeChange(employee, before);
   return withPhotoUrl(employee);
 }
 
@@ -737,9 +784,16 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
 // reactivating (e.g. a rejoin) should restore it without a fresh invite.
 // Gated by the same employee:update permission as the rest of this file's
 // mutations — Company Admin/HR Manager/Brand Admin all already hold it.
-async function setEmployeeActiveStatus({ companyId, id, scopedBrandIds, isActive }) {
+async function setEmployeeActiveStatus({ companyId, id, scopedBrandIds, isActive, lastWorkingDate }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds });
-  await employee.update({ isActive });
+  const before = { dateOfJoining: employee.dateOfJoining, workState: employee.workState, lastWorkingDate: employee.lastWorkingDate };
+  // Switching off = the employee left: pay stops after their last working
+  // day. Switching back on clears it unless their status still says exited.
+  let exitDate = employee.lastWorkingDate;
+  if (!isActive) exitDate = exitDateFor(employee, lastWorkingDate);
+  else if (!EXIT_STATUSES.includes(employee.status)) exitDate = null;
+  await employee.update({ isActive, lastWorkingDate: exitDate });
+  syncPayrollAfterEmployeeChange(employee, before);
 
   if (employee.userId) {
     const user = await db.User.findByPk(employee.userId);

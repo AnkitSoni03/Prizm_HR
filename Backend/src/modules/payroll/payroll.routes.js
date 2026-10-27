@@ -58,5 +58,6 @@ router.delete('/bonuses/:id', requirePayrollManage, c.deleteBonus);
 router.post('/months/generate', requirePayrollManage, c.generate);
 router.post('/months/:id/recalculate', requirePayrollManage, c.recalculate);
 router.post('/months/share', requirePayrollManage, c.share);
+router.post('/months/lock', requirePayrollManage, c.lock);
 
 module.exports = router;

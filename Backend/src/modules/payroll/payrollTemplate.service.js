@@ -8,12 +8,14 @@ const { processPendingRecalcs } = require('./payrollEngine');
 const {
   DEFAULT_RULES,
   BUILT_IN_ITEMS,
+  BASES,
   PT_SLABS,
   normalizeRules,
   resolveCustomItems,
   computeSalary,
 } = require('./payrollRules');
 const { memberItemIds } = require('./customItemMembers');
+const { assertAllowanceFits } = require('./salaryFit');
 const {
   employeeScopeWhere,
   scopedEmployeeWhere,
@@ -164,7 +166,7 @@ function validateCustomItem(body) {
   const value = Number(body.value);
   if (!Number.isFinite(value) || value < 0) throw new HttpError(400, 'Value must be a positive number');
   if (body.calcType === 'percent') {
-    if (!['basic', 'gross', 'ctc'].includes(body.basis)) throw new HttpError(400, "basis must be 'basic', 'gross' or 'ctc'");
+    if (!BASES.includes(body.basis)) throw new HttpError(400, "basis must be 'basic' or 'gross'");
     if (value > 100) throw new HttpError(400, 'A percentage cannot be more than 100');
   }
   return {
@@ -224,6 +226,7 @@ async function createCustomItem(access, { body, userId }) {
   const values = validateCustomItem(body);
   const owner = await ownerForNew(access, body);
   const ids = await cleanEmployeeIds(access, owner, body.employeeIds || []);
+  await assertAllowanceFits(values, ids);
   const item = await db.PayrollCustomItem.create({ ...values, ...owner, groupId: access.groupId, createdByUserId: userId });
   await setMembers(item, ids, userId);
   recalcItemMonths(access.groupId, ids, item.months);
@@ -235,7 +238,9 @@ async function updateCustomItem(access, { id, body, userId }) {
   const item = await getCustomItem(access, id, { edit: true });
   const beforeMonths = item.months;
   const ids = body.employeeIds !== undefined ? await cleanEmployeeIds(access, item, body.employeeIds) : null;
-  await item.update(validateCustomItem({ ...item.get({ plain: true }), ...body }));
+  const values = validateCustomItem({ ...item.get({ plain: true }), ...body });
+  await assertAllowanceFits({ ...values, id: item.id }, ids || (await asGroup(() => currentMembers(item.id))));
+  await item.update(values);
   const { before, after } = ids ? await setMembers(item, ids, userId) : { before: await currentMembers(item.id), after: [] };
   recalcItemMonths(access.groupId, [...before, ...after], beforeMonths, item.months);
   return withOwner(access, item);
@@ -413,8 +418,8 @@ async function previewSalary(access, { body }) {
   let rules;
   if (body.templateId) rules = normalizeRules((await getTemplate(access, body.templateId)).rules);
   else rules = normalizeRules(body.rules);
-  const monthlyCtc = body.ctcPeriod === 'yearly' ? Number(body.ctcAmount) / 12 : Number(body.ctcAmount ?? body.monthlyCtc);
-  if (!Number.isFinite(monthlyCtc) || monthlyCtc <= 0) throw new HttpError(400, 'Enter a CTC amount');
+  const monthlyGross = body.grossPeriod === 'yearly' ? Number(body.grossAmount) / 12 : Number(body.grossAmount ?? body.monthlyGross);
+  if (!Number.isFinite(monthlyGross) || monthlyGross <= 0) throw new HttpError(400, 'Enter the gross salary');
   const limited = (i) => Array.isArray(i.months) && i.months.length > 0;
   let myItems = [];
   if (body.employeeId) {
@@ -427,7 +432,7 @@ async function previewSalary(access, { body }) {
   }
   const calc = (items, bonuses = []) =>
     computeSalary({
-      monthlyCtc,
+      monthlyGross,
       rules,
       customItems: resolveCustomItems(rules, items),
       deductionsEnabled: body.deductionsEnabled !== false,

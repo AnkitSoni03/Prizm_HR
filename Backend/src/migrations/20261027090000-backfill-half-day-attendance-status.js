@@ -3,8 +3,9 @@
 // Approving a half-day leave used to leave an already-punched day as
 // 'present', so the Attendance Board / Records never showed "Half Day".
 // Approval now flips it to 'half_day' (leaveRequest.service.js); this fixes
-// the days approved before that. Payroll is unaffected — it treats
-// present/half_day the same and pays the leave half from the request.
+// the days approved before that. Payroll is unaffected — a 'half_day' with
+// an approved half-day leave pays like 'present', the leave half charged from
+// the request.
 module.exports = {
   async up(queryInterface) {
     await queryInterface.sequelize.query(`

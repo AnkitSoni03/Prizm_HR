@@ -206,7 +206,7 @@ async function buildMonthlyReport({ auth, employee, year, month }) {
               generated: true,
               paidDays: num(payroll.paidDays),
               lopDays: num(payroll.lopDays),
-              monthlyCtc: num(payroll.monthlyCtc),
+              monthlyGross: num(payroll.monthlyGross),
               grossEarned: num(payroll.grossEarned),
               totalDeductions: num(payroll.totalDeductions),
               bonusTotal: num(payroll.bonusTotal),

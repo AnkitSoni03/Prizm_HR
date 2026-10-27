@@ -204,6 +204,13 @@ module.exports = {
     res.json({ data: { updated: rows.length } });
   }),
 
+  // ---- Locking (salary paid) ----
+  lock: wrap(async (req, res) => {
+    const lock = req.body.lock !== false;
+    const rows = await payrolls.lockPayrolls(req.payroll, { ...req.body, lock }, req.auth.userId);
+    res.json({ data: { updated: rows.length } });
+  }),
+
   // ---- Employee's own ----
   mySalary: wrap(async (req, res) => {
     const employeeId = requireEmployee(req);
@@ -213,9 +220,9 @@ module.exports = {
       data: {
         current: assignment
           ? {
-            monthlyCtc: Number(assignment.monthlyCtc),
-            ctcPeriod: assignment.ctcPeriod,
-            ctcAmount: Number(assignment.ctcAmount),
+            monthlyGross: Number(assignment.monthlyGross),
+            grossPeriod: assignment.grossPeriod,
+            grossAmount: Number(assignment.grossAmount),
             effectiveFrom: assignment.effectiveFrom,
             deductionsEnabled: assignment.deductionsEnabled,
           }

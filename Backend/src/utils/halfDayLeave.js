@@ -21,9 +21,10 @@ async function hasApprovedHalfDayLeave({ employeeId, date, excludeRequestId, tra
 }
 
 // Status for a day the employee actually worked: 'half_day' when the other
-// half is an approved half-day leave, else 'present'. Payroll treats both
-// the same (payrollEngine.js PRESENT_STATUSES) and charges the leave half
-// from the leave request itself — this only fixes what the board shows.
+// half is an approved half-day leave, else 'present'. With that leave behind
+// it, payroll treats 'half_day' as worked and charges the leave half from the
+// request itself; a 'half_day' with no such leave pays only 0.5
+// (payrollEngine.js::classifyDays).
 async function workedStatusFor({ employeeId, date, excludeRequestId, transaction }) {
   return (await hasApprovedHalfDayLeave({ employeeId, date, excludeRequestId, transaction })) ? 'half_day' : 'present';
 }

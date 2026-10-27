@@ -148,6 +148,10 @@ module.exports = (sequelize, DataTypes) => {
       // the generic updateEmployee path — only the dedicated
       // PATCH /employees/:id/active endpoint writes it.
       isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+      // Last working day, asked when an admin marks the employee exited /
+      // archived or switches them off; pay stops after it (payroll
+      // engine's employmentWindow). Cleared when they're made active again.
+      lastWorkingDate: { type: DataTypes.DATEONLY, allowNull: true },
       // Admin-only, optional: day(s)-of-week (0=Sunday..6=Saturday) this
       // employee may NOT apply Week Off Leave against, even when their
       // Shift's weekOffLeaveBasisDays makes that day generally eligible.

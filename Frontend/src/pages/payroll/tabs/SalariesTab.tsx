@@ -208,12 +208,12 @@ export function SalariesTab({ access }: { access: PayrollAccess }) {
             render: (r) => (r.ownerLevel ? <Badge tone="neutral">{LEVEL_LABEL[r.ownerLevel]}</Badge> : '—'),
           },
           {
-            key: 'ctc',
-            header: 'CTC',
+            key: 'gross',
+            header: 'Gross salary',
             render: (r) => (
               <div>
-                <p className="text-ink">{formatRupees(r.monthlyCtc)} / month</p>
-                {r.ctcPeriod === 'yearly' && <p className="text-xs text-ink-muted">{formatRupees(r.ctcAmount)} / year</p>}
+                <p className="text-ink">{formatRupees(r.monthlyGross)} / month</p>
+                {r.grossPeriod === 'yearly' && <p className="text-xs text-ink-muted">{formatRupees(r.grossAmount)} / year</p>}
               </div>
             ),
           },
@@ -224,7 +224,7 @@ export function SalariesTab({ access }: { access: PayrollAccess }) {
             header: 'Deductions',
             render: (r) =>
               !r.deductionsEnabled ? (
-                <Badge tone="neutral">Off (in-hand = CTC)</Badge>
+                <Badge tone="neutral">Off (in-hand = gross)</Badge>
               ) : r.disabledItems.length > 0 ? (
                 <Badge tone="warning">{r.disabledItems.length} turned off</Badge>
               ) : (

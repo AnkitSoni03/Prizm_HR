@@ -844,6 +844,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month, employeeI
     if (sandwich) {
       return sandwich.isLop ? { paid: 0, sandwichLop: 1, reason: 'Sandwich' } : { paid: 1 };
     }
+    if (status === 'half_day' && !half && !odDays.has(k)) return { paid: 0.5, reason: 'Half day' };
     if (status === 'present' || status === 'on_duty' || status === 'half_day') {
       if (half && half.leave > half.paid) {
         const unpaid = half.leave - half.paid;

@@ -320,6 +320,7 @@ async function setActive(req, res, next) {
       id: req.params.id,
       scopedBrandIds: req.auth.scopedBrandIds,
       isActive,
+      lastWorkingDate: req.body.lastWorkingDate,
     });
     res.json({ data: employee });
   } catch (err) {

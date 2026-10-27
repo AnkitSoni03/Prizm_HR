@@ -5,8 +5,8 @@ interface Props {
     full?: SalaryBreakdown['full'];
     actual?: SalaryBreakdown['actual'];
   };
-  monthlyCtc: number;
-  // 'full' = the monthly salary structure (preview / CTC view); 'month' =
+  monthlyGross: number;
+  // 'full' = the monthly salary structure (preview); 'month' =
   // what was actually earned in one month (after loss-of-pay days).
   mode: 'full' | 'month';
 }
@@ -54,28 +54,29 @@ function Section({
   );
 }
 
-// CTC → gross → deductions → in-hand, the same breakdown as the reference
-// salary sheet. Shared by the template/assign previews, the admin payroll
+// Gross → deductions → in-hand, with the employer's contributions on top
+// (the company's cost). Shared by the template/assign previews, the admin payroll
 // detail and the employee's released payslip.
-export function SalaryBreakdownView({ breakdown, monthlyCtc, mode }: Props) {
+export function SalaryBreakdownView({ breakdown, monthlyGross, mode }: Props) {
   const totals = mode === 'full' ? breakdown.full : breakdown.actual;
   const pf = breakdown.pfSplit ? (mode === 'full' ? breakdown.pfSplit.full : breakdown.pfSplit.actual) : null;
   const inHand = totals?.inHand ?? 0;
-  // One-time extras only exist for a real month, never in the CTC structure.
+  // One-time extras only exist for a real month, never in the salary structure.
   const bonuses = mode === 'month' ? breakdown.bonuses ?? [] : [];
   const bonusTotal = bonuses.reduce((s, b) => s + b.amount, 0);
+  const companyCost = totals?.totalCost ?? (totals?.grossSalary ?? 0) + bonusTotal + (totals?.totalEmployer ?? 0);
 
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="CTC / month" value={formatRupees(monthlyCtc)} />
         {bonusTotal > 0 ? (
           <Stat label="Gross + one-time pay" value={formatRupees((totals?.grossSalary ?? 0) + bonusTotal)} />
         ) : (
-          <Stat label="Gross salary" value={formatRupees(totals?.grossSalary)} />
+          <Stat label={mode === 'full' ? 'Gross / month' : 'Gross earned'} value={formatRupees(totals?.grossSalary)} />
         )}
         <Stat label="Deductions" value={formatRupees(totals?.totalDeductions)} />
         <Stat label="In-hand" value={formatRupees(inHand)} strong />
+        <Stat label="Company cost (gross + employer share)" value={formatRupees(companyCost)} />
       </div>
 
       {breakdown.warnings?.map((w) => (
@@ -93,7 +94,7 @@ export function SalaryBreakdownView({ breakdown, monthlyCtc, mode }: Props) {
         />
         {bonuses.length > 0 && (
           <Section
-            title="One-time pay this month (outside CTC)"
+            title="One-time pay this month (on top of gross)"
             rows={bonuses.map((b) => ({ ...b, rule: b.taxable === false ? 'Not taxable' : 'Taxable', full: undefined }))}
             total={bonusTotal}
             totalLabel="Total one-time pay"
@@ -110,7 +111,7 @@ export function SalaryBreakdownView({ breakdown, monthlyCtc, mode }: Props) {
           tone="bg-danger/10 text-danger"
         />
         <Section
-          title="Employer contributions (inside CTC, not paid as salary)"
+          title="Employer contributions (company pays on top of gross)"
           rows={breakdown.employer}
           total={totals?.totalEmployer ?? 0}
           totalLabel="Total employer share"
@@ -130,10 +131,10 @@ export function SalaryBreakdownView({ breakdown, monthlyCtc, mode }: Props) {
         )}
       </div>
 
-      {mode === 'full' && monthlyCtc > 0 && (
+      {mode === 'full' && monthlyGross > 0 && (
         <p className="text-sm text-ink-muted">
-          In-hand is <span className="font-semibold text-ink">{Math.round((inHand / monthlyCtc) * 1000) / 10}%</span> of CTC ·
-          Basic is {breakdown.wageRule.percent}% of CTC{' '}
+          In-hand is <span className="font-semibold text-ink">{Math.round((inHand / monthlyGross) * 1000) / 10}%</span> of gross ·
+          Basic is {breakdown.wageRule.percent}% of gross{' '}
           {breakdown.wageRule.compliant ? (
             <span className="text-success">(meets the 50% wage rule)</span>
           ) : (

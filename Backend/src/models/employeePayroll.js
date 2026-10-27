@@ -40,7 +40,7 @@ module.exports = (sequelize, DataTypes) => {
       monthDays: decimal('monthDays', [5, 2]),
       paidDays: decimal('paidDays', [5, 2]),
       lopDays: decimal('lopDays', [5, 2]),
-      monthlyCtc: decimal('monthlyCtc'),
+      monthlyGross: decimal('monthlyGross'),
       grossFull: decimal('grossFull'),
       grossEarned: decimal('grossEarned'),
       totalDeductions: decimal('totalDeductions'),
@@ -57,6 +57,10 @@ module.exports = (sequelize, DataTypes) => {
       needsRecalc: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       payslipReleased: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       releasedAt: { type: DataTypes.DATE, allowNull: true },
+      // Locked = salary paid. Before that a recalculation just changes the
+      // month; after it the difference becomes arrears in the next month.
+      lockedAt: { type: DataTypes.DATE, allowNull: true },
+      lockedByUserId: { type: DataTypes.BIGINT, allowNull: true },
       // Final settlement: the salary ends inside this month (paid up to final_date).
       isFinal: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       finalDate: { type: DataTypes.DATEONLY, allowNull: true },

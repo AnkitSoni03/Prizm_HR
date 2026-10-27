@@ -18,6 +18,19 @@ const {
 // model any real business rule.
 const MAX_RANGE_DAYS = 31;
 
+// A holiday added / moved / removed changes which days count as paid days
+// off — the company's payroll months not locked yet (not paid) in that range
+// are worked out again. Required lazily: payroll pulls in workingDays.js.
+function recalcPayrollFor(companyId, ...ranges) {
+  const dates = ranges.flat().filter(Boolean).sort();
+  if (dates.length === 0) return;
+  require('../payroll/payrollEngine').recalcUnlocked({
+    employeeWhere: { companyId },
+    fromDate: dates[0],
+    toDate: dates[dates.length - 1],
+  });
+}
+
 // creator/updater are eager-loaded here (rather than a separate endpoint)
 // since holiday:read is shared by both the Company Admin/HR-facing page and
 // the ESS "Yearly Holidays" page — the ESS page simply doesn't render these
@@ -123,6 +136,7 @@ async function createHoliday({ companyId, brandId, rosterGroupIds, date, toDate,
   });
 
   if (rosterGroupIds !== undefined) await syncHolidayRosterGroups(holiday.id, rosterGroupIds);
+  recalcPayrollFor(companyId, [date, endDate]);
   return db.Holiday.findOne({ where: { id: holiday.id }, include: AUDIT_INCLUDES });
 }
 
@@ -150,6 +164,7 @@ async function updateHoliday({ companyId, id, updates, updatedBy, scopedBrandIds
 
   const nextDate = date !== undefined ? date : holiday.date;
   const nextEndDate = toDate !== undefined ? toDate : holiday.endDate;
+  const before = [holiday.date, holiday.endDate];
 
   await holiday.update({
     date: nextDate,
@@ -161,12 +176,14 @@ async function updateHoliday({ companyId, id, updates, updatedBy, scopedBrandIds
   });
 
   if (rosterGroupIds !== undefined) await syncHolidayRosterGroups(id, rosterGroupIds);
+  recalcPayrollFor(companyId, before, [nextDate, nextEndDate]);
   return db.Holiday.findOne({ where: { id }, include: AUDIT_INCLUDES });
 }
 
 async function deleteHoliday({ companyId, id, scopedBrandIds }) {
   const holiday = await getHolidayForWrite({ companyId, id, scopedBrandIds });
   await holiday.destroy();
+  recalcPayrollFor(companyId, [holiday.date, holiday.endDate]);
 }
 
 module.exports = { listHolidays, getHolidayForWrite, createHoliday, updateHoliday, deleteHoliday };

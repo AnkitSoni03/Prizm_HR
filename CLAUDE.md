@@ -1491,6 +1491,53 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   the requester assigns their own template as a normal revision. Owner can also release directly
   (`/releases/direct`, to company/brand; closes matching pending requests). Requester can cancel.
   Service: `payrollRelease.service.js`. Lock rules tested offline; tsc/eslint clean. **Migration not applied.**
+- 🐛 Payroll review fixes (2026-10-27): (1) a `half_day` attendance with no approved half-day leave
+  behind it (admin Change Status / regularization) now pays 0.5 + 0.5 LOP "Half day" — it used to
+  pay a full day (`payrollEngine.js::classifyDays`, mirrored in the board's `payableForDay`).
+  (2) **Lock = salary paid**: `employee_payrolls.locked_at/locked_by_user_id` (migration
+  `20261027090100`, existing rows backfilled as locked so nothing changes for them). Not locked →
+  a recalculation just changes the month (`original_net` follows `net_pay`, no arrears); locked →
+  difference goes to a pending carry as before. Unlock drops pending carries and folds them back.
+  `POST /payroll/months/lock { ids | year+month(+companyId/brandId), lock }`; Monthly Payroll tab
+  has Lock all / Lock / Unlock + Locked badge. New months start unlocked — HR must lock after paying.
+  (3) Recalculations of one month are serialized in-process and the row is locked `FOR UPDATE`
+  (with its source carries), so parallel recalcs can't create duplicate arrears; generation locks
+  the pending carries it applies and recomputes if one changed meanwhile. Mock-tested offline;
+  **migration not applied** (.env is prod).
+- ✅ Payroll is gross-based, no CTC anywhere (2026-10-27, explicit company ask) — **supersedes the
+  "CTC → gross" maths in the Group-level payroll entry above**. HR enters the monthly (or yearly)
+  GROSS salary; Basic = `basicPercentOfGross`% of gross, HRA = % of Basic, Special = balancing
+  figure; employee deductions come out of gross; employer contributions (PF, EDLI, admin,
+  gratuity, ESI, LWF, custom) are the company's cost ON TOP: `full/actual.totalCost` = gross +
+  employer share (UI: "Company cost"). Employer ESI is now simply 3.25% of gross (no algebra).
+  Template save rejects Basic% × (1 + HRA%) > 100. Bonus / custom item `basis` is basic | gross
+  only. Renames: `salary_assignments.gross_period/gross_amount/monthly_gross`,
+  `employee_payrolls.monthly_gross`, rules key `basicPercentOfGross` (`normalizeRules` still reads
+  the old `basicPercentOfCtc`, incl. old month snapshots). Migration `20261027090200` (no real
+  salary data existed, so amounts are kept and read as gross). Example: gross ₹30k, 50/40 split,
+  Karnataka → in-hand ₹28,000, employer share ₹2,672/month (≈₹3.92L/yr company cost).
+  tsc/eslint/vite build clean; math checked offline; **migration not applied** (.env is prod).
+- 🐛 Payroll review round 2 (2026-10-27): (1) **In-hand floored at 0** — what a month can't
+  recover goes to a `kind: 'shortfall'` carry (new `payroll_carry_adjustments.kind`
+  correction|shortfall) recovered from the next salary; `details.shortfall` + a warning.
+  (2) **Salary must fit gross** — `salaryFit.js`: assign / bulk assign / correct a salary, and
+  create / edit an allowance item, are refused (400) when Basic + HRA + allowances > gross
+  (`computeSalary().overflow`). (3) **A month not locked yet takes in pending carries** (not only a
+  fresh month), and any carry change nudges the employee's next unlocked month
+  (`pickUpInLaterMonth`) — so arrears reach an unlocked final settlement; those left after a locked
+  final settlement show as "Dues" on its row (`pendingDues`; unlock to settle). (4) **Unlocked =
+  draft, always refreshed**: nightly `refreshUnlockedMonths` (last 3 months), full recalc on Lock,
+  "Generate / refresh" recalcs the month's unlocked rows; immediate `recalcUnlocked` on holiday
+  create/update/delete (company, date range) and `afterEmployeePayChange` on joining date / work
+  state / last working day / accepted resignation. Locked months are never touched by these (HR
+  recalculates by hand). Roster / shift edits rely on the nightly + lock-time refresh (no hook).
+  (5) **Exit date**: new `employees.last_working_date`, required when status → exited / archived or
+  the account is switched off (UI date field in the employee popup); pay stops after it
+  (`exitDateOf` = earlier of it and an accepted resignation's), final settlement made once it's
+  passed (also by the daily job). (6) PT skipped because work state is blank → warning ("Check"
+  badge on the Monthly Payroll row). Migration `20261027090300`. Mock-tested offline (floor +
+  recovery, overflow, unlocked pickup, exit date, earlier lock/race cases); **not live-tested,
+  migrations not applied** (.env is prod).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

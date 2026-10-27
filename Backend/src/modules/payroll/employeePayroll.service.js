@@ -6,7 +6,7 @@ const { HttpError } = require('../../utils/errors');
 const { runAsCompany } = require('../../config/tenant-context');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { employeeScopeWhere } = require('./payrollAccess');
-const { generateMonthForAll, recalculatePayroll, processPendingRecalcs, isMonthComplete } = require('./payrollEngine');
+const { generateMonthForAll, recalculatePayroll, processPendingRecalcs, isMonthComplete, setPayrollLock } = require('./payrollEngine');
 
 const asGroup = (fn) => runAsCompany(null, fn);
 
@@ -53,6 +53,21 @@ async function listPayrolls(access, { year, month, companyId, brandId, search, l
       ],
       raw: true,
     });
+    // A final settlement can be left with arrears / recoveries that came
+    // after it was locked — nothing later will pay them. Shown as dues.
+    const finalIds = result.rows.filter((r) => r.isFinal).map((r) => r.employeeId);
+    const dues = finalIds.length
+      ? await db.PayrollCarryAdjustment.findAll({
+        where: { employeeId: { [Op.in]: finalIds }, status: 'pending' },
+        attributes: ['employeeId', [db.sequelize.fn('SUM', db.sequelize.col('amount')), 'total']],
+        group: ['employeeId'],
+        raw: true,
+      })
+      : [];
+    const duesBy = new Map(dues.map((d) => [String(d.employeeId), Math.round(Number(d.total) * 100) / 100]));
+    for (const r of result.rows) {
+      if (r.isFinal) r.setDataValue('pendingDues', duesBy.get(String(r.employeeId)) || 0);
+    }
     return {
       ...result,
       totals: {
@@ -85,8 +100,8 @@ async function recalculateOne(access, id) {
 }
 
 // Manual "generate now" for one completed month (the cron does this on the
-// 1st by itself) — creates whatever is missing, then refreshes anything
-// waiting for a recalculation.
+// 1st by itself) — creates whatever is missing, then works every row not
+// locked yet out again (so roster / holiday changes since are in).
 async function generateMonth(access, { year, month }) {
   const y = Number(year);
   const m = Number(month);
@@ -99,7 +114,18 @@ async function generateMonth(access, { year, month }) {
     employeeWhere: access.level === 'group' ? null : employeeScopeWhere(access),
   });
   await processPendingRecalcs();
-  return result;
+  const drafts = await asGroup(() =>
+    db.EmployeePayroll.findAll({
+      where: { groupId: access.groupId, periodYear: y, periodMonth: m, lockedAt: null },
+      attributes: ['id'],
+      include: [{ model: db.Employee, as: 'employee', attributes: [], where: employeeScopeWhere(access), required: true }],
+    })
+  );
+  for (const row of drafts) {
+    // eslint-disable-next-line no-await-in-loop
+    await recalculatePayroll(row.id);
+  }
+  return { ...result, refreshed: drafts.length };
 }
 
 // ---- Employee's own view ----------------------------------------------------
@@ -134,12 +160,12 @@ async function getMyPayroll(employeeId, id) {
 
 // ---- Sharing with employees (managers) --------------------------------------
 
-// Shares (or un-shares) generated months with the employees. Either `ids`
-// (chosen payroll rows) or a whole month (`year` + `month`, narrowed by the
-// same company/brand filter as the list). Returns the rows that changed,
-// with the employee's login, so the caller can notify on share.
-async function sharePayrolls(access, { ids, year, month, companyId, brandId, share = true }) {
-  const where = { groupId: access.groupId, payslipReleased: !share };
+// Payroll rows a share / lock call acts on: either `ids` (chosen rows) or a
+// whole month (`year` + `month`, narrowed by the same company/brand filter
+// as the list), within the caller's scope. `extraWhere` skips rows already
+// in the wanted state.
+async function findScopedRows(access, { ids, year, month, companyId, brandId }, extraWhere) {
+  const where = { groupId: access.groupId, ...extraWhere };
   if (Array.isArray(ids) && ids.length > 0) {
     if (ids.length > 5000) throw new HttpError(400, 'Choose at most 5000 rows');
     where.id = { [Op.in]: ids.map(String) };
@@ -150,8 +176,8 @@ async function sharePayrolls(access, { ids, year, month, companyId, brandId, sha
     where.periodYear = y;
     where.periodMonth = m;
   }
-  return asGroup(async () => {
-    const rows = await db.EmployeePayroll.findAll({
+  return asGroup(() =>
+    db.EmployeePayroll.findAll({
       where,
       attributes: ['id', 'periodYear', 'periodMonth', 'netPay', 'employeeId'],
       include: [
@@ -163,15 +189,32 @@ async function sharePayrolls(access, { ids, year, month, companyId, brandId, sha
           required: true,
         },
       ],
-    });
-    if (rows.length > 0) {
-      await db.EmployeePayroll.update(
+    })
+  );
+}
+
+// Shares (or un-shares) generated months with the employees. Returns the
+// rows that changed, with the employee's login, so the caller can notify on
+// share.
+async function sharePayrolls(access, { share = true, ...filter }) {
+  const rows = await findScopedRows(access, filter, { payslipReleased: !share });
+  if (rows.length > 0) {
+    await asGroup(() =>
+      db.EmployeePayroll.update(
         { payslipReleased: share, releasedAt: share ? new Date() : null },
         { where: { id: { [Op.in]: rows.map((r) => r.id) } } }
-      );
-    }
-    return rows;
-  });
+      )
+    );
+  }
+  return rows;
+}
+
+// Locks months once their salary is paid (later changes become arrears in
+// the next month), or unlocks them again (changes go back into the month).
+async function lockPayrolls(access, { lock = true, ...filter }, actorUserId) {
+  const rows = await findScopedRows(access, filter, { lockedAt: lock ? null : { [Op.ne]: null } });
+  if (rows.length > 0) await setPayrollLock(rows.map((r) => r.id), lock, actorUserId);
+  return rows;
 }
 
 module.exports = {
@@ -183,4 +226,5 @@ module.exports = {
   listMyPayrolls,
   getMyPayroll,
   sharePayrolls,
+  lockPayrolls,
 };

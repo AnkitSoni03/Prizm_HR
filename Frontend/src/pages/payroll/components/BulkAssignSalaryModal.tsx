@@ -35,7 +35,7 @@ function firstOfThisMonth() {
 const currentOf = (e: GroupEmployee) => e.salaryAssignments?.[0];
 
 // One template, start date and set of deduction switches for many employees;
-// each gets their own CTC (or one figure applied to everyone). For someone
+// each gets their own gross salary (or one figure applied to everyone). For someone
 // who already has a salary this is a revision from the start date.
 export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
   const showToast = useToast();
@@ -43,13 +43,13 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
   const [templates, setTemplates] = useState<PayrollTemplate[]>([]);
   const [builtIn, setBuiltIn] = useState<BuiltInItem[]>([]);
   const [templateId, setTemplateId] = useState('');
-  const [ctcPeriod, setCtcPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [grossPeriod, setGrossPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [effectiveFrom, setEffectiveFrom] = useState(firstOfThisMonth());
   const [deductionsEnabled, setDeductionsEnabled] = useState(true);
   const [disabledItems, setDisabledItems] = useState<string[]>([]);
   const [note, setNote] = useState('');
-  const [ctcs, setCtcs] = useState<Record<string, string>>({});
-  const [sameCtc, setSameCtc] = useState('');
+  const [grosses, setGrosses] = useState<Record<string, string>>({});
+  const [sameGross, setSameGross] = useState('');
   const [preview, setPreview] = useState<SalaryBreakdown | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -71,61 +71,61 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
   }, [template, builtIn]);
   const deductionItems = items;
 
-  // Sample breakdown for the "same CTC" figure, so the template can be checked.
-  const sample = Number(sameCtc);
+  // Sample breakdown for the "same gross" figure, so the template can be checked.
+  const sample = Number(sameGross);
   const canPreview = !!templateId && sample > 0;
   useEffect(() => {
     if (!templateId || !(sample > 0)) return undefined;
     const handle = setTimeout(() => {
-      previewSalary({ templateId, ctcPeriod, ctcAmount: sample, deductionsEnabled, disabledItems })
+      previewSalary({ templateId, grossPeriod, grossAmount: sample, deductionsEnabled, disabledItems })
         .then(setPreview)
         .catch(() => setPreview(null));
     }, 350);
     return () => clearTimeout(handle);
-  }, [templateId, ctcPeriod, sample, deductionsEnabled, disabledItems]);
+  }, [templateId, grossPeriod, sample, deductionsEnabled, disabledItems]);
 
   const employees = [...selected.values()];
-  const filled = employees.filter((e) => Number(ctcs[String(e.id)]) > 0).length;
+  const filled = employees.filter((e) => Number(grosses[String(e.id)]) > 0).length;
 
   function toggleItem(key: string, on: boolean) {
     setDisabledItems((list) => (on ? list.filter((k) => k !== key) : [...new Set([...list, key])]));
   }
 
   function applySameToAll() {
-    if (!(sample > 0)) return setError('Enter the CTC to apply to everyone.');
+    if (!(sample > 0)) return setError('Enter the gross salary to apply to everyone.');
     setError(null);
-    const next = { ...ctcs };
+    const next = { ...grosses };
     employees.forEach((e) => {
       next[String(e.id)] = String(sample);
     });
-    setCtcs(next);
+    setGrosses(next);
   }
 
-  function useCurrentCtc() {
-    const next = { ...ctcs };
+  function useCurrentGross() {
+    const next = { ...grosses };
     employees.forEach((e) => {
       const current = currentOf(e);
-      if (current) next[String(e.id)] = String(Number(current.monthlyCtc) * (ctcPeriod === 'yearly' ? 12 : 1));
+      if (current) next[String(e.id)] = String(Number(current.monthlyGross) * (grossPeriod === 'yearly' ? 12 : 1));
     });
-    setCtcs(next);
+    setGrosses(next);
   }
 
   async function handleSave() {
     if (selected.size === 0) return setError('Choose at least one employee.');
     if (!templateId) return setError('Choose a salary template.');
     if (!effectiveFrom) return setError('Choose the date the salary starts from.');
-    if (filled === 0) return setError('Enter the CTC for the employees.');
+    if (filled === 0) return setError('Enter the gross salary for the employees.');
     setIsSaving(true);
     setError(null);
     try {
       const r = await bulkAssignSalary({
         templateId,
-        ctcPeriod,
+        grossPeriod,
         effectiveFrom,
         deductionsEnabled,
         disabledItems,
         note: note.trim() || null,
-        items: employees.map((e) => ({ employeeId: String(e.id), ctcAmount: Number(ctcs[String(e.id)]) || 0 })),
+        items: employees.map((e) => ({ employeeId: String(e.id), grossAmount: Number(grosses[String(e.id)]) || 0 })),
       });
       if (r.skipped.length === 0) {
         showToast(`Salary assigned to ${r.data.length} employee${r.data.length === 1 ? '' : 's'}.`, 'success');
@@ -168,7 +168,7 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
     );
   }
 
-  const unit = ctcPeriod === 'yearly' ? 'year' : 'month';
+  const unit = grossPeriod === 'yearly' ? 'year' : 'month';
 
   return (
     <Modal title="Bulk assign salary" onClose={onClose} widthClassName="max-w-4xl">
@@ -184,9 +184,9 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
             options={templates.filter((t) => t.isActive).map((t) => ({ value: String(t.id), label: templateOptionLabel(t) }))}
           />
           <Select
-            label="CTC is"
-            value={ctcPeriod}
-            onChange={(e) => setCtcPeriod(e.target.value as 'monthly' | 'yearly')}
+            label="Gross salary is"
+            value={grossPeriod}
+            onChange={(e) => setGrossPeriod(e.target.value as 'monthly' | 'yearly')}
             options={[
               { value: 'monthly', label: 'Per month' },
               { value: 'yearly', label: 'Per year' },
@@ -204,7 +204,7 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
             checked={deductionsEnabled}
             onChange={setDeductionsEnabled}
             label="Apply deductions"
-            description={deductionsEnabled ? 'Turn off any single deduction below for all these employees.' : 'No deductions and no employer contributions — in-hand = CTC.'}
+            description={deductionsEnabled ? 'Turn off any single deduction below for all these employees.' : 'No deductions and no employer contributions — in-hand = gross.'}
           />
           {deductionsEnabled && template && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -225,14 +225,14 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
         <section className="space-y-2">
           <div className="flex flex-wrap items-end gap-2">
             <div className="w-48">
-              <Input label={`Same CTC for all (₹ per ${unit})`} type="number" min={0} value={sameCtc} onChange={(e) => setSameCtc(e.target.value)} />
+              <Input label={`Same gross for all (₹ per ${unit})`} type="number" min={0} value={sameGross} onChange={(e) => setSameGross(e.target.value)} />
             </div>
             <Button variant="secondary" onClick={applySameToAll} disabled={employees.length === 0}>Apply to all</Button>
-            <Button variant="secondary" onClick={useCurrentCtc} disabled={employees.length === 0}>Fill current CTC</Button>
-            <span className="ml-auto text-xs text-ink-muted">{filled} of {employees.length} have a CTC</span>
+            <Button variant="secondary" onClick={useCurrentGross} disabled={employees.length === 0}>Fill current gross</Button>
+            <span className="ml-auto text-xs text-ink-muted">{filled} of {employees.length} have a gross salary</span>
           </div>
           {employees.length === 0 ? (
-            <p className="rounded-xl bg-page px-3 py-2 text-sm text-ink-muted">Choose employees above, then enter each one’s CTC here.</p>
+            <p className="rounded-xl bg-page px-3 py-2 text-sm text-ink-muted">Choose employees above, then enter each one’s gross salary here.</p>
           ) : (
             <div className="max-h-72 overflow-y-auto rounded-xl border border-border">
               {employees.map((e) => {
@@ -245,15 +245,15 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
                       </p>
                       <p className="truncate text-xs text-ink-muted">
                         {[e.company?.name, e.brand?.name].filter(Boolean).join(' › ')}
-                        {current ? ` · now ${formatRupees(current.monthlyCtc)}/month since ${current.effectiveFrom}` : ' · no salary yet'}
+                        {current ? ` · now ${formatRupees(current.monthlyGross)}/month since ${current.effectiveFrom}` : ' · no salary yet'}
                       </p>
                     </div>
                     <input
                       type="number"
                       min={0}
-                      aria-label={`CTC for ${e.name ?? 'employee'}`}
-                      value={ctcs[String(e.id)] ?? ''}
-                      onChange={(ev) => setCtcs({ ...ctcs, [String(e.id)]: ev.target.value })}
+                      aria-label={`Gross salary for ${e.name ?? 'employee'}`}
+                      value={grosses[String(e.id)] ?? ''}
+                      onChange={(ev) => setGrosses({ ...grosses, [String(e.id)]: ev.target.value })}
                       placeholder={`₹ / ${unit}`}
                       className="w-36 rounded-xl border border-border bg-card px-3 py-1.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                     />
@@ -262,7 +262,7 @@ export function BulkAssignSalaryModal({ onClose, onSaved }: Props) {
               })}
             </div>
           )}
-          <p className="text-xs text-ink-muted">Anyone left without a CTC is skipped.</p>
+          <p className="text-xs text-ink-muted">Anyone left without a gross salary is skipped.</p>
         </section>
 
         <Input label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />

@@ -211,7 +211,7 @@ export function ReleasesTab({ access, onChanged }: { access: PayrollAccess; onCh
               r.assignment ? (
                 <div>
                   <p className="text-ink">{r.assignment.template?.name ?? '—'}</p>
-                  <p className="text-xs text-ink-muted">{formatRupees(r.assignment.monthlyCtc)} / month</p>
+                  <p className="text-xs text-ink-muted">{formatRupees(r.assignment.monthlyGross)} / month</p>
                 </div>
               ) : (
                 '—'
