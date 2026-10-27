@@ -21,6 +21,7 @@ const {
 // process's own ambient TZ — see utils/dateRange.js for why that distinction
 // matters (Render's containers default to UTC, unlike a dev machine's IST).
 const { dateOnly, addDays, datesBetween } = require('../../utils/dateRange');
+const { workedStatusFor } = require('../../utils/halfDayLeave');
 const {
   isOvernightShift,
   scheduledEndDateTime,
@@ -222,14 +223,16 @@ async function applyAttendancePunch({
         return { error: err };
       }
 
+      // 'half_day' when the other half is an approved half-day leave.
+      const status = await workedStatusFor({ employeeId, date: businessDate, transaction: t });
       if (!attendance) {
         attendance = await db.Attendance.create(
-          { employeeId, date: businessDate, checkIn: now, source, kioskUserId, kioskLocationId, status: 'present' },
+          { employeeId, date: businessDate, checkIn: now, source, kioskUserId, kioskLocationId, status },
           { transaction: t }
         );
       } else {
         await attendance.update(
-          { checkIn: now, source, kioskUserId, kioskLocationId, status: 'present', checkoutMissed: false },
+          { checkIn: now, source, kioskUserId, kioskLocationId, status, checkoutMissed: false },
           { transaction: t }
         );
       }

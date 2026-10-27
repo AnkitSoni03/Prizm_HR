@@ -405,6 +405,12 @@ async function attachAccrualInfo(rows, employeeId) {
     ],
   });
   const policyByTypeId = new Map(links.map((link) => [String(link.leaveTypeId), link.leavePolicy]));
+  // A linked type's balance is always synthesized below from its source — a
+  // stored row for it (left over from before linked types were skipped at
+  // seeding) is a stale 0/0/0 that would shadow the real figure.
+  const linkedTypeIds = new Set(
+    links.filter((link) => link.leaveType && link.leaveType.deductFromLeaveTypeId).map((link) => String(link.leaveTypeId))
+  );
 
   // Also hides a gender-restricted type the employee isn't eligible for
   // (e.g. Paternity Leave for a female employee) — same rule
@@ -412,6 +418,7 @@ async function attachAccrualInfo(rows, employeeId) {
   // Dashboard's balance widget and the Leave Balance page always agree.
   const result = rows
     .filter((row) => policyByTypeId.has(String(row.leaveTypeId)))
+    .filter((row) => !linkedTypeIds.has(String(row.leaveTypeId)))
     .filter((row) => isGenderEligible(row.leaveType, employee.gender))
     .map((row) => {
       const plain = row.toJSON ? row.toJSON() : row;

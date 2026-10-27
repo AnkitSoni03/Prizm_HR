@@ -19,6 +19,7 @@ const {
   MANAGER_INCLUDE,
 } = require('../../utils/managerApprovals');
 const { queuePayrollRecalc } = require('../payroll/payrollEngine');
+const { workedStatusFor } = require('../../utils/halfDayLeave');
 
 const MANAGER_APPROVAL_INCLUDE = { model: db.OdRequestApproval, as: 'managerApprovals', include: [MANAGER_INCLUDE] };
 
@@ -467,7 +468,8 @@ async function revokeOdRequest({ companyId, id, actorEmployeeId, actorUserId, re
   await db.sequelize.transaction(async (t) => {
     for (const row of rows) {
       if (row.checkIn) {
-        await row.update({ status: 'present' }, { transaction: t });
+        const status = await workedStatusFor({ employeeId: row.employeeId, date: row.date, transaction: t });
+        await row.update({ status }, { transaction: t });
       } else {
         await row.update({ status: restoredStatus.get(row.id), source: null }, { transaction: t });
       }

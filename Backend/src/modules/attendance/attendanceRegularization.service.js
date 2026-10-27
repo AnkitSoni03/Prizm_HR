@@ -12,6 +12,7 @@ const { buildBusinessDateTime } = require('../../utils/dateRange');
 const { resolveCheckOutDateTime } = require('../../utils/shiftTime');
 const { findApprovedLeavesOnDate } = require('../leave/leaveRequest.service');
 const { queuePayrollRecalc } = require('../payroll/payrollEngine');
+const { workedStatusFor } = require('../../utils/halfDayLeave');
 
 // An approved FULL-day leave (Annual, Short Leave, Unpaid...) owns the day's
 // status: an employee's correction may only fix the punch times, never turn
@@ -167,7 +168,11 @@ async function approveRegularization({ companyId, id, approverId, approverUserId
   // Re-checked at approval time: the leave may have been approved after the
   // correction was submitted. While it stands, only the times change.
   const fullDayLeave = await findFullDayLeaveOnDate({ employeeId: regularization.employeeId, date: attendanceDate });
-  const finalStatus = fullDayLeave ? 'leave' : regularization.requestedStatus === 'leave' ? before.status : regularization.requestedStatus;
+  let finalStatus = fullDayLeave ? 'leave' : regularization.requestedStatus === 'leave' ? before.status : regularization.requestedStatus;
+  // Worked the other half of an approved half-day leave.
+  if (finalStatus === 'present') {
+    finalStatus = await workedStatusFor({ employeeId: regularization.employeeId, date: attendanceDate });
+  }
   await db.sequelize.transaction(async (t) => {
     // Snapshot first — the update below overwrites these, and
     // revokeRegularization needs them back.

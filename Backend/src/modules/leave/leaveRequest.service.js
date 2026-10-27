@@ -14,6 +14,7 @@ const { getManagersForEmployee } = require('../../utils/managerScope');
 const { notifyManagers } = require('../../utils/managerApprovals');
 const { applySandwichOnApproval, reverseSandwichForLeave } = require('../payroll/sandwichRule');
 const { queuePayrollRecalc } = require('../payroll/payrollEngine');
+const { hasApprovedHalfDayLeave } = require('../../utils/halfDayLeave');
 
 // Already-generated payroll months covering these dates get recalculated
 // once the transaction commits (best-effort, see payrollEngine.js).
@@ -127,6 +128,55 @@ async function getLeaveRequestForDecision({ companyId, id }) {
 // created before linked types existed).
 function balanceTypeIdOf(request) {
   return request.balanceLeaveTypeId || request.leaveTypeId;
+}
+
+// Days of a leave charged to each leave_balances row. A range crossing a
+// balance period boundary (a monthly_reset month, the yearly cycle date, the
+// end of probation) is split by working days so each period pays for its own
+// dates. Any difference from `days` (holidays edited since the request was
+// made) lands on the first row, so the total charged always equals `days`.
+async function balanceCharges({ employee, leaveTypeId, fromDate, toDate, days, transaction }) {
+  const first = await getOrCreateBalance({ employeeId: employee.id, leaveTypeId, dateStr: fromDate, transaction });
+  if (fromDate === toDate) return [{ balance: first, days: Number(days) }];
+
+  const byRow = new Map([[first.id, { balance: first, days: 0 }]]);
+  let counted = 0;
+  for (const dateStr of datesBetween(fromDate, toDate)) {
+    // eslint-disable-next-line no-await-in-loop
+    const working = await isWorkingDay({
+      employeeId: employee.id,
+      companyId: employee.companyId,
+      brandId: employee.brandId,
+      rosterGroupId: employee.rosterGroupId,
+      dateStr,
+    });
+    if (!working) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const balance = await getOrCreateBalance({ employeeId: employee.id, leaveTypeId, dateStr, transaction });
+    const entry = byRow.get(balance.id) || { balance, days: 0 };
+    entry.days += 1;
+    byRow.set(balance.id, entry);
+    counted += 1;
+  }
+  byRow.get(first.id).days += Number(days) - counted;
+  return [...byRow.values()].filter((entry) => entry.days !== 0);
+}
+
+// sign +1 charges the leave, -1 refunds it.
+async function applyBalanceCharges({ request, sign, transaction }) {
+  const charges = await balanceCharges({
+    employee: request.employee,
+    leaveTypeId: balanceTypeIdOf(request),
+    fromDate: request.fromDate,
+    toDate: request.toDate,
+    days: request.days,
+    transaction,
+  });
+  for (const { balance, days } of charges) {
+    const used = Number(balance.used) + sign * days;
+    // eslint-disable-next-line no-await-in-loop
+    await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction });
+  }
 }
 
 const HALF_DAY_SESSIONS = ['first_half', 'second_half'];
@@ -287,8 +337,8 @@ async function createLeaveRequest({
     // or an unpaid (LWP-style) type — usage is still recorded on approval.
     const skipCheck = (balancePolicy && balancePolicy.isUnlimited) || !leaveType.isPaid || !balanceLeaveType.isPaid;
     if (!skipCheck) {
-      const balance = await getOrCreateBalance({ employeeId, leaveTypeId: balanceLeaveType.id, dateStr: fromDate });
-      if (Number(balance.balance) < days) {
+      const charges = await balanceCharges({ employee, leaveTypeId: balanceLeaveType.id, fromDate, toDate, days });
+      if (charges.some((charge) => Number(charge.balance.balance) < charge.days)) {
         throw new HttpError(
           422,
           isLinked ? `Insufficient ${balanceLeaveType.name} balance` : 'Insufficient leave balance'
@@ -420,14 +470,7 @@ async function applyLeaveApprovalSideEffects({ companyId, request, actorEmployee
     // types — only the insufficient-balance rejection at request-creation
     // time is skipped for those; approval still records the consumption,
     // which is allowed to push balance negative.
-    const balance = await getOrCreateBalance({
-      employeeId: request.employeeId,
-      leaveTypeId: balanceTypeIdOf(request),
-      dateStr: request.fromDate,
-      transaction: t,
-    });
-    const used = Number(balance.used) + Number(request.days);
-    await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
+    await applyBalanceCharges({ request, sign: 1, transaction: t });
   }
 
   // Optional sandwich rule (salary template) — holidays/week-offs between
@@ -435,10 +478,20 @@ async function applyLeaveApprovalSideEffects({ companyId, request, actorEmployee
   const sandwichDates = await applySandwichOnApproval({ request, transaction: t });
   recalcPayrollFor(request, sandwichDates, t);
 
-  // A half-day leave leaves the attendance row alone — the employee works
-  // the other half and punches in as normal; payroll accounts for the leave
-  // half itself (modules/payroll/payrollEngine.js).
-  if (request.halfDaySession) return;
+  // A half-day leave doesn't write a 'leave' row — the employee works the
+  // other half. A day already punched as 'present' becomes 'half_day' (a
+  // later check-in gets it from applyAttendancePunch). Payroll pays the
+  // leave half from the request itself (modules/payroll/payrollEngine.js).
+  if (request.halfDaySession) {
+    const attendance = await db.Attendance.findOne({
+      where: { employeeId: request.employeeId, date: request.fromDate },
+      transaction: t,
+    });
+    if (attendance && attendance.status === 'present') {
+      await attendance.update({ status: 'half_day' }, { transaction: t });
+    }
+    return;
+  }
 
   for (const date of datesBetween(request.fromDate, request.toDate)) {
     const working = await isWorkingDay({
@@ -738,22 +791,32 @@ async function revokeLeaveRequest({ companyId, id, actorEmployeeId, actorUserId,
         await credit.update({ status: stillValid ? 'approved' : 'expired' }, { transaction: t });
       }
     } else {
-      const balance = await getOrCreateBalance({
-        employeeId: request.employeeId,
-        leaveTypeId: balanceTypeIdOf(request),
-        dateStr: request.fromDate,
-        transaction: t,
-      });
-      const used = Number(balance.used) - Number(request.days);
-      await balance.update({ used, balance: Number(balance.allotted) - used }, { transaction: t });
+      await applyBalanceCharges({ request, sign: -1, transaction: t });
     }
 
     const sandwichDates = await reverseSandwichForLeave({ request, transaction: t });
     recalcPayrollFor(request, sandwichDates, t);
 
-    // A half-day leave never wrote 'leave' attendance rows (see
-    // applyLeaveApprovalSideEffects), so there's nothing to put back.
-    if (!request.halfDaySession) {
+    // A half-day leave only ever turned 'present' into 'half_day' (see
+    // applyLeaveApprovalSideEffects) — put that back unless the other half
+    // is still an approved half-day leave.
+    if (request.halfDaySession) {
+      const row = await db.Attendance.findOne({
+        where: { employeeId: request.employeeId, date: request.fromDate, status: 'half_day' },
+        transaction: t,
+      });
+      const otherHalf =
+        row &&
+        (await hasApprovedHalfDayLeave({
+          employeeId: request.employeeId,
+          date: request.fromDate,
+          excludeRequestId: request.id,
+          transaction: t,
+        }));
+      if (row && !otherHalf) {
+        await row.update({ status: row.checkIn ? 'present' : 'absent' }, { transaction: t });
+      }
+    } else {
       const rows = await db.Attendance.findAll({
         where: {
           employeeId: request.employeeId,
