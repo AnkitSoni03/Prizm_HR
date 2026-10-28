@@ -1538,6 +1538,16 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   badge on the Monthly Payroll row). Migration `20261027090300`. Mock-tested offline (floor +
   recovery, overflow, unlocked pickup, exit date, earlier lock/race cases); **not live-tested,
   migrations not applied** (.env is prod).
+- ✅ Admin-controlled Face ID retake (2026-10-28): a registered face is locked — the employee
+  can't replace it unless an admin allows it. New `employee_face_profiles.retake_allowed`
+  (default false, so every existing registration starts locked; no face data touched) +
+  `retake_requested_at` (migration `20261028090000`). ESS Settings → Face ID shows "Request
+  retake" (`POST /attendance/face-profile/retake-request`, notifies `employee:update` holders
+  for that company/brand + Group-level). Admin toggle "Allow Face ID retake" in the employee
+  popup's Face ID card (`PATCH /employees/:id/face-retake { allowed }`, `employee:update` or
+  Group Admin structurally, scoped via `getEmployeeForWrite`; employee notified).
+  `registerFaceProfile` 403s `FACE_RETAKE_NOT_ALLOWED` while locked and re-locks after a
+  successful re-registration. First-time registration unaffected. **Migration not applied.**
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

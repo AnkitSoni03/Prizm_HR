@@ -27,5 +27,6 @@ router.use(requireAuth);
 
 router.post('/', requirePermission('face_profile:register'), uploadPhoto.single('photo'), controller.register);
 router.get('/me', requirePermission('face_profile:read_own'), controller.myStatus);
+router.post('/retake-request', requirePermission('face_profile:register'), controller.requestRetake);
 
 module.exports = router;

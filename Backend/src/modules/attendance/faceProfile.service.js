@@ -5,6 +5,7 @@ const { HttpError } = require('../../utils/errors');
 const { runWithTenant } = require('../../config/tenant-context');
 const { uploadBuffer, buildObjectPath, getSignedDownloadUrl } = require('../../utils/gcs');
 const { indexFace, deleteFace, searchFaceAcrossCompanies } = require('../../utils/rekognition');
+const { notifyUser, notifyApprovers } = require('../../utils/notifications');
 
 const MAX_PHOTO_SIZE_BYTES = 8 * 1024 * 1024; // 8MB — a single still frame, not a video
 
@@ -98,15 +99,25 @@ async function registerFaceProfile({ companyId, employeeId, imageBuffer }) {
     throw new HttpError(400, 'Photo is too large');
   }
 
-  // Checked before touching anything else — indexFace below would otherwise
-  // add this photo to the collection unconditionally, so the duplicate
-  // check has to run first and reject up front.
-  await assertFaceNotAlreadyRegistered({ companyId, employeeId, imageBuffer });
-
   // Look up including soft-deleted rows so a previously-revoked profile is
   // restored-and-updated in place, rather than colliding with the partial
   // unique index (one active row per employee) on a fresh insert.
   let profile = await db.EmployeeFaceProfile.findOne({ where: { employeeId }, paranoid: false });
+
+  // A registered face can only be replaced once an admin has allowed a
+  // retake (employee popup → Face ID toggle).
+  if (isLocked(profile)) {
+    throw new HttpError(
+      403,
+      'Your face is already registered. Request a retake and wait for your admin to allow it.',
+      'FACE_RETAKE_NOT_ALLOWED'
+    );
+  }
+
+  // Checked before touching anything else — indexFace below would otherwise
+  // add this photo to the collection unconditionally, so the duplicate
+  // check has to run first and reject up front.
+  await assertFaceNotAlreadyRegistered({ companyId, employeeId, imageBuffer });
 
   // Re-registering — drop the old AWS-side face first so a stale/replaced
   // photo doesn't linger in the collection as a second, orphaned match
@@ -132,6 +143,9 @@ async function registerFaceProfile({ companyId, employeeId, imageBuffer }) {
     photoObjectPath: destination,
     status: 'active',
     registeredAt: new Date(),
+    // One retake per permission — locked again after this registration.
+    retakeAllowed: false,
+    retakeRequestedAt: null,
   };
 
   if (profile) {
@@ -142,6 +156,10 @@ async function registerFaceProfile({ companyId, employeeId, imageBuffer }) {
   }
 
   return { registered: true, registeredAt: profile.registeredAt, photoUrl: await signPhotoUrl(profile) };
+}
+
+function isLocked(profile) {
+  return !!profile && !profile.deletedAt && profile.status === 'active' && !profile.retakeAllowed;
 }
 
 // Short-lived signed URL for the employee's own registered photo (bucket is
@@ -160,14 +178,81 @@ async function getMyFaceProfileStatus({ employeeId }) {
   if (!employeeId) throw new HttpError(400, 'No employee record linked to this user');
 
   const profile = await db.EmployeeFaceProfile.findOne({ where: { employeeId, status: 'active' } });
+  return toStatus(profile);
+}
+
+async function toStatus(profile) {
   return profile
     ? {
         registered: true,
         registeredAt: profile.registeredAt,
         status: profile.status,
         photoUrl: await signPhotoUrl(profile),
+        retakeAllowed: profile.retakeAllowed,
+        retakeRequestedAt: profile.retakeRequestedAt,
       }
-    : { registered: false, registeredAt: null, status: null, photoUrl: null };
+    : {
+        registered: false,
+        registeredAt: null,
+        status: null,
+        photoUrl: null,
+        retakeAllowed: false,
+        retakeRequestedAt: null,
+      };
 }
 
-module.exports = { registerFaceProfile, getMyFaceProfileStatus };
+// Employee asks an admin to allow replacing their registered face. Notifies
+// everyone who can edit this employee (employee:update, company-wide or the
+// employee's brand, plus Group-level holders). Asking again while a request
+// is pending doesn't re-notify.
+async function requestFaceRetake({ companyId, employeeId, userId }) {
+  if (!employeeId) throw new HttpError(400, 'No employee record linked to this user');
+
+  const profile = await db.EmployeeFaceProfile.findOne({ where: { employeeId, status: 'active' } });
+  if (!profile) throw new HttpError(400, 'You have not registered your face yet — register it directly.');
+  if (profile.retakeAllowed || profile.retakeRequestedAt) return toStatus(profile);
+
+  await profile.update({ retakeRequestedAt: new Date() });
+
+  const employee = await db.Employee.findByPk(employeeId, { attributes: ['id', 'name', 'employeeCode', 'brandId'] });
+  await notifyApprovers({
+    companyId,
+    brandId: employee?.brandId || null,
+    code: 'employee:update',
+    excludeUserId: userId,
+    type: 'face_retake_requested',
+    title: 'Face ID retake requested',
+    body: `${employee?.name || 'An employee'}${employee?.employeeCode ? ` (${employee.employeeCode})` : ''} wants to re-register their Face ID. Open the employee and turn on "Allow Face ID retake".`,
+  });
+
+  return toStatus(profile);
+}
+
+// Admin toggle (employee popup → Face ID). The caller has already been
+// checked against the employee (employee.controller.js). Never touches the
+// registered face itself.
+async function setFaceRetakeAllowed({ employee, allowed }) {
+  const profile = await db.EmployeeFaceProfile.findOne({
+    where: { employeeId: employee.id, status: 'active' },
+  });
+  if (!profile) throw new HttpError(400, 'This employee has not registered their face yet');
+
+  const hadRequest = !!profile.retakeRequestedAt;
+  await profile.update({ retakeAllowed: !!allowed, retakeRequestedAt: null });
+
+  if (employee.userId && (allowed || hadRequest)) {
+    await notifyUser({
+      companyId: employee.companyId,
+      userId: employee.userId,
+      type: allowed ? 'face_retake_allowed' : 'face_retake_declined',
+      title: allowed ? 'Face ID retake allowed' : 'Face ID retake not allowed',
+      body: allowed
+        ? 'You can now re-register your face from Settings → Face ID.'
+        : 'Your admin did not allow a Face ID retake. Your current face stays registered.',
+    });
+  }
+
+  return toStatus(profile);
+}
+
+module.exports = { registerFaceProfile, getMyFaceProfileStatus, requestFaceRetake, setFaceRetakeAllowed };

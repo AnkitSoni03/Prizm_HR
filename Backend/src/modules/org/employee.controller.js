@@ -8,7 +8,10 @@ const { getManagersForEmployee } = require('../../utils/managerScope');
 const managerOptions = require('./managerOptions.service');
 const { listProbationAlerts } = require('./probationAlerts.service');
 const { parsePagination } = require('../../utils/pagination');
-const { getMyFaceProfileStatus: getEmployeeFaceProfileStatus } = require('../attendance/faceProfile.service');
+const {
+  getMyFaceProfileStatus: getEmployeeFaceProfileStatus,
+  setFaceRetakeAllowed,
+} = require('../attendance/faceProfile.service');
 const { buildMonthlyReport } = require('./employeeMonthlyReport.service');
 const { writeEmployeeMonthlyReportXlsx } = require('../../utils/employeeMonthlyReportExport');
 const { buildPeriodReport } = require('./employeePeriodReport.service');
@@ -86,6 +89,24 @@ async function getFacePhoto(req, res, next) {
     if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
     const employee = await getReadableEmployee(req);
     const result = await getEmployeeFaceProfileStatus({ employeeId: employee.id });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Admin toggle: allow (or stop) this employee re-registering their face.
+async function setFaceRetake(req, res, next) {
+  try {
+    if (!req.auth.companyId && !req.auth.groupId) throw new HttpError(403, 'Forbidden');
+    if (typeof req.body.allowed !== 'boolean') throw new HttpError(400, 'allowed must be true or false');
+    const employee = await service.getEmployeeForWrite({
+      companyId: req.auth.companyId,
+      groupId: req.auth.groupId,
+      id: req.params.id,
+      scopedBrandIds: req.auth.scopedBrandIds,
+    });
+    const result = await setFaceRetakeAllowed({ employee, allowed: req.body.allowed });
     res.json({ data: result });
   } catch (err) {
     next(err);
@@ -513,6 +534,7 @@ module.exports = {
   list,
   get,
   getFacePhoto,
+  setFaceRetake,
   getMonthlyReport,
   exportMonthlyReport,
   getPeriodReport,

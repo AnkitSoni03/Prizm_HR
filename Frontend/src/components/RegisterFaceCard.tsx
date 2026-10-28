@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { ScanFace, CheckCircle2 } from 'lucide-react';
+import { ScanFace, CheckCircle2, Lock } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
-import { getMyFaceProfileStatus, registerFaceProfile, type FaceProfileStatus } from '../api/ess/faceProfile';
+import {
+  getMyFaceProfileStatus,
+  registerFaceProfile,
+  requestFaceRetake,
+  type FaceProfileStatus,
+} from '../api/ess/faceProfile';
 
 const CAPTURE_GUIDELINES = [
   'Find a well-lit spot — face a light source, avoid strong light or windows behind you.',
@@ -30,6 +35,10 @@ export function RegisterFaceCard() {
   const [success, setSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPhoto, setShowPhoto] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
+
+  // A registered face can't be replaced until an admin allows a retake.
+  const locked = !!status?.registered && !status.retakeAllowed;
 
   useEffect(() => {
     getMyFaceProfileStatus()
@@ -99,6 +108,18 @@ export function RegisterFaceCard() {
     );
   }
 
+  async function handleRequestRetake() {
+    setError(null);
+    setIsRequesting(true);
+    try {
+      setStatus(await requestFaceRetake());
+    } catch (err) {
+      setError(extractError(err, 'Could not send the request. Please try again.'));
+    } finally {
+      setIsRequesting(false);
+    }
+  }
+
   async function handleSubmit() {
     if (!capturedPhoto) return;
     setError(null);
@@ -112,6 +133,8 @@ export function RegisterFaceCard() {
         registeredAt: result.registeredAt,
         status: 'active',
         photoUrl: result.photoUrl,
+        retakeAllowed: false,
+        retakeRequestedAt: null,
       });
       retake();
     } catch (err) {
@@ -150,8 +173,8 @@ export function RegisterFaceCard() {
           )}
           <span>
             Your face is registered
-            {status.registeredAt ? ` (${new Date(status.registeredAt).toLocaleDateString()})` : ''}. You can
-            re-register below to replace it.
+            {status.registeredAt ? ` (${new Date(status.registeredAt).toLocaleDateString()})` : ''}.
+            {status.retakeAllowed && ' Your admin has allowed a retake — you can re-register below to replace it.'}
           </span>
         </div>
       )}
@@ -170,7 +193,29 @@ export function RegisterFaceCard() {
         </div>
       )}
 
-      {!cameraReady && !previewUrl && (
+      {locked && !cameraReady && !previewUrl && (
+        <div className="mt-4 rounded-xl border border-border bg-page px-3 py-3 text-sm text-ink-muted">
+          <p className="flex items-center gap-2 font-medium text-ink">
+            <Lock className="h-4 w-4" strokeWidth={2} />
+            Retake is locked
+          </p>
+          {status?.retakeRequestedAt ? (
+            <p className="mt-1">
+              Retake requested on {new Date(status.retakeRequestedAt).toLocaleDateString()}. Waiting for your
+              admin to allow it.
+            </p>
+          ) : (
+            <p className="mt-1">Want to re-register your face? Ask your admin to allow a retake.</p>
+          )}
+          <div className="mt-3 flex justify-end">
+            <Button onClick={handleRequestRetake} isLoading={isRequesting} disabled={!!status?.retakeRequestedAt}>
+              {status?.retakeRequestedAt ? 'Request sent' : 'Request retake'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!locked && !cameraReady && !previewUrl && (
         <>
           <div className="mt-4 rounded-xl border border-border bg-page px-3 py-3 text-sm text-ink-muted">
             <p className="font-medium text-ink">Before you start, for best results:</p>

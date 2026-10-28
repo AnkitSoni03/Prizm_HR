@@ -26,4 +26,17 @@ async function myStatus(req, res, next) {
   }
 }
 
-module.exports = { register, myStatus };
+async function requestRetake(req, res, next) {
+  try {
+    const result = await service.requestFaceRetake({
+      companyId: req.auth.companyId,
+      employeeId: req.auth.employeeId,
+      userId: req.auth.userId,
+    });
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, myStatus, requestRetake };

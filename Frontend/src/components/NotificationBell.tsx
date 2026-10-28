@@ -77,6 +77,19 @@ function resolveTargetPath(notification: AppNotification, portal: string): strin
     return portal === '/ess' ? '/ess' : null;
   }
 
+  // Face ID retake: admins open Employees to flip the toggle; the employee
+  // goes to Settings → Face ID to re-register.
+  if (notification.type === 'face_retake_requested') {
+    if (portal === '/company-admin') return '/company-admin/employees';
+    if (portal === '/brand-admin') return '/brand-admin/employees';
+    if (portal === '/group-admin') return '/group-admin';
+    if (portal === '/ess') return '/ess/employees';
+    return null;
+  }
+  if (notification.type === 'face_retake_allowed' || notification.type === 'face_retake_declined') {
+    return '/ess/settings?tab=face';
+  }
+
   if (!notification.requestType) return null;
 
   // Resignations: the employee's own decision goes to their ESS page; a

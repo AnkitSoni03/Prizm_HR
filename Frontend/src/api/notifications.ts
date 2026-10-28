@@ -20,7 +20,10 @@ export interface AppNotification {
     | 'resignation_submitted'
     | 'resignation_withdrawn'
     | 'resignation_accepted'
-    | 'resignation_rejected';
+    | 'resignation_rejected'
+    | 'face_retake_requested'
+    | 'face_retake_allowed'
+    | 'face_retake_declined';
   requestType:
     | 'leave_request'
     | 'od_request'
