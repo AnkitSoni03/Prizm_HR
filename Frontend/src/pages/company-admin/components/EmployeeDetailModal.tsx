@@ -110,6 +110,11 @@ const STATUS_OPTIONS = [
   { value: 'archived', label: 'Archived' },
 ];
 
+// Today as YYYY-MM-DD in the browser's own timezone.
+function todayLocal() {
+  return new Date().toLocaleDateString('en-CA');
+}
+
 function statusTone(status: Employee['status']) {
   if (status === 'active') return 'success';
   if (status === 'onboarding' || status === 'on_notice') return 'warning';
@@ -208,6 +213,10 @@ export function EmployeeDetailModal({
     employee.yearlyCycleStartMonth ? String(employee.yearlyCycleStartMonth) : ''
   );
   const [status, setStatus] = useState(employee.status);
+  // Asked when the employee leaves (status exited / archived, or switched
+  // off) — salary is paid up to this day.
+  const [lastWorkingDate, setLastWorkingDate] = useState(employee.lastWorkingDate ?? todayLocal());
+  const isExitStatus = status === 'exited' || status === 'archived';
   const [workState, setWorkState] = useState(employee.workState ?? '');
   const [weekOffLeaveBlockedDays, setWeekOffLeaveBlockedDays] = useState<number[]>(
     employee.weekOffLeaveBlockedDays ?? []
@@ -435,22 +444,26 @@ export function EmployeeDetailModal({
   // reactivating (e.g. a rejoin) restores both in one step.
   async function handleToggleAccount() {
     const nextActive = !isAccountActive;
+    if (!nextActive && !lastWorkingDate) {
+      showToast('Enter the last working day first.');
+      return;
+    }
     const confirmed = await confirm({
       title: nextActive ? 'Activate employee account' : 'Deactivate employee account',
       message: nextActive
         ? `Reactivate ${employee.name ?? employee.employeeCode}'s account? Their ESS login (if any) will regain access immediately.`
-        : `Deactivate ${employee.name ?? employee.employeeCode}'s account? Their ESS login (if any) will immediately lose access. No data is deleted, and this can be reversed any time.`,
+        : `Deactivate ${employee.name ?? employee.employeeCode}'s account? Their ESS login (if any) will immediately lose access, and salary is paid only up to ${lastWorkingDate}. No data is deleted, and this can be reversed any time.`,
       confirmLabel: nextActive ? 'Activate' : 'Deactivate',
       variant: nextActive ? 'primary' : 'danger',
     });
     if (!confirmed) return;
     setIsTogglingAccount(true);
     try {
-      await setEmployeeActive(employee.id, nextActive);
+      await setEmployeeActive(employee.id, nextActive, nextActive ? undefined : lastWorkingDate);
       setIsAccountActive(nextActive);
       setLinkedUser((prev) => (prev ? { ...prev, isActive: nextActive } : prev));
-    } catch {
-      showToast("Could not update this employee's account status. Please try again.");
+    } catch (err) {
+      showToast(extractError(err, "Could not update this employee's account status. Please try again."));
     } finally {
       setIsTogglingAccount(false);
     }
@@ -736,6 +749,7 @@ export function EmployeeDetailModal({
         hrEmployeeId: hrIds[0] || null,
         workState: workState || null,
         weekOffLeaveBlockedDays,
+        ...(isExitStatus ? { lastWorkingDate: lastWorkingDate || null } : {}),
       });
       // Any manager beyond the first — a separate endpoint (employee_managers
       // is its own table), but saved together as one "Save Changes" action.
@@ -938,7 +952,18 @@ export function EmployeeDetailModal({
                   : 'This employee is deactivated. Their ESS login (if any) cannot log in. No data was deleted.'}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {canUpdate && isAccountActive && (
+                <Input
+                  id="employee-deactivate-date"
+                  label="Last working day"
+                  compact
+                  title="If you deactivate: salary is paid up to this date"
+                  type="date"
+                  value={lastWorkingDate}
+                  onChange={(event) => setLastWorkingDate(event.target.value)}
+                />
+              )}
               <Badge tone={isAccountActive ? 'success' : 'danger'}>
                 {isAccountActive ? 'Active' : 'Inactive'}
               </Badge>
@@ -1217,6 +1242,16 @@ export function EmployeeDetailModal({
                 disabled={!canUpdate}
                 options={STATUS_OPTIONS}
               />
+              {isExitStatus && (
+                <Input
+                  id="employee-last-working-date"
+                  label="Last working day (salary paid up to)"
+                  type="date"
+                  value={lastWorkingDate}
+                  onChange={(event) => setLastWorkingDate(event.target.value)}
+                  disabled={!canUpdate}
+                />
+              )}
               <Select
                 id="employee-work-state-edit"
                 label="Work State"

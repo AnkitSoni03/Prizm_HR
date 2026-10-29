@@ -466,6 +466,12 @@ async function decideResignation({ auth, id, action, comment, lastWorkingDate })
     });
   });
 
+  // Pay stops after the last working day — redo the months not locked yet
+  // and settle the running month if that day has already come.
+  if (action === 'accept' && finalLwd) {
+    require('../payroll/payrollEngine').afterEmployeePayChange(employee.id, finalLwd);
+  }
+
   // Tell the employee (dashboard + email), from the HR.
   const hr = await loadEmployee(auth.employeeId);
   const hrUser = auth.userId ? (await loadUsers([auth.userId]))[0] : null;

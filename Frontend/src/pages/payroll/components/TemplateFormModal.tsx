@@ -80,7 +80,7 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
   const [description, setDescription] = useState(template?.description ?? '');
   const [isActive, setIsActive] = useState(template?.isActive ?? true);
   const [rules, setRules] = useState<PayrollRules | null>(template?.rules ?? null);
-  const [previewCtc, setPreviewCtc] = useState(30000);
+  const [previewGross, setPreviewGross] = useState(30000);
   const [previewState, setPreviewState] = useState('');
   const [preview, setPreview] = useState<SalaryBreakdown | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -96,9 +96,9 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
   }, [template]);
 
   useEffect(() => {
-    if (!rules || !previewCtc) return undefined;
+    if (!rules || !previewGross) return undefined;
     const handle = setTimeout(() => {
-      previewSalary({ rules, ctcPeriod: 'monthly', ctcAmount: previewCtc, workState: previewState || null })
+      previewSalary({ rules, grossPeriod: 'monthly', grossAmount: previewGross, workState: previewState || null })
         .then((p) => {
           setPreview(p);
           setPreviewError(null);
@@ -106,7 +106,7 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
         .catch((err) => setPreviewError(apiErrorMessage(err, 'Could not calculate the preview.')));
     }, 350);
     return () => clearTimeout(handle);
-  }, [rules, previewCtc, previewState]);
+  }, [rules, previewGross, previewState]);
 
   if (!rules) {
     return (
@@ -176,11 +176,11 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
         <section>
           <h3 className="mb-2 text-sm font-semibold text-ink">Salary split</h3>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <NumberField label="Basic" suffix="% of CTC" value={rules.basicPercentOfCtc} disabled={ro} onChange={(n) => setRules({ ...rules, basicPercentOfCtc: n })} />
+            <NumberField label="Basic" suffix="% of Gross" value={rules.basicPercentOfGross} disabled={ro} onChange={(n) => setRules({ ...rules, basicPercentOfGross: n })} />
             <NumberField label="HRA" suffix="% of Basic" value={rules.hraPercentOfBasic} disabled={ro} onChange={(n) => setRules({ ...rules, hraPercentOfBasic: n })} />
           </div>
           <p className="mt-1 text-xs text-ink-muted">
-            Special allowance is the balancing figure: Gross (CTC − employer contributions) − Basic − HRA.
+            Special allowance is the balancing figure: Gross − Basic − HRA (− any allowances).
           </p>
         </section>
 
@@ -223,7 +223,7 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
 
         <section>
           <h3 className="mb-2 text-sm font-semibold text-ink">Employer contributions</h3>
-          <p className="mb-2 text-xs text-ink-muted">Paid by the company out of the CTC — they lower the gross salary, not the deductions.</p>
+          <p className="mb-2 text-xs text-ink-muted">Paid by the company on top of the gross salary — they don't reduce the employee's pay.</p>
           <div className="space-y-2">
             <RuleCard title="Employer PF (EPF + EPS)" description="% of Basic; EPS part goes to the pension" enabled={er.pf.enabled} disabled={ro} onToggle={(v) => setRule('employer', 'pf', { enabled: v })}>
               <NumberField label="Rate" suffix="%" value={er.pf.rate} disabled={ro} onChange={(n) => setRule('employer', 'pf', { rate: n })} />
@@ -268,7 +268,7 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
         <section className="rounded-xl bg-page p-3">
           <h3 className="mb-2 text-sm font-semibold text-ink">Preview</h3>
           <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <NumberField label="Monthly CTC" suffix="₹" value={previewCtc} onChange={setPreviewCtc} />
+            <NumberField label="Monthly gross" suffix="₹" value={previewGross} onChange={setPreviewGross} />
             <Select
               label="Work state (for PT)"
               value={previewState}
@@ -278,7 +278,7 @@ export function TemplateFormModal({ template, access, readOnly = false, onClose,
             />
           </div>
           {previewError && <p className="text-sm text-danger">{previewError}</p>}
-          {preview && !previewError && <SalaryBreakdownView breakdown={preview} monthlyCtc={preview.monthlyCtc} mode="full" />}
+          {preview && !previewError && <SalaryBreakdownView breakdown={preview} monthlyGross={preview.monthlyGross} mode="full" />}
         </section>
 
         {error && <p className="text-sm text-danger">{error}</p>}

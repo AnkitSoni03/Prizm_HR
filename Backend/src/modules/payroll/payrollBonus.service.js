@@ -6,7 +6,7 @@ const { HttpError } = require('../../utils/errors');
 const { runAsCompany } = require('../../config/tenant-context');
 const { employeeSearchWhere } = require('../../utils/employeeSearch');
 const { employeeScopeWhere, scopedEmployeeWhere } = require('./payrollAccess');
-const { BONUS_TYPES, normalizeRules, resolveCustomItems, computeSalary } = require('./payrollRules');
+const { BONUS_TYPES, BASES, normalizeRules, resolveCustomItems, computeSalary } = require('./payrollRules');
 const { memberItemIds } = require('./customItemMembers');
 const { monthBounds, queuePayrollRecalc, recalculatePayroll } = require('./payrollEngine');
 
@@ -74,7 +74,7 @@ function cleanInput(body, current = null) {
   if (calcType === 'percent') {
     percent = Math.round(Number(merged.percent) * 100) / 100;
     if (!Number.isFinite(percent) || percent <= 0 || percent > 1000) throw new HttpError(400, 'Enter a percentage between 0 and 1000');
-    if (!['basic', 'gross', 'ctc'].includes(merged.basis)) throw new HttpError(400, "The percentage must be of 'basic', 'gross' or 'ctc'");
+    if (!BASES.includes(merged.basis)) throw new HttpError(400, "The percentage must be of 'basic' or 'gross'");
     basis = merged.basis;
   } else {
     amount = Math.round(Number(merged.amount) * 100) / 100;
@@ -116,7 +116,7 @@ async function assertSalaryInMonth(employeeId, year, month) {
 
 // A % bonus's amount for each employee, from their salary in that month
 // (the latest one when the salary changed mid-month): the full monthly
-// Basic / Gross / CTC, never cut for LOP. The month's payroll keeps it in
+// Basic / Gross, never cut for LOP. The month's payroll keeps it in
 // step later (payrollEngine.js syncBonusAmounts).
 async function resolvePercentAmounts({ groupId, employeeIds, year, month, percent, basis }) {
   const { start, end } = monthBounds(year, month);
@@ -139,13 +139,13 @@ async function resolvePercentAmounts({ groupId, employeeIds, year, month, percen
   for (const [employeeId, a] of latest) {
     const rules = normalizeRules(a.template ? a.template.rules : {});
     const salary = computeSalary({
-      monthlyCtc: Number(a.monthlyCtc),
+      monthlyGross: Number(a.monthlyGross),
       rules,
       customItems: resolveCustomItems(rules, items.filter((i) => (members.get(employeeId) || new Set()).has(String(i.id)))),
       deductionsEnabled: a.deductionsEnabled,
       disabledItems: a.disabledItems || [],
     });
-    const base = basis === 'ctc' ? salary.monthlyCtc : basis === 'basic' ? salary.earnings.find((e) => e.key === 'basic').full : salary.full.grossSalary;
+    const base = basis === 'basic' ? salary.earnings.find((e) => e.key === 'basic').full : salary.full.grossSalary;
     out.set(employeeId, Math.round(base * percent) / 100);
   }
   return out;

@@ -35,7 +35,7 @@ module.exports = (sequelize, DataTypes) => {
           return raw === null || raw === undefined ? raw : Number(raw);
         },
       },
-      basis: { type: DataTypes.ENUM('basic', 'gross', 'ctc'), allowNull: true },
+      basis: { type: DataTypes.ENUM('basic', 'gross'), allowNull: true },
       amount: {
         type: DataTypes.DECIMAL(14, 2),
         allowNull: false,

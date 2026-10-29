@@ -17,7 +17,7 @@ export interface RateRule {
 }
 
 export interface PayrollRules {
-  basicPercentOfCtc: number;
+  basicPercentOfGross: number;
   hraPercentOfBasic: number;
   sandwichRule: boolean;
   deductions: {
@@ -94,14 +94,14 @@ export interface PayrollTemplate {
   activeEmployees: number;
 }
 
-// 'earning' = a recurring allowance inside CTC (taken out of the Special allowance).
+// 'earning' = a recurring allowance inside gross (taken out of the Special allowance).
 export type CustomItemKind = 'deduction' | 'employer_contribution' | 'earning';
 export interface PayrollCustomItem extends Partial<PayrollOwner> {
   id: string;
   name: string;
   kind: CustomItemKind;
   calcType: 'percent' | 'fixed';
-  basis: 'basic' | 'gross' | 'ctc' | null;
+  basis: 'basic' | 'gross' | null;
   value: string | number;
   // null = every month; ['2026-10', '2026-12'] = only those months.
   months?: string[] | null;
@@ -136,11 +136,12 @@ export interface BonusLine extends SalaryLine {
 }
 
 export interface SalaryBreakdown {
-  monthlyCtc: number;
+  monthlyGross: number;
   // Preview with an employee only: months (from now) whose in-hand differs
   // from the regular month because of a month-limited item or a bonus.
   months?: { month: string; extras: string[]; grossSalary: number; bonusTotal: number; totalDeductions: number; inHand: number }[];
-  full: { grossSalary: number; totalDeductions: number; totalEmployer: number; inHand: number };
+  // totalCost = gross + employer contributions (the company's monthly cost).
+  full: { grossSalary: number; totalDeductions: number; totalEmployer: number; inHand: number; totalCost?: number };
   actual: {
     grossSalary: number;
     bonusTotal?: number;
@@ -149,6 +150,7 @@ export interface SalaryBreakdown {
     totalDeductions: number;
     totalEmployer: number;
     inHand: number;
+    totalCost?: number;
   };
   earnings: SalaryLine[];
   bonuses?: BonusLine[];
@@ -159,7 +161,7 @@ export interface SalaryBreakdown {
     full: { employeeEpf: number; employerEpf: number; eps: number };
     actual: { employeeEpf: number; employerEpf: number; eps: number };
   } | null;
-  wageRule: { basic: number; ctc: number; percent: number; compliant: boolean };
+  wageRule: { basic: number; gross: number; percent: number; compliant: boolean };
   warnings: string[];
 }
 
@@ -181,9 +183,9 @@ export interface SalaryAssignment {
   employeeId: string;
   companyId: string;
   templateId: string;
-  ctcPeriod: 'monthly' | 'yearly';
-  ctcAmount: string | number;
-  monthlyCtc: string | number;
+  grossPeriod: 'monthly' | 'yearly';
+  grossAmount: string | number;
+  monthlyGross: string | number;
   effectiveFrom: string;
   effectiveTo: string | null;
   deductionsEnabled: boolean;
@@ -199,7 +201,7 @@ export interface SalaryAssignment {
   template?: { id: string; name: string } | null;
   // List only: what the employee gets on top of the template.
   extras?: {
-    items: { id: string; name: string; kind: CustomItemKind; calcType: 'percent' | 'fixed'; basis: 'basic' | 'gross' | 'ctc' | null; value: number; months: string[] | null }[];
+    items: { id: string; name: string; kind: CustomItemKind; calcType: 'percent' | 'fixed'; basis: 'basic' | 'gross' | null; value: number; months: string[] | null }[];
     bonuses: { id: string; type: string; title: string | null; calcType: 'fixed' | 'percent'; percent: number | null; basis: string | null; amount: number; periodYear: number; periodMonth: number }[];
   };
 }
@@ -208,7 +210,7 @@ export interface PayrollDetails {
   companyName?: string | null;
   templateName?: string;
   deductionsEnabled?: boolean;
-  salaryParts?: { from: string; to: string; monthlyCtc: number }[];
+  salaryParts?: { from: string; to: string; monthlyGross: number }[];
   earnings?: SalaryLine[];
   bonuses?: BonusLine[];
   deductions: SalaryLine[];
@@ -220,7 +222,10 @@ export interface PayrollDetails {
   warnings?: string[];
   days: Record<string, number> | null;
   lopDates: { date: string; lop: number; reason: string | null }[];
-  carries: { id: string; sourceYear: number; sourceMonth: number; amount: number }[];
+  // kind 'shortfall' = what a month couldn't recover (in-hand stops at zero).
+  carries: { id: string; kind?: 'correction' | 'shortfall'; sourceYear: number; sourceMonth: number; amount: number }[];
+  // Deductions this month couldn't take — recovered from the next salary.
+  shortfall?: number;
 }
 
 export interface EmployeePayroll {
@@ -231,7 +236,7 @@ export interface EmployeePayroll {
   monthDays: number;
   paidDays: number;
   lopDays: number;
-  monthlyCtc?: number;
+  monthlyGross?: number;
   grossFull?: number;
   grossEarned?: number;
   totalDeductions: number;
@@ -244,6 +249,12 @@ export interface EmployeePayroll {
   revisedAt: string | null;
   generatedAt: string;
   payslipReleased: boolean;
+  // Final settlement rows only: arrears (+) / recoveries (−) still waiting with
+  // no later month to take them — unlock the month to settle them in it.
+  pendingDues?: number;
+  // Locked = salary paid: later changes go to arrears in the next month
+  // instead of changing this one.
+  lockedAt?: string | null;
   // Final settlement: the salary ends inside this month (paid up to finalDate).
   isFinal?: boolean;
   finalDate?: string | null;
@@ -325,8 +336,8 @@ export async function previewSalary(body: {
   templateId?: string;
   // Include this employee's own every-month extra items.
   employeeId?: string;
-  ctcPeriod: 'monthly' | 'yearly';
-  ctcAmount: number;
+  grossPeriod: 'monthly' | 'yearly';
+  grossAmount: number;
   deductionsEnabled?: boolean;
   disabledItems?: string[];
   workState?: string | null;
@@ -375,11 +386,11 @@ export interface PayrollBonus {
   periodMonth: number;
   type: BonusType;
   title: string | null;
-  // 'percent' = percent % of the month's full monthly Basic / Gross / CTC;
+  // 'percent' = percent % of the month's full monthly Basic / Gross;
   // amount is then the worked-out figure for this employee.
   calcType: 'fixed' | 'percent';
   percent: number | null;
-  basis: 'basic' | 'gross' | 'ctc' | null;
+  basis: 'basic' | 'gross' | null;
   amount: number;
   taxable: boolean;
   note: string | null;
@@ -400,7 +411,7 @@ export interface BonusInput {
   calcType: 'fixed' | 'percent';
   amount?: number;
   percent?: number;
-  basis?: 'basic' | 'gross' | 'ctc';
+  basis?: 'basic' | 'gross';
   taxable: boolean;
   note?: string | null;
 }
@@ -434,7 +445,7 @@ export async function deleteBonus(id: string) {
 
 // ---- Salary assignments ----
 export interface GroupEmployee extends EmployeeRef {
-  salaryAssignments: { id: string; templateId: string; monthlyCtc: string; effectiveFrom: string }[];
+  salaryAssignments: { id: string; templateId: string; monthlyGross: string; effectiveFrom: string }[];
   // Current salary owned above the caller's level → can't be assigned until
   // released (requestSalaryRelease).
   ownerLevel?: PayrollLevel | null;
@@ -465,8 +476,8 @@ export async function listEmployeeSalaryHistory(employeeId: string) {
 export interface AssignmentInput {
   employeeId?: string;
   templateId: string;
-  ctcPeriod: 'monthly' | 'yearly';
-  ctcAmount: number;
+  grossPeriod: 'monthly' | 'yearly';
+  grossAmount: number;
   effectiveFrom?: string;
   deductionsEnabled: boolean;
   disabledItems: string[];
@@ -483,10 +494,10 @@ export interface SkippedEmployee {
   reason: string;
 }
 // Same template / start date / switches for many employees, each with their
-// own CTC. Anyone who can't take it (no CTC, start date before their current
+// own gross. Anyone who can't take it (no gross, start date before their current
 // salary's, …) is skipped and listed; the rest are saved.
 export async function bulkAssignSalary(
-  body: Omit<AssignmentInput, 'employeeId' | 'ctcAmount'> & { items: { employeeId: string; ctcAmount: number }[] }
+  body: Omit<AssignmentInput, 'employeeId' | 'grossAmount'> & { items: { employeeId: string; grossAmount: number }[] }
 ) {
   const { data } = await apiClient.post<{ data: SalaryAssignment[]; skipped: SkippedEmployee[] }>('/payroll/assignments/bulk', body);
   return data;
@@ -522,7 +533,7 @@ export interface ReleaseRequest {
   toLevel: 'company' | 'brand';
   canDecide: boolean;
   employee?: EmployeeRef;
-  assignment?: { id: string; monthlyCtc: string; effectiveFrom: string; template?: { id: string; name: string } | null } | null;
+  assignment?: { id: string; monthlyGross: string; effectiveFrom: string; template?: { id: string; name: string } | null } | null;
   toCompany?: { id: string; name: string } | null;
   toBrand?: { id: string; name: string } | null;
   requestedBy?: { id: string; email: string } | null;
@@ -581,7 +592,7 @@ export async function recalculatePayroll(id: string) {
   return data.data;
 }
 export async function generatePayrollMonth(year: number, month: number) {
-  const { data } = await apiClient.post<{ data: { created: number } }>('/payroll/months/generate', { year, month });
+  const { data } = await apiClient.post<{ data: { created: number; refreshed?: number } }>('/payroll/months/generate', { year, month });
   return data.data;
 }
 
@@ -599,9 +610,22 @@ export async function sharePayrolls(body: {
   return data.data;
 }
 
+// ---- Locking months once the salary is paid (managers) ----
+export async function lockPayrolls(body: {
+  ids?: string[];
+  year?: number;
+  month?: number;
+  companyId?: string;
+  brandId?: string;
+  lock: boolean;
+}) {
+  const { data } = await apiClient.post<{ data: { updated: number } }>('/payroll/months/lock', body);
+  return data.data;
+}
+
 // ---- Employee's own ----
 export interface MySalary {
-  current: { monthlyCtc: number; ctcPeriod: 'monthly' | 'yearly'; ctcAmount: number; effectiveFrom: string; deductionsEnabled: boolean } | null;
+  current: { monthlyGross: number; grossPeriod: 'monthly' | 'yearly'; grossAmount: number; effectiveFrom: string; deductionsEnabled: boolean } | null;
   months: EmployeePayroll[];
 }
 export async function getMySalary() {

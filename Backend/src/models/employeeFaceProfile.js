@@ -29,6 +29,10 @@ module.exports = (sequelize, DataTypes) => {
       },
       registeredAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
       lastMatchedAt: { type: DataTypes.DATE, allowNull: true },
+      // Admin-controlled: a registered employee can only replace their face
+      // while this is on (turned off again once they re-register).
+      retakeAllowed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      retakeRequestedAt: { type: DataTypes.DATE, allowNull: true },
     },
     {
       sequelize,

@@ -8,24 +8,24 @@ const { HttpError } = require('../../utils/errors');
 // its own policy. Defaults are current Indian law (rates as of 2026); they
 // are only a starting point for a new template.
 //
-// CTC → in-hand, the same way the reference sheet works:
-//   Basic   = basicPercentOfCtc % of CTC
+// Everything starts from the employee's monthly GROSS salary:
+//   Basic   = basicPercentOfGross % of Gross
 //   HRA     = hraPercentOfBasic % of Basic
-//   Employer contributions (inside CTC, never paid as salary) = employer PF,
-//            EDLI, PF admin, gratuity, employer ESI/LWF, custom ones
-//   Allowances = the Group's recurring 'earning' items (conveyance, …)
-//   Gross   = CTC − employer contributions
+//   Allowances = the recurring 'earning' items chosen for the employee
 //   Special allowance = Gross − Basic − HRA − allowances (balancing figure)
 //   In-hand = Gross − employee deductions (PF, ESI, PT, LWF, TDS, custom)
-//             + one-time bonuses of the month (outside CTC, never prorated)
+//             + one-time bonuses of the month (never prorated)
+//   Employer contributions (employer PF, EDLI, PF admin, gratuity, employer
+//            ESI/LWF, custom ones) are the company's cost ON TOP of gross,
+//            never taken from it: total cost = Gross + employer contributions.
 //
 // Each deduction/contribution has its own `enabled` toggle here, and every
 // employee's salary assignment can switch any of them off again (or all of
-// them at once — then in-hand = CTC).
+// them at once — then in-hand = Gross).
 // ---------------------------------------------------------------------------
 
 const DEFAULT_RULES = {
-  basicPercentOfCtc: 50,
+  basicPercentOfGross: 50,
   hraPercentOfBasic: 40,
   // Holiday / week-off between two leaves also counts as leave
   // (modules/payroll/sandwichRule.js).
@@ -81,7 +81,8 @@ const BONUS_TYPES = [
   { key: 'reimbursement', label: 'Reimbursement', taxable: false },
   { key: 'other', label: 'Other', taxable: true },
 ];
-const BASIS_LABEL = { basic: 'Basic', gross: 'Gross', ctc: 'CTC' };
+const BASIS_LABEL = { basic: 'Basic', gross: 'Gross' };
+const BASES = Object.keys(BASIS_LABEL);
 
 // Monthly Professional Tax by gross salary. States not listed levy no PT
 // (Delhi, Haryana, Uttar Pradesh, Rajasthan, …). Simplified to a flat monthly
@@ -172,8 +173,10 @@ const RATE_FIELDS = { rate: 100, epsRate: 100 };
 
 function normalizeRules(input) {
   const src = isObj(input) ? input : {};
+  // basicPercentOfCtc: the key before salaries became gross-based.
+  const basicPercent = src.basicPercentOfGross ?? src.basicPercentOfCtc ?? DEFAULT_RULES.basicPercentOfGross;
   const rules = {
-    basicPercentOfCtc: num(src.basicPercentOfCtc ?? DEFAULT_RULES.basicPercentOfCtc, 'Basic % of CTC', { min: 1, max: 100 }),
+    basicPercentOfGross: num(basicPercent, 'Basic % of Gross', { min: 1, max: 100 }),
     hraPercentOfBasic: num(src.hraPercentOfBasic ?? DEFAULT_RULES.hraPercentOfBasic, 'HRA % of Basic', { max: 100 }),
     sandwichRule: src.sandwichRule === true,
     deductions: mergeSection(DEFAULT_RULES.deductions, src.deductions, 'Deduction', RATE_FIELDS),
@@ -182,6 +185,9 @@ function normalizeRules(input) {
   };
   if (!['state', 'fixed'].includes(rules.deductions.pt.mode)) {
     throw new HttpError(400, "Professional Tax mode must be 'state' or 'fixed'");
+  }
+  if (rules.basicPercentOfGross * (1 + rules.hraPercentOfBasic / 100) > 100) {
+    throw new HttpError(400, 'Basic + HRA would be more than the gross salary — lower the Basic or HRA %');
   }
   if (rules.employer.pf.epsRate > rules.employer.pf.rate) {
     throw new HttpError(400, 'Employer PF pension (EPS) % cannot be more than the employer PF %');
@@ -236,15 +242,15 @@ function annualTaxNewRegime(annualGross) {
 // ---------------------------------------------------------------------------
 // The calculation. Pure — every DB-derived input is passed in.
 //
-//   monthlyCtc        salary_assignments.monthly_ctc
+//   monthlyGross      salary_assignments.monthly_gross
 //   rules             normalized template rules
-//   customItems       resolveCustomItems(rules, groupItems)
+//   customItems       resolveCustomItems(rules, items) — this employee's
 //   deductionsEnabled / disabledItems — the employee's own switches
 //   workState         employees.work_state (PT)
 //   paidDays / monthDays — attendance result; 1/1 for the full-month preview
 //   tds               { ytdGross, ytdTds, remainingMonths } — this financial
 //                     year's earlier months; omit for the preview
-//   earnedOverride    { basic, hra, gross, ctc, allowances: { [key]: amt } }
+//   earnedOverride    { basic, hra, gross, allowances: { [key]: amt } }
 //                     — this month's earned amounts when they don't come
 //                     from one salary alone (a mid-month revision:
 //                     payrollEngine.js adds up each part); deductions are
@@ -252,12 +258,12 @@ function annualTaxNewRegime(annualGross) {
 //   bonuses           [{ id, type, title, amount, taxable, calcType,
 //                     percent, basis }] — the month's one-time extras
 //                     (payroll_bonuses); a 'percent' one is worked out on the
-//                     full monthly Basic / Gross / CTC. Paid in full on top
-//                     of the salary: no LOP cut, no PF/ESI/PT; taxable ones
-//                     count for TDS, taxed in the month they're paid.
+//                     full monthly Basic / Gross. Paid in full on top of the
+//                     salary: no LOP cut, no PF/ESI/PT; taxable ones count
+//                     for TDS, taxed in the month they're paid.
 // ---------------------------------------------------------------------------
 function computeSalary({
-  monthlyCtc,
+  monthlyGross,
   rules,
   customItems = [],
   deductionsEnabled = true,
@@ -269,7 +275,7 @@ function computeSalary({
   earnedOverride = null,
   bonuses = [],
 }) {
-  const ctc = rupee(monthlyCtc);
+  let gross = rupee(monthlyGross);
   const disabled = new Set(disabledItems || []);
   const on = (key, rule) => deductionsEnabled && rule && rule.enabled && !disabled.has(key);
   // Extra items (allowances, deductions, employer contributions) are given
@@ -278,54 +284,25 @@ function computeSalary({
   const D = rules.deductions;
   const E = rules.employer;
   const capped = (base, rule) => (rule.applyCeiling === false || rule.ceiling === undefined ? base : Math.min(base, rule.ceiling));
+  const pct = (base, rate) => (base * rate) / 100;
   const warnings = [];
 
   // ---- Full-month structure ------------------------------------------------
-  const basic = rupee((ctc * rules.basicPercentOfCtc) / 100);
-  const hra = rupee((basic * rules.hraPercentOfBasic) / 100);
-
+  const basic = rupee(pct(gross, rules.basicPercentOfGross));
+  const hra = rupee(pct(basic, rules.hraPercentOfBasic));
   const activeCustom = customItems.filter((item) => item.kind !== 'earning' && item.enabled);
   const activeEarnings = customItems.filter((item) => item.kind === 'earning' && item.enabled);
-  const fixedEmployer = [];
-  if (on('employer_pf', E.pf)) fixedEmployer.push({ key: 'employer_pf', amount: rupee((capped(basic, E.pf) * E.pf.rate) / 100) });
-  if (on('edli', E.edli)) fixedEmployer.push({ key: 'edli', amount: rupee((Math.min(basic, E.edli.ceiling) * E.edli.rate) / 100) });
-  if (on('pf_admin', E.pfAdmin)) fixedEmployer.push({ key: 'pf_admin', amount: rupee((Math.min(basic, E.pfAdmin.ceiling) * E.pfAdmin.rate) / 100) });
-  if (on('gratuity', E.gratuity)) fixedEmployer.push({ key: 'gratuity', amount: rupee((basic * E.gratuity.rate) / 100) });
-  if (on('employer_lwf', E.lwf)) fixedEmployer.push({ key: 'employer_lwf', amount: rupee(E.lwf.amount) });
-  let grossRate = 0; // employer items charged as a % of gross itself
-  for (const item of activeCustom.filter((i) => i.kind === 'employer_contribution')) {
-    if (item.calcType === 'fixed') fixedEmployer.push({ key: item.key, amount: rupee(item.value) });
-    else if (item.basis === 'basic') fixedEmployer.push({ key: item.key, amount: rupee((basic * item.value) / 100) });
-    else if (item.basis === 'ctc') fixedEmployer.push({ key: item.key, amount: rupee((ctc * item.value) / 100) });
-    else grossRate += item.value;
-  }
-  const fixedTotal = fixedEmployer.reduce((s, i) => s + i.amount, 0);
-
-  // Gross depends on employer ESI / gross-% items, which depend on gross —
-  // solved directly: gross = (CTC − fixed) / (1 + rate%). ESI applies only
-  // while the resulting gross is within its limit.
-  let gross = (ctc - fixedTotal) / (1 + grossRate / 100);
-  let employerEsiApplies = false;
-  if (on('employer_esi', E.esi)) {
-    const withEsi = (ctc - fixedTotal) / (1 + (grossRate + E.esi.rate) / 100);
-    if (withEsi <= E.esi.grossLimit) {
-      gross = withEsi;
-      employerEsiApplies = true;
-    }
-  }
-  gross = rupee(gross);
   const allowances = activeEarnings.map((item) => ({
     item,
-    full: item.calcType === 'fixed' ? rupee(item.value) : rupee((({ basic, gross, ctc }[item.basis] || 0) * item.value) / 100),
+    full: item.calcType === 'fixed' ? rupee(item.value) : rupee(pct(({ basic, gross }[item.basis] || 0), item.value)),
   }));
   const allowanceTotal = allowances.reduce((s, a) => s + a.full, 0);
   let special = gross - basic - hra - allowanceTotal;
-  if (special < 0) {
-    warnings.push(
-      allowances.length > 0
-        ? 'Basic + HRA + allowances are more than the gross salary — lower the Basic / HRA % or the allowances'
-        : 'Basic + HRA are more than the gross salary — lower the Basic or HRA % in the template'
-    );
+  // Assigning a salary / an allowance is refused when this happens
+  // (salaryFit.js); an older salary still computes, with a warning.
+  const overflow = special < 0;
+  if (overflow) {
+    warnings.push('Basic + HRA + allowances are more than the gross salary — lower the allowances or the Basic / HRA %');
     special = 0;
     gross = basic + hra + allowanceTotal;
   }
@@ -335,7 +312,6 @@ function computeSalary({
   const basicE = earnedOverride ? rupee(earnedOverride.basic) : rupee(basic * factor);
   const hraE = earnedOverride ? rupee(earnedOverride.hra) : rupee(hra * factor);
   const grossE = earnedOverride ? rupee(earnedOverride.gross) : rupee(gross * factor);
-  const ctcE = earnedOverride ? rupee(earnedOverride.ctc) : rupee(ctc * factor);
   const allowanceRows = allowances.map(({ item, full }) => ({
     key: item.key,
     name: item.name,
@@ -348,14 +324,14 @@ function computeSalary({
   const worked = grossE > 0;
 
   const earnings = [
-    { key: 'basic', name: 'Basic salary', rule: `${rules.basicPercentOfCtc}% of CTC`, full: basic, amount: basicE },
+    { key: 'basic', name: 'Basic salary', rule: `${rules.basicPercentOfGross}% of Gross`, full: basic, amount: basicE },
     { key: 'hra', name: 'House Rent Allowance', rule: `${rules.hraPercentOfBasic}% of Basic`, full: hra, amount: hraE },
     ...allowanceRows,
     { key: 'special', name: 'Special allowance', rule: 'Balancing figure', full: special, amount: specialE },
   ];
 
   const typeLabel = (type) => (BONUS_TYPES.find((t) => t.key === type) || { label: 'Extra pay' }).label;
-  const bonusBase = { basic, gross, ctc };
+  const bonusBase = { basic, gross };
   const bonusRows = (bonuses || [])
     .map((b) => {
       const isPercent = b.calcType === 'percent';
@@ -377,19 +353,31 @@ function computeSalary({
   const bonusTotal = Math.round(bonusRows.reduce((s, b) => s + b.amount, 0) * 100) / 100;
   const taxableBonus = Math.round(bonusRows.filter((b) => b.taxable).reduce((s, b) => s + b.amount, 0) * 100) / 100;
 
+  // A custom item worked out on Basic / Gross, or a fixed monthly amount
+  // (taken only in a month with some pay).
+  const customRow = (item) => {
+    const base = { basic: [basic, basicE], gross: [gross, grossE] }[item.basis] || [0, 0];
+    return item.calcType === 'fixed'
+      ? { rule: 'Fixed monthly', full: item.value, amount: worked ? item.value : 0 }
+      : { rule: `${item.value}% of ${BASIS_LABEL[item.basis] || 'Basic'}`, full: pct(base[0], item.value), amount: pct(base[1], item.value) };
+  };
+
   const deductions = [];
   const addDeduction = (key, name, rule, full, amount) => deductions.push({ key, name, rule, full: rupee(full), amount: rupee(amount) });
 
   if (on('pf', D.pf)) {
     addDeduction('pf', 'Employee PF', `${D.pf.rate}% of ${D.pf.applyCeiling ? `Basic (max ₹${D.pf.ceiling})` : 'Basic'}`,
-      (capped(basic, D.pf) * D.pf.rate) / 100, (capped(basicE, D.pf) * D.pf.rate) / 100);
+      pct(capped(basic, D.pf), D.pf.rate), pct(capped(basicE, D.pf), D.pf.rate));
   }
   if (on('esi', D.esi) && gross <= D.esi.grossLimit) {
     // ESI contributions round UP to the next rupee.
     deductions.push({
       key: 'esi', name: 'Employee ESI', rule: `${D.esi.rate}% of Gross (gross ≤ ₹${D.esi.grossLimit})`,
-      full: Math.ceil((gross * D.esi.rate) / 100), amount: Math.ceil((grossE * D.esi.rate) / 100),
+      full: Math.ceil(pct(gross, D.esi.rate)), amount: Math.ceil(pct(grossE, D.esi.rate)),
     });
+  }
+  if (on('pt', D.pt) && D.pt.mode === 'state' && !workState) {
+    warnings.push('Work state is not set for this employee — Professional Tax is not deducted');
   }
   if (on('pt', D.pt)) {
     const full = ptForGross(D.pt, workState, gross);
@@ -400,10 +388,8 @@ function computeSalary({
   }
   if (on('lwf', D.lwf) && D.lwf.amount > 0) addDeduction('lwf', 'Labour Welfare Fund', 'Fixed monthly', D.lwf.amount, worked ? D.lwf.amount : 0);
   for (const item of activeCustom.filter((i) => i.kind === 'deduction')) {
-    const base = { basic: [basic, basicE], gross: [gross, grossE], ctc: [ctc, ctcE] }[item.basis] || [0, 0];
-    if (item.calcType === 'fixed') addDeduction(item.key, item.name, 'Fixed monthly', item.value, worked ? item.value : 0);
-    else addDeduction(item.key, item.name, `${item.value}% of ${item.basis === 'ctc' ? 'CTC' : item.basis === 'gross' ? 'Gross' : 'Basic'}`,
-      (base[0] * item.value) / 100, (base[1] * item.value) / 100);
+    const row = customRow(item);
+    addDeduction(item.key, item.name, row.rule, row.full, row.amount);
   }
   if (on('tds', D.tds)) {
     // Annualised projection: this FY's earlier months + this month + the
@@ -419,27 +405,26 @@ function computeSalary({
     if (fullMonthly > 0 || amount > 0) addDeduction('tds', 'Income Tax (TDS)', 'New tax regime', fullMonthly, amount);
   }
 
+  // Employer contributions — the company's cost on top of gross.
   const employer = [];
   const addEmployer = (key, name, rule, full, amount) => employer.push({ key, name, rule, full: rupee(full), amount: rupee(amount) });
   if (on('employer_pf', E.pf)) {
     addEmployer('employer_pf', 'Employer PF (EPS + EPF)', `${E.pf.rate}% of ${E.pf.applyCeiling ? `Basic (max ₹${E.pf.ceiling})` : 'Basic'}`,
-      (capped(basic, E.pf) * E.pf.rate) / 100, (capped(basicE, E.pf) * E.pf.rate) / 100);
+      pct(capped(basic, E.pf), E.pf.rate), pct(capped(basicE, E.pf), E.pf.rate));
   }
-  if (on('edli', E.edli)) addEmployer('edli', 'EDLI', `${E.edli.rate}% of Basic (max ₹${E.edli.ceiling})`, (Math.min(basic, E.edli.ceiling) * E.edli.rate) / 100, (Math.min(basicE, E.edli.ceiling) * E.edli.rate) / 100);
-  if (on('pf_admin', E.pfAdmin)) addEmployer('pf_admin', 'EPF admin charges', `${E.pfAdmin.rate}% of Basic (max ₹${E.pfAdmin.ceiling})`, (Math.min(basic, E.pfAdmin.ceiling) * E.pfAdmin.rate) / 100, (Math.min(basicE, E.pfAdmin.ceiling) * E.pfAdmin.rate) / 100);
-  if (on('gratuity', E.gratuity)) addEmployer('gratuity', 'Gratuity provision', `${E.gratuity.rate}% of Basic`, (basic * E.gratuity.rate) / 100, (basicE * E.gratuity.rate) / 100);
-  if (employerEsiApplies) {
+  if (on('edli', E.edli)) addEmployer('edli', 'EDLI', `${E.edli.rate}% of Basic (max ₹${E.edli.ceiling})`, pct(Math.min(basic, E.edli.ceiling), E.edli.rate), pct(Math.min(basicE, E.edli.ceiling), E.edli.rate));
+  if (on('pf_admin', E.pfAdmin)) addEmployer('pf_admin', 'EPF admin charges', `${E.pfAdmin.rate}% of Basic (max ₹${E.pfAdmin.ceiling})`, pct(Math.min(basic, E.pfAdmin.ceiling), E.pfAdmin.rate), pct(Math.min(basicE, E.pfAdmin.ceiling), E.pfAdmin.rate));
+  if (on('gratuity', E.gratuity)) addEmployer('gratuity', 'Gratuity provision', `${E.gratuity.rate}% of Basic`, pct(basic, E.gratuity.rate), pct(basicE, E.gratuity.rate));
+  if (on('employer_esi', E.esi) && gross <= E.esi.grossLimit) {
     employer.push({
       key: 'employer_esi', name: 'Employer ESI', rule: `${E.esi.rate}% of Gross (gross ≤ ₹${E.esi.grossLimit})`,
-      full: Math.ceil((gross * E.esi.rate) / 100), amount: Math.ceil((grossE * E.esi.rate) / 100),
+      full: Math.ceil(pct(gross, E.esi.rate)), amount: Math.ceil(pct(grossE, E.esi.rate)),
     });
   }
   if (on('employer_lwf', E.lwf) && E.lwf.amount > 0) addEmployer('employer_lwf', 'Employer LWF', 'Fixed monthly', E.lwf.amount, worked ? E.lwf.amount : 0);
   for (const item of activeCustom.filter((i) => i.kind === 'employer_contribution')) {
-    const base = { basic: [basic, basicE], gross: [gross, grossE], ctc: [ctc, ctcE] }[item.basis] || [0, 0];
-    if (item.calcType === 'fixed') addEmployer(item.key, item.name, 'Fixed monthly', item.value, worked ? item.value : 0);
-    else addEmployer(item.key, item.name, `${item.value}% of ${item.basis === 'ctc' ? 'CTC' : item.basis === 'gross' ? 'Gross' : 'Basic'}`,
-      (base[0] * item.value) / 100, (base[1] * item.value) / 100);
+    const row = customRow(item);
+    addEmployer(item.key, item.name, row.rule, row.full, row.amount);
   }
 
   const sum = (rows, field) => rows.reduce((s, r) => s + r[field], 0);
@@ -453,7 +438,7 @@ function computeSalary({
   const empPf = deductions.find((d) => d.key === 'pf');
   const erPf = employer.find((d) => d.key === 'employer_pf');
   if (empPf || erPf) {
-    const epsOf = (b) => rupee((Math.min(b, E.pf.ceiling) * E.pf.epsRate) / 100);
+    const epsOf = (b) => rupee(pct(Math.min(b, E.pf.ceiling), E.pf.epsRate));
     const split = (erAmount, b) => {
       const eps = erAmount ? Math.min(erAmount, epsOf(b)) : 0;
       return { eps, employerEpf: (erAmount || 0) - eps };
@@ -467,17 +452,18 @@ function computeSalary({
     };
   }
 
-  // Code on Wages: wages (Basic + DA) should be at least 50% of CTC.
-  const wageRule = { basic, ctc, percent: ctc > 0 ? Math.round((basic / ctc) * 1000) / 10 : 0, compliant: ctc <= 0 || basic * 2 >= ctc };
+  // Code on Wages: wages (Basic + DA) should be at least 50% of the pay.
+  const wageRule = { basic, gross, percent: gross > 0 ? Math.round((basic / gross) * 1000) / 10 : 0, compliant: gross <= 0 || basic * 2 >= gross };
 
   return {
-    monthlyCtc: ctc,
+    monthlyGross: gross,
     factor,
     full: {
       grossSalary: gross,
       totalDeductions: totalDeductionsFull,
       totalEmployer: totalEmployerFull,
       inHand: gross - totalDeductionsFull,
+      totalCost: gross + totalEmployerFull,
     },
     actual: {
       grossSalary: grossE,
@@ -487,6 +473,7 @@ function computeSalary({
       totalDeductions,
       totalEmployer,
       inHand: grossE + bonusTotal - totalDeductions,
+      totalCost: grossE + bonusTotal + totalEmployer,
     },
     earnings,
     bonuses: bonusRows,
@@ -494,6 +481,7 @@ function computeSalary({
     employer,
     pfSplit,
     wageRule,
+    overflow,
     warnings,
   };
 }
@@ -502,6 +490,7 @@ module.exports = {
   DEFAULT_RULES,
   BUILT_IN_ITEMS,
   BONUS_TYPES,
+  BASES,
   PT_SLABS,
   TDS_NEW_REGIME,
   customItemKey,

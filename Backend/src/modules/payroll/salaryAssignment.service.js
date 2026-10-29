@@ -20,6 +20,7 @@ const {
   callerOwnerFor,
   canChangeSalary,
 } = require('./payrollAccess');
+const { assertSalaryFits } = require('./salaryFit');
 const { catchUpEmployee, queuePayrollRecalc, recalculatePayroll, previousMonth, monthBounds, generateEmployeeMonth, isMonthComplete } = require('./payrollEngine');
 
 // Every query here runs with the tenant hook off — a Group-level caller
@@ -83,7 +84,7 @@ async function listGroupEmployees(access, { companyId, brandId, search, limit = 
           as: 'salaryAssignments',
           where: { status: 'active' },
           required: false,
-          attributes: ['id', 'templateId', 'monthlyCtc', 'effectiveFrom', 'ownerCompanyId', 'ownerBrandId'],
+          attributes: ['id', 'templateId', 'monthlyGross', 'effectiveFrom', 'ownerCompanyId', 'ownerBrandId'],
         },
       ],
       order: [['name', 'ASC']],
@@ -235,13 +236,13 @@ async function cleanInput(access, body, { partial = false } = {}) {
     if (!template.isActive) throw new HttpError(400, 'That salary template is switched off');
     out.templateId = template.id;
   }
-  if (!partial || body.ctcAmount !== undefined || body.ctcPeriod !== undefined) {
-    const ctcPeriod = body.ctcPeriod === 'yearly' ? 'yearly' : 'monthly';
-    const ctcAmount = Number(body.ctcAmount);
-    if (!Number.isFinite(ctcAmount) || ctcAmount <= 0) throw new HttpError(400, 'Enter the CTC amount');
-    out.ctcPeriod = ctcPeriod;
-    out.ctcAmount = ctcAmount;
-    out.monthlyCtc = Math.round((ctcPeriod === 'yearly' ? ctcAmount / 12 : ctcAmount) * 100) / 100;
+  if (!partial || body.grossAmount !== undefined || body.grossPeriod !== undefined) {
+    const grossPeriod = body.grossPeriod === 'yearly' ? 'yearly' : 'monthly';
+    const grossAmount = Number(body.grossAmount);
+    if (!Number.isFinite(grossAmount) || grossAmount <= 0) throw new HttpError(400, 'Enter the gross salary');
+    out.grossPeriod = grossPeriod;
+    out.grossAmount = grossAmount;
+    out.monthlyGross = Math.round((grossPeriod === 'yearly' ? grossAmount / 12 : grossAmount) * 100) / 100;
   }
   if (!partial || body.deductionsEnabled !== undefined) out.deductionsEnabled = body.deductionsEnabled !== false;
   if (!partial || body.disabledItems !== undefined) {
@@ -327,6 +328,7 @@ async function assignSalary(access, { body, userId }) {
     const employee = await findEmployeeInScope(access, body.employeeId);
     const { input, template } = await cleanInput(access, body);
     if (!templateCovers(template, employee)) throw new HttpError(400, NOT_COVERED);
+    await assertSalaryFits({ employeeId: employee.id, monthlyGross: input.monthlyGross, rules: template.rules });
     return createAssignmentFor({ access, employee, input, effectiveFrom: body.effectiveFrom, userId });
   });
 
@@ -337,8 +339,8 @@ async function assignSalary(access, { body, userId }) {
 const MAX_BULK = 2000;
 
 // The same template / start date / deduction switches for many employees,
-// each with their own CTC: body.items = [{ employeeId, ctcAmount }]. One
-// employee's problem (outside the caller's scope or the template's, no CTC,
+// each with their own gross salary: body.items = [{ employeeId, grossAmount }]. One
+// employee's problem (outside the caller's scope or the template's, no gross,
 // a start date before their current salary's) skips just them and is
 // reported back.
 async function bulkAssignSalary(access, { body, userId }) {
@@ -355,11 +357,11 @@ async function bulkAssignSalary(access, { body, userId }) {
   if (unique.length > MAX_BULK) throw new HttpError(400, `Choose at most ${MAX_BULK} employees at a time`);
 
   const { created, skipped } = await asGroup(async () => {
-    // Template, switches and items are checked once; CTC per employee below.
-    const { input: shared, template } = await cleanInput(access, { ...body, ctcAmount: 1 });
-    delete shared.ctcAmount;
-    delete shared.monthlyCtc;
-    const { ctcPeriod } = shared;
+    // Template, switches and items are checked once; gross per employee below.
+    const { input: shared, template } = await cleanInput(access, { ...body, grossAmount: 1 });
+    delete shared.grossAmount;
+    delete shared.monthlyGross;
+    const { grossPeriod } = shared;
 
     const employees = await db.Employee.findAll({
       where: { ...(await scopedEmployeeWhere(access)), id: { [Op.in]: unique.map((i) => String(i.employeeId)) } },
@@ -387,17 +389,19 @@ async function bulkAssignSalary(access, { body, userId }) {
         skip('The template is not made for their company / brand');
         continue;
       }
-      const ctcAmount = Number(item.ctcAmount);
-      if (!Number.isFinite(ctcAmount) || ctcAmount <= 0) {
-        skip('No CTC entered');
+      const grossAmount = Number(item.grossAmount);
+      if (!Number.isFinite(grossAmount) || grossAmount <= 0) {
+        skip('No gross salary entered');
         continue;
       }
       const input = {
         ...shared,
-        ctcAmount,
-        monthlyCtc: Math.round((ctcPeriod === 'yearly' ? ctcAmount / 12 : ctcAmount) * 100) / 100,
+        grossAmount,
+        monthlyGross: Math.round((grossPeriod === 'yearly' ? grossAmount / 12 : grossAmount) * 100) / 100,
       };
       try {
+        // eslint-disable-next-line no-await-in-loop
+        await assertSalaryFits({ employeeId: employee.id, monthlyGross: input.monthlyGross, rules: template.rules });
         // eslint-disable-next-line no-await-in-loop
         createdRows.push(await createAssignmentFor({ access, employee, input, effectiveFrom: body.effectiveFrom, userId }));
       } catch (err) {
@@ -432,13 +436,23 @@ async function getAssignment(access, id) {
   return assignment;
 }
 
-// Correcting a mistake in an existing salary (wrong CTC, wrong toggles, …):
+// Correcting a mistake in an existing salary (wrong gross, wrong toggles, …):
 // changed in place, and every generated month it covers is recalculated.
 async function updateAssignment(access, { id, body, userId }) {
   const assignment = await getAssignment(access, id);
   if (!canChangeSalary(access, assignment)) throw lockedError(assignment);
   const { input, template } = await asGroup(() => cleanInput(access, body, { partial: true }));
   if (template && !templateCovers(template, assignment.employee)) throw new HttpError(400, NOT_COVERED);
+  if (template || input.monthlyGross !== undefined) {
+    const rules = template
+      ? template.rules
+      : (await asGroup(() => db.PayrollTemplate.findByPk(assignment.templateId, { paranoid: false, attributes: ['rules'] }))).rules;
+    await assertSalaryFits({
+      employeeId: assignment.employeeId,
+      monthlyGross: input.monthlyGross !== undefined ? input.monthlyGross : Number(assignment.monthlyGross),
+      rules,
+    });
+  }
   await asGroup(() => assignment.update({ ...input, updatedByUserId: userId }));
   await afterSalaryChange(assignment.employeeId, assignment.effectiveFrom, assignment.effectiveTo);
   return assignment;

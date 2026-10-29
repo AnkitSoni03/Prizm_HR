@@ -106,7 +106,7 @@ export function TemplatesTab({ access }: { access: PayrollAccess }) {
                 </div>
               ),
           },
-          { key: 'split', header: 'Split', render: (r) => `Basic ${r.rules.basicPercentOfCtc}% · HRA ${r.rules.hraPercentOfBasic}% of Basic` },
+          { key: 'split', header: 'Split', render: (r) => `Basic ${r.rules.basicPercentOfGross}% · HRA ${r.rules.hraPercentOfBasic}% of Basic` },
           { key: 'ded', header: 'Deductions', render: (r) => summary(r.rules) },
           { key: 'sandwich', header: 'Sandwich', render: (r) => (r.rules.sandwichRule ? 'On' : 'Off') },
           { key: 'emp', header: 'Employees', render: (r) => r.activeEmployees },

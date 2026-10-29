@@ -78,6 +78,15 @@ router.post('/reports/period/export', requirePermission('employee:read'), contro
 router.get('/', requirePermission('employee:read'), controller.list);
 router.get('/:id', requireEmployeeReadAccess, controller.get);
 router.get('/:id/face-photo', requireEmployeeReadAccess, controller.getFacePhoto);
+// Allow / stop a registered employee's Face ID retake. Same employee:update
+// gate as editing the employee; Group Admin (no employee:update of its own)
+// passes structurally and is confined to its Group in the controller.
+// Super Admin is refused there, like the face photo itself.
+function requireFaceRetakeAccess(req, res, next) {
+  if (!req.auth.companyId && req.auth.groupId) return next();
+  return requirePermission('employee:update')(req, res, next);
+}
+router.patch('/:id/face-retake', requireFaceRetakeAccess, controller.setFaceRetake);
 router.get('/:id/monthly-report', requireEmployeeReadAccess, controller.getMonthlyReport);
 router.get('/:id/monthly-report/export', requireEmployeeReadAccess, controller.exportMonthlyReport);
 router.post('/', requirePermission('employee:create'), controller.create);

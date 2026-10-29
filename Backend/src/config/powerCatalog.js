@@ -153,7 +153,7 @@ const POWER_CATALOG = [
     // (utils/powerAuthority.js) — Group level only by Group Admin / Super Admin.
     levels: ['brand', 'company', 'group'],
     description:
-      'Create salary templates and deductions, assign salary (CTC), add bonuses, generate and share payslips — for the chosen level (Brand, Company or whole Group).',
+      'Create salary templates and deductions, assign gross salary, add bonuses, generate and share payslips — for the chosen level (Brand, Company or whole Group).',
     // The payroll pages use their own employee/company pickers
     // (/payroll/employees, /payroll/companies), so nothing else is needed.
     permissionCodes: ['payroll:manage'],

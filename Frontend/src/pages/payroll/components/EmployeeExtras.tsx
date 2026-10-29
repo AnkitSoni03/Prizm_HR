@@ -1,7 +1,7 @@
 import { Badge } from '../../../components/ui/Badge';
 import { bonusTypeLabel, formatRupees, monthKeyLabel, periodLabel, type SalaryAssignment } from '../../../api/payroll';
 
-const BASIS: Record<string, string> = { basic: 'Basic', gross: 'Gross', ctc: 'CTC' };
+const BASIS: Record<string, string> = { basic: 'Basic', gross: 'Gross' };
 type Extras = NonNullable<SalaryAssignment['extras']>;
 type Item = Extras['items'][number];
 type Bonus = Extras['bonuses'][number];
@@ -83,7 +83,7 @@ export function ExtrasDetails({ extras }: { extras?: Extras }) {
             </div>
           )}
           <p className="text-xs text-ink-muted">
-            Allowances sit inside CTC (taken out of Special). Deductions cut in-hand. Bonuses are paid on top, only in their month.
+            Allowances sit inside gross (taken out of Special). Deductions cut in-hand. Bonuses are paid on top, only in their month.
             The preview below shows the every-month items; month-limited items and bonuses are added in their months.
           </p>
         </div>

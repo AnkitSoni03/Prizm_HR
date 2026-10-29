@@ -67,12 +67,12 @@ export function MySalaryPage() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <div className="rounded-xl border border-border px-3 py-2">
-          <p className="text-xs text-ink-muted">Your CTC</p>
+          <p className="text-xs text-ink-muted">Your gross salary</p>
           <p className="text-base font-semibold text-ink">
-            {salary?.current ? `${formatRupees(salary.current.monthlyCtc)} / month` : 'Not set yet'}
+            {salary?.current ? `${formatRupees(salary.current.monthlyGross)} / month` : 'Not set yet'}
           </p>
-          {salary?.current?.ctcPeriod === 'yearly' && (
-            <p className="text-xs text-ink-muted">{formatRupees(salary.current.ctcAmount)} / year</p>
+          {salary?.current?.grossPeriod === 'yearly' && (
+            <p className="text-xs text-ink-muted">{formatRupees(salary.current.grossAmount)} / year</p>
           )}
         </div>
         {latest && (

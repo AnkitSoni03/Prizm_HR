@@ -30,6 +30,9 @@ module.exports = (sequelize, DataTypes) => {
         },
       },
       status: { type: DataTypes.ENUM('pending', 'applied'), allowNull: false, defaultValue: 'pending' },
+      // 'correction' = a locked (paid) month changed afterwards; 'shortfall' =
+      // what a month couldn't recover because in-hand stops at zero.
+      kind: { type: DataTypes.ENUM('correction', 'shortfall'), allowNull: false, defaultValue: 'correction' },
     },
     {
       sequelize,

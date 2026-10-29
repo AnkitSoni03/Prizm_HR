@@ -115,6 +115,13 @@ async function classifyDays({ employee, start, end, segments }) {
       const sandwich = sandwichByDate.get(date);
       if (sandwich) {
         if (sandwich.isLop) { counts.sandwichUnpaid += 1; reason = 'Sandwich (no leave balance)'; } else { counts.sandwichPaid += 1; paid = 1; }
+      } else if (status === 'half_day' && !half && !odDates.has(date)) {
+        // Marked half day with no half-day leave behind it (admin / a
+        // regularization): only half the day was worked.
+        paid = 0.5;
+        counts.present += 0.5;
+        counts.absent += 0.5;
+        reason = 'Half day';
       } else if (status && PRESENT_STATUSES.has(status)) {
         paid = 1;
         if (half && half.leave > half.paid) {
@@ -169,18 +176,27 @@ async function classifyDays({ employee, start, end, segments }) {
   };
 }
 
-// Employment window for the month: joining date and an accepted
-// resignation's last working day bound it.
-async function employmentWindow(employee, start, end) {
-  let from = start;
-  let to = end;
-  if (employee.dateOfJoining && employee.dateOfJoining > from) from = employee.dateOfJoining;
+// The employee's last working day, if they're leaving: the earlier of an
+// accepted resignation's last day and the one recorded when an admin marked
+// them exited / inactive (employees.last_working_date).
+async function exitDateOf(employee) {
   const resignation = await db.Resignation.findOne({
     where: { employeeId: employee.id, status: 'accepted', lastWorkingDate: { [Op.ne]: null } },
     order: [['decidedAt', 'DESC']],
     attributes: ['lastWorkingDate'],
   });
-  if (resignation && resignation.lastWorkingDate < to) to = resignation.lastWorkingDate;
+  const dates = [resignation && resignation.lastWorkingDate, employee.lastWorkingDate].filter(Boolean).sort();
+  return dates[0] || null;
+}
+
+// Employment window for the month: joining date and the last working day
+// bound it.
+async function employmentWindow(employee, start, end) {
+  let from = start;
+  let to = end;
+  if (employee.dateOfJoining && employee.dateOfJoining > from) from = employee.dateOfJoining;
+  const exitDate = await exitDateOf(employee);
+  if (exitDate && exitDate < to) to = exitDate;
   return { from, to };
 }
 
@@ -193,7 +209,8 @@ async function loadGroupCustomItems(groupId) {
 // month was already generated with this template, else the live template.
 function rulesFor(assignment, snapshot) {
   const snap = snapshot && snapshot.templates && snapshot.templates[String(assignment.templateId)];
-  if (snap) return snap;
+  // Normalized so a snapshot saved under an older rules shape still reads.
+  if (snap) return { ...snap, rules: normalizeRules(snap.rules) };
   return {
     rules: normalizeRules(assignment.template.rules),
     templateName: assignment.template.name,
@@ -280,7 +297,7 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
     return { rules: r.rules, customItems: resolveCustomItems(r.rules, itemsSource) };
   };
   const salaryInput = (a) => ({
-    monthlyCtc: Number(a.monthlyCtc),
+    monthlyGross: Number(a.monthlyGross),
     ...resolved(a),
     deductionsEnabled: a.deductionsEnabled,
     disabledItems: a.disabledItems || [],
@@ -289,7 +306,7 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
 
   // Earned amounts add up across the month's salary parts; deductions are
   // then worked out once on the total, under the latest salary's rules.
-  const earned = { basic: 0, hra: 0, gross: 0, ctc: 0, allowances: {} };
+  const earned = { basic: 0, hra: 0, gross: 0, allowances: {} };
   for (const seg of segments) {
     const part = computeSalary({ ...salaryInput(seg.assignment), paidDays: days.paidBySegment.get(seg.id), monthDays: days.monthDays });
     for (const key of ['basic', 'hra']) earned[key] += part.earnings.find((e) => e.key === key).amount;
@@ -297,7 +314,6 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
       earned.allowances[row.key] = (earned.allowances[row.key] || 0) + row.amount;
     }
     earned.gross += part.actual.grossSalary;
-    earned.ctc += Number(seg.assignment.monthlyCtc) * part.factor;
   }
 
   const tds = await fyHistory(employee, year, month);
@@ -323,24 +339,34 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
     })),
   });
 
-  // Arrears / recovery from earlier months' corrections. A fresh month picks
-  // up every pending one; a recalculation keeps exactly the ones it already
-  // absorbed (so a correction never hops between months).
-  const carryWhere = existing
-    ? { targetPayrollId: existing.id }
-    : { employeeId: employee.id, status: 'pending' };
+  // Arrears / recovery carried from earlier months. A fresh month — or one
+  // not locked yet (not paid) — picks up every pending one; a locked month
+  // keeps exactly the ones it already absorbed (paid money never moves).
+  const pendingWhere = { employeeId: employee.id, status: 'pending' };
+  let carryWhere = pendingWhere;
+  if (existing) {
+    carryWhere = existing.lockedAt ? { targetPayrollId: existing.id } : { [Op.or]: [{ targetPayrollId: existing.id }, pendingWhere] };
+  }
   const carries = (await db.PayrollCarryAdjustment.findAll({ where: carryWhere, order: [['sourceYear', 'ASC'], ['sourceMonth', 'ASC']] }))
     .filter((c) => monthKey(c.sourceYear, c.sourceMonth) < monthKey(year, month));
-  const carryAdjustment = carries.reduce((s, c) => s + Number(c.amount), 0);
-  const netPay = salary.actual.inHand + carryAdjustment;
+  const carryAdjustment = Math.round(carries.reduce((s, c) => s + Number(c.amount), 0) * 100) / 100;
+  // In-hand never goes below zero: what couldn't be recovered this month
+  // (fixed deductions on a month with almost no paid days, a large recovery)
+  // is carried to the next salary as a 'shortfall' recovery.
+  const rawNet = Math.round((salary.actual.inHand + carryAdjustment) * 100) / 100;
+  const shortfall = rawNet < 0 ? -rawNet : 0;
+  const netPay = rawNet < 0 ? 0 : rawNet;
+  if (shortfall > 0) {
+    salary.warnings.push(`Deductions are more than this month's pay — ₹${shortfall.toLocaleString('en-IN')} will be recovered from the next salary`);
+  }
 
   const company = await db.Company.findByPk(employee.companyId, { attributes: ['id', 'name'] });
   const details = {
     companyName: company ? company.name : null,
     templateName: templates[String(primary.templateId)].templateName,
-    ctcPeriod: primary.ctcPeriod,
+    grossPeriod: primary.grossPeriod,
     deductionsEnabled: primary.deductionsEnabled,
-    salaryParts: segments.map((s) => ({ from: s.from, to: s.to, monthlyCtc: Number(s.assignment.monthlyCtc) })),
+    salaryParts: segments.map((s) => ({ from: s.from, to: s.to, monthlyGross: Number(s.assignment.monthlyGross) })),
     earnings: salary.earnings,
     bonuses: salary.bonuses,
     deductions: salary.deductions,
@@ -352,7 +378,8 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
     warnings: salary.warnings,
     days: days.counts,
     lopDates: days.lopDates,
-    carries: carries.map((c) => ({ id: String(c.id), sourceYear: c.sourceYear, sourceMonth: c.sourceMonth, amount: Number(c.amount) })),
+    carries: carries.map((c) => ({ id: String(c.id), kind: c.kind, sourceYear: c.sourceYear, sourceMonth: c.sourceMonth, amount: Number(c.amount) })),
+    shortfall,
   };
 
   return {
@@ -368,7 +395,7 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
       monthDays: days.monthDays,
       paidDays: days.paidDays,
       lopDays: days.lopDays,
-      monthlyCtc: Number(primary.monthlyCtc),
+      monthlyGross: Number(primary.monthlyGross),
       grossFull: salary.full.grossSalary,
       grossEarned: salary.actual.grossSalary,
       totalDeductions: salary.actual.totalDeductions,
@@ -382,6 +409,7 @@ async function computeEmployeeMonth({ employee, year, month, existing = null }) 
       rulesSnapshot: snapshot || { templates, customItems: myItems.filter((i) => !limited(i)), itemsPerEmployee: true },
     },
     carries,
+    shortfall,
     // A % bonus's amount follows the month's salary — written back to the
     // bonus row after saving (syncBonusAmounts) so lists show the real figure.
     bonusSync: bonuses
@@ -399,7 +427,7 @@ async function syncBonusAmounts(result) {
   }
 }
 
-const COMPARED = ['monthDays', 'paidDays', 'lopDays', 'monthlyCtc', 'grossFull', 'grossEarned', 'totalDeductions', 'totalEmployer', 'bonusTotal', 'carryAdjustment', 'netPay'];
+const COMPARED = ['monthDays', 'paidDays', 'lopDays', 'monthlyGross', 'grossFull', 'grossEarned', 'totalDeductions', 'totalEmployer', 'bonusTotal', 'carryAdjustment', 'netPay'];
 
 // Generates a month for one employee if it doesn't exist yet. Returns the row
 // (existing or new), or null when there's nothing to pay.
@@ -419,110 +447,361 @@ async function generateEmployeeMonth({ employeeId, year, month }) {
     const result = await computeEmployeeMonth({ employee, year, month });
     if (!result) return null;
 
-    const row = await db.sequelize.transaction(async (t) => {
-      let created;
-      try {
-        created = await db.EmployeePayroll.create(
-          { ...result.values, originalNet: result.values.netPay, generatedAt: new Date(), revision: 1 },
-          { transaction: t }
-        );
-      } catch (err) {
-        // Two generators raced (cron + an assignment catch-up) — the other won.
-        if (err.name === 'SequelizeUniqueConstraintError') return null;
-        throw err;
+    // A recalculation of an earlier month may change (or settle) one of the
+    // pending carries between computing and saving — then work it out again.
+    let attempt = result;
+    for (let tries = 1; ; tries += 1) {
+      const outcome = await saveNewMonth(attempt);
+      if (outcome !== STALE_CARRIES) {
+        if (outcome) await syncBonusAmounts(attempt);
+        return outcome;
       }
-      if (result.carries.length > 0) {
-        await db.PayrollCarryAdjustment.update(
-          { status: 'applied', targetPayrollId: created.id, targetYear: year, targetMonth: month },
-          { where: { id: { [Op.in]: result.carries.map((c) => c.id) } }, transaction: t }
-        );
-      }
-      return created;
-    });
-
-    if (row) await syncBonusAmounts(result);
-    return row;
+      if (tries >= 3) throw new Error(`Payroll carry adjustments kept changing for employee ${employeeId} ${month}/${year}`);
+      // eslint-disable-next-line no-await-in-loop
+      attempt = await computeEmployeeMonth({ employee, year, month });
+      if (!attempt) return null;
+    }
   });
 }
 
-// Recalculates an existing month in place. If the net pay moved, the
-// difference against what was already credited (original_net) goes to a
-// pending carry adjustment for the next payroll, and the employee is told.
-async function recalculatePayroll(payrollId) {
+const STALE_CARRIES = Symbol('stale carries');
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Locks the carries a month is about to absorb. Throws STALE_CARRIES when one
+// changed since the month was worked out (amount edited, or taken by another
+// month) — the caller then works the month out again.
+async function claimCarries(result, rowId, t) {
+  if (result.carries.length === 0) return;
+  const current = await db.PayrollCarryAdjustment.findAll({
+    where: { id: { [Op.in]: result.carries.map((c) => c.id) } },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  const byId = new Map(current.map((c) => [String(c.id), c]));
+  const stale = result.carries.some((c) => {
+    const now = byId.get(String(c.id));
+    if (!now || Number(now.amount) !== Number(c.amount)) return true;
+    const mine = rowId && now.status === 'applied' && String(now.targetPayrollId) === String(rowId);
+    return !mine && now.status !== 'pending';
+  });
+  if (stale) throw STALE_CARRIES;
+}
+
+async function markCarriesApplied(result, row, t) {
+  const ids = result.carries.map((c) => c.id);
+  if (ids.length === 0) return;
+  await db.PayrollCarryAdjustment.update(
+    { status: 'applied', targetPayrollId: row.id, targetYear: row.periodYear, targetMonth: row.periodMonth },
+    { where: { id: { [Op.in]: ids }, status: 'pending' }, transaction: t }
+  );
+}
+
+// Adjusts the carries sourced from `row` of one kind so they add up to
+// `target`: the still-pending one absorbs the difference, or a new one is
+// made when the earlier ones were already applied. Returns true on a change.
+async function settleSourcedCarries(row, kind, target, sourced, t) {
+  const mine = sourced.filter((c) => (c.kind || 'correction') === kind);
+  const diff = round2(target - mine.reduce((s, c) => s + Number(c.amount), 0));
+  if (Math.abs(diff) < 0.01) return false;
+  const pending = mine.find((c) => c.status === 'pending');
+  if (pending) {
+    const amount = round2(Number(pending.amount) + diff);
+    if (Math.abs(amount) < 0.01) await pending.destroy({ transaction: t });
+    else await pending.update({ amount }, { transaction: t });
+  } else {
+    await db.PayrollCarryAdjustment.create(
+      {
+        companyId: row.companyId,
+        employeeId: row.employeeId,
+        sourcePayrollId: row.id,
+        sourceYear: row.periodYear,
+        sourceMonth: row.periodMonth,
+        amount: diff,
+        kind,
+        status: 'pending',
+      },
+      { transaction: t }
+    );
+  }
+  return true;
+}
+
+// A carry out of this month changed: the next month that isn't locked yet
+// (if one exists — e.g. a final settlement) takes it in right away rather
+// than leaving it for a month that may never come.
+function pickUpInLaterMonth(row) {
+  setImmediate(async () => {
+    try {
+      const later = await runAsCompany(null, () =>
+        db.EmployeePayroll.findOne({
+          where: {
+            employeeId: row.employeeId,
+            lockedAt: null,
+            [Op.or]: [
+              { periodYear: { [Op.gt]: row.periodYear } },
+              { periodYear: row.periodYear, periodMonth: { [Op.gt]: row.periodMonth } },
+            ],
+          },
+          order: [['periodYear', 'ASC'], ['periodMonth', 'ASC']],
+          attributes: ['id'],
+        })
+      );
+      if (later) await recalculatePayroll(later.id);
+    } catch (err) {
+      console.error('Carrying a payroll adjustment forward failed:', err);
+    }
+  });
+}
+
+async function saveNewMonth(result) {
+  let carriesChanged = false;
+  try {
+    const created = await db.sequelize.transaction(async (t) => {
+      await claimCarries(result, null, t);
+      const row = await db.EmployeePayroll.create(
+        { ...result.values, originalNet: result.values.netPay, generatedAt: new Date(), revision: 1 },
+        { transaction: t }
+      );
+      await markCarriesApplied(result, row, t);
+      carriesChanged = await settleSourcedCarries(row, 'shortfall', -result.shortfall, [], t);
+      return row;
+    });
+    if (carriesChanged) pickUpInLaterMonth(created);
+    return created;
+  } catch (err) {
+    if (err === STALE_CARRIES) return STALE_CARRIES;
+    // Two generators raced (cron + an assignment catch-up) — the other won.
+    if (err.name === 'SequelizeUniqueConstraintError') return null;
+    throw err;
+  }
+}
+
+// Recalculations of the same month run one after another in this process
+// (two leave / attendance changes landing together would otherwise both
+// read the old row); the row lock below covers other processes.
+const recalcChains = new Map();
+
+function recalculatePayroll(payrollId) {
+  const key = String(payrollId);
+  const run = (recalcChains.get(key) || Promise.resolve()).then(() => recalculatePayrollNow(payrollId));
+  const tail = run.catch(() => {});
+  recalcChains.set(key, tail);
+  tail.then(() => {
+    if (recalcChains.get(key) === tail) recalcChains.delete(key);
+  });
+  return run;
+}
+
+// Recalculates an existing month in place.
+// - Not locked (salary not paid yet): the month simply changes — no arrears —
+//   and it takes in any arrears still waiting from earlier months.
+// - Locked (paid): the difference against what was already credited
+//   (original_net) goes to a pending 'correction' carry for the next payroll.
+// Either way an amount that couldn't be recovered (in-hand floored at zero)
+// is carried forward as a 'shortfall' recovery. The employee is told when a
+// month they can already see changes.
+async function recalculatePayrollNow(payrollId) {
   return runAsCompany(null, async () => {
     const row = await db.EmployeePayroll.findByPk(payrollId);
     if (!row) return null;
     const employee = await db.Employee.findByPk(row.employeeId);
     if (!employee) return null;
 
-    const result = await computeEmployeeMonth({ employee, year: row.periodYear, month: row.periodMonth, existing: row });
-    if (!result) {
-      // Salary assignment removed for this month — keep the row (history) but
-      // stop recalculating it.
-      await row.update({ needsRecalc: false });
-      return row;
+    let result;
+    let saved;
+    let changed = false;
+    let carriesChanged = false;
+    for (let tries = 1; ; tries += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      result = await computeEmployeeMonth({ employee, year: row.periodYear, month: row.periodMonth, existing: row });
+      if (!result) {
+        // Salary assignment removed for this month — keep the row (history)
+        // but stop recalculating it.
+        // eslint-disable-next-line no-await-in-loop
+        await row.update({ needsRecalc: false });
+        return row;
+      }
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        saved = await db.sequelize.transaction(async (t) => {
+          // Re-read under a row lock: a recalculation of this month in another
+          // process waits here, so both never create a carry for the same change.
+          const current = await db.EmployeePayroll.findByPk(row.id, { transaction: t, lock: t.LOCK.UPDATE });
+          if (!current) return null;
+          if (Boolean(current.lockedAt) !== Boolean(row.lockedAt)) throw STALE_CARRIES; // locked meanwhile
+          await claimCarries(result, current.id, t);
+          changed =
+            COMPARED.some((k) => Math.abs(Number(current[k]) - Number(result.values[k])) > 0.001) ||
+            JSON.stringify(current.details.lopDates) !== JSON.stringify(result.values.details.lopDates) ||
+            JSON.stringify(current.details.bonuses || []) !== JSON.stringify(result.values.details.bonuses);
+
+          const updates = { ...result.values, needsRecalc: false };
+          delete updates.rulesSnapshot;
+          if (changed) {
+            updates.revision = current.revision + 1;
+            updates.revisedAt = new Date();
+          }
+
+          const sourced = await db.PayrollCarryAdjustment.findAll({
+            where: { sourcePayrollId: current.id },
+            transaction: t,
+            lock: t.LOCK.UPDATE,
+          });
+          const corrections = sourced.filter((c) => (c.kind || 'correction') === 'correction');
+
+          if (!current.lockedAt) {
+            // Not paid yet: drop corrections still waiting (left from before
+            // an unlock) and treat the new figure as what will be credited.
+            // Ones already applied to a later month stay — that money moved.
+            for (const c of corrections.filter((s) => s.status === 'pending')) {
+              // eslint-disable-next-line no-await-in-loop
+              await c.destroy({ transaction: t });
+              carriesChanged = true;
+            }
+            const applied = corrections.filter((c) => c.status !== 'pending');
+            updates.originalNet = round2(updates.netPay - applied.reduce((s, c) => s + Number(c.amount), 0));
+            await current.update(updates, { transaction: t });
+          } else {
+            await current.update(updates, { transaction: t });
+            const alreadyCarried = corrections.reduce((s, c) => s + Number(c.amount), 0);
+            const target = round2(current.netPay - current.originalNet);
+            if (Math.abs(target - alreadyCarried) >= 0.01) {
+              carriesChanged = (await settleSourcedCarries(current, 'correction', target, corrections, t)) || carriesChanged;
+            }
+          }
+          await markCarriesApplied(result, current, t);
+          carriesChanged = (await settleSourcedCarries(current, 'shortfall', -result.shortfall, sourced, t)) || carriesChanged;
+          return current;
+        });
+        break;
+      } catch (err) {
+        if (err !== STALE_CARRIES || tries >= 3) throw err;
+        // eslint-disable-next-line no-await-in-loop
+        await row.reload();
+      }
     }
-
-    const changed =
-      COMPARED.some((k) => Math.abs(Number(row[k]) - Number(result.values[k])) > 0.001) ||
-      JSON.stringify(row.details.lopDates) !== JSON.stringify(result.values.details.lopDates) ||
-      JSON.stringify(row.details.bonuses || []) !== JSON.stringify(result.values.details.bonuses);
-
-    await db.sequelize.transaction(async (t) => {
-      const updates = { ...result.values, needsRecalc: false };
-      delete updates.rulesSnapshot;
-      if (changed) {
-        updates.revision = row.revision + 1;
-        updates.revisedAt = new Date();
-      }
-      await row.update(updates, { transaction: t });
-
-      const sourced = await db.PayrollCarryAdjustment.findAll({ where: { sourcePayrollId: row.id }, transaction: t });
-      const alreadyCarried = sourced.reduce((s, c) => s + Number(c.amount), 0);
-      const diff = Math.round((row.netPay - row.originalNet - alreadyCarried) * 100) / 100;
-      if (Math.abs(diff) >= 0.01) {
-        const pending = sourced.find((c) => c.status === 'pending');
-        if (pending) {
-          const amount = Math.round((Number(pending.amount) + diff) * 100) / 100;
-          if (Math.abs(amount) < 0.01) await pending.destroy({ transaction: t });
-          else await pending.update({ amount }, { transaction: t });
-        } else {
-          await db.PayrollCarryAdjustment.create(
-            {
-              companyId: row.companyId,
-              employeeId: row.employeeId,
-              sourcePayrollId: row.id,
-              sourceYear: row.periodYear,
-              sourceMonth: row.periodMonth,
-              amount: diff,
-              status: 'pending',
-            },
-            { transaction: t }
-          );
-        }
-      }
-    });
+    if (!saved) return null;
 
     await syncBonusAmounts(result);
+    if (carriesChanged) pickUpInLaterMonth(saved);
     // Only a month the employee can already see is worth telling them about.
-    if (changed && row.payslipReleased && employee.userId) {
-      const label = monthLabel(row.periodYear, row.periodMonth);
+    if (changed && saved.payslipReleased && employee.userId) {
+      const label = monthLabel(saved.periodYear, saved.periodMonth);
       await notifyUser({
         companyId: employee.companyId,
         userId: employee.userId,
         type: 'payroll_revised',
         requestType: 'payroll',
-        requestId: row.id,
+        requestId: saved.id,
         title: `Your ${label} salary was updated`,
-        body: `In-hand is now ₹${row.netPay.toLocaleString('en-IN')}. Any difference is adjusted in your next salary.`,
+        body: saved.lockedAt
+          ? `In-hand is now ₹${saved.netPay.toLocaleString('en-IN')}. Any difference is adjusted in your next salary.`
+          : `In-hand is now ₹${saved.netPay.toLocaleString('en-IN')}.`,
       });
     }
-    return row;
+    return saved;
   });
 }
 
-// The last salary date inside the month when the salary ends there and
-// nothing starts after it; else null.
+// Locks (salary paid — later changes become arrears) or unlocks months.
+// Locking first works every month out again so the lock captures the latest
+// figure (a holiday / roster change since); unlocking recalculates right away
+// so waiting arrears fold back into the month itself.
+async function setPayrollLock(ids, lock, actorUserId) {
+  if (lock) {
+    for (const id of ids) {
+      // eslint-disable-next-line no-await-in-loop
+      await recalculatePayroll(id);
+    }
+  }
+  await runAsCompany(null, () =>
+    db.EmployeePayroll.update(
+      lock ? { lockedAt: new Date(), lockedByUserId: actorUserId || null } : { lockedAt: null, lockedByUserId: null },
+      { where: { id: { [Op.in]: ids } } }
+    )
+  );
+  if (!lock) {
+    for (const id of ids) {
+      // eslint-disable-next-line no-await-in-loop
+      await recalculatePayroll(id);
+    }
+  }
+}
+
+// Recalculates the months not locked yet (drafts — salary not paid) for the
+// employees matched, over [fromDate, toDate] (background, best-effort). Used
+// when something every day-count depends on changes: a holiday, a joining /
+// last working date, a work state, a resignation. Locked months are left
+// alone — HR can recalculate one by hand.
+function recalcUnlocked({ employeeIds = null, employeeWhere = null, fromDate, toDate = null }) {
+  setImmediate(async () => {
+    try {
+      const where = { lockedAt: null };
+      if (fromDate) {
+        const months = monthsBetween(fromDate, toDate || dateOnly(new Date()));
+        where[Op.or] = months.map((m) => ({ periodYear: m.year, periodMonth: m.month }));
+      }
+      if (employeeIds) where.employeeId = { [Op.in]: employeeIds.map(String) };
+      const rows = await runAsCompany(null, () =>
+        db.EmployeePayroll.findAll({
+          where,
+          attributes: ['id'],
+          include: employeeWhere ? [{ model: db.Employee, as: 'employee', attributes: [], where: employeeWhere, required: true }] : [],
+        })
+      );
+      for (const r of rows) {
+        // eslint-disable-next-line no-await-in-loop
+        await recalculatePayroll(r.id);
+      }
+    } catch (err) {
+      console.error('Recalculating unlocked payroll months failed:', err);
+    }
+  });
+}
+
+// An employee's joining date, last working day or work state changed:
+// months not locked yet are worked out again from `fromDate` (null = all of
+// them), and when the last working day has already come in the running
+// month, its final settlement is made now. Best-effort, never throws.
+function afterEmployeePayChange(employeeId, fromDate = null) {
+  recalcUnlocked({ employeeIds: [employeeId], fromDate });
+  setImmediate(async () => {
+    try {
+      const today = dateOnly(new Date());
+      const [y, m] = today.split('-').map(Number);
+      const last = await runAsCompany(null, () => finalDateFor(employeeId, y, m));
+      if (last && last <= today) await generateEmployeeMonth({ employeeId, year: y, month: m });
+    } catch (err) {
+      console.error(`Final settlement after an exit change failed for employee ${employeeId}:`, err);
+    }
+  });
+}
+
+// Nightly: every month not locked yet in the last `months` months is worked
+// out again, so a draft always reflects the latest roster / shift / holiday
+// data even when the change itself didn't trigger a recalculation.
+async function refreshUnlockedMonths({ months = 3 } = {}) {
+  const { year, month } = previousMonth();
+  const fromKey = monthKey(year, month) - (months - 1);
+  const rows = await runAsCompany(null, () =>
+    db.EmployeePayroll.findAll({ where: { lockedAt: null }, attributes: ['id', 'periodYear', 'periodMonth'] })
+  );
+  let refreshed = 0;
+  for (const r of rows.filter((x) => monthKey(x.periodYear, x.periodMonth) >= fromKey)) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await recalculatePayroll(r.id);
+      refreshed += 1;
+    } catch (err) {
+      console.error(`Payroll refresh failed for ${r.id}:`, err);
+    }
+  }
+  return refreshed;
+}
+
+// The last payable date inside the month when pay stops there — the salary
+// ends (nothing starts after it) or the employee's last working day falls in
+// it; else null.
 async function finalDateFor(employeeId, year, month) {
   const { start, end } = monthBounds(year, month);
   const assignments = await db.SalaryAssignment.findAll({
@@ -535,12 +814,16 @@ async function finalDateFor(employeeId, year, month) {
   });
   if (assignments.length === 0) return null;
   const last = assignments[assignments.length - 1];
-  if (!last.effectiveTo || last.effectiveTo >= end || last.effectiveFrom > end) return null;
-  return last.effectiveTo;
+  const candidates = [];
+  if (last.effectiveTo && last.effectiveTo < end && last.effectiveFrom <= end) candidates.push(last.effectiveTo);
+  const employee = await db.Employee.findByPk(employeeId, { attributes: ['id', 'lastWorkingDate'] });
+  const exitDate = employee ? await exitDateOf(employee) : null;
+  if (exitDate && exitDate >= start && exitDate < end && exitDate >= assignments[0].effectiveFrom) candidates.push(exitDate);
+  return candidates.sort()[0] || null;
 }
 
-// Final settlements of the running month: salaries that ended on or before
-// today get that month generated now; a final month whose last day was
+// Final settlements of the running month: salaries that ended, or employees
+// whose last working day was, on or before today get that month generated now; a final month whose last day was
 // today or yesterday is refreshed (that day's attendance may have come in
 // after it was first worked out). Run daily by the payroll job, and right
 // after a salary is ended.
@@ -548,12 +831,20 @@ async function generateFinalSettlements(today = dateOnly(new Date())) {
   return runAsCompany(null, async () => {
     const [y, m] = today.split('-').map(Number);
     const { start } = monthBounds(y, m);
-    const ended = await db.SalaryAssignment.findAll({
-      where: { status: 'ended', effectiveTo: { [Op.between]: [start, today] } },
-      attributes: ['employeeId'],
-    });
+    const [ended, exited, resigned] = await Promise.all([
+      db.SalaryAssignment.findAll({
+        where: { status: 'ended', effectiveTo: { [Op.between]: [start, today] } },
+        attributes: ['employeeId'],
+      }),
+      db.Employee.findAll({ where: { lastWorkingDate: { [Op.between]: [start, today] } }, attributes: [['id', 'employeeId']] }),
+      db.Resignation.findAll({
+        where: { status: 'accepted', lastWorkingDate: { [Op.between]: [start, today] } },
+        attributes: ['employeeId'],
+      }),
+    ]);
     let created = 0;
-    for (const employeeId of [...new Set(ended.map((a) => String(a.employeeId)))]) {
+    const leaving = [...ended, ...exited, ...resigned].map((r) => String(r.get('employeeId')));
+    for (const employeeId of [...new Set(leaving)]) {
       try {
         // eslint-disable-next-line no-await-in-loop
         const before = await db.EmployeePayroll.count({ where: { employeeId, periodYear: y, periodMonth: m } });
@@ -694,6 +985,10 @@ module.exports = {
   generateEmployeeMonth,
   generateMonthForAll,
   recalculatePayroll,
+  setPayrollLock,
+  recalcUnlocked,
+  afterEmployeePayChange,
+  refreshUnlockedMonths,
   catchUpEmployee,
   queuePayrollRecalc,
   processPendingRecalcs,

@@ -29,7 +29,7 @@ import { OwnerLevelSelect, type OwnerChoice } from '../components/OwnerLevelSele
 
 function describe(item: PayrollCustomItem) {
   if (item.calcType === 'fixed') return `₹${Number(item.value)} per month`;
-  return `${Number(item.value)}% of ${item.basis === 'ctc' ? 'CTC' : item.basis === 'gross' ? 'Gross' : 'Basic'}`;
+  return `${Number(item.value)}% of ${item.basis === 'gross' ? 'Gross' : 'Basic'}`;
 }
 
 const KIND_LABEL: Record<PayrollCustomItem['kind'], string> = {
@@ -93,7 +93,7 @@ export function DeductionsTab({ access }: { access: PayrollAccess }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ink-muted">
           Your own extra items — each one applies only to the employees you choose on it. Everyone else is paid by their salary
-          template alone. An allowance is part of CTC and is taken out of the Special allowance, so in-hand stays the same. For a
+          template alone. An allowance is part of gross and is taken out of the Special allowance, so in-hand stays the same. For a
           one-time bonus, use the Bonuses tab.
         </p>
         {canManage && (
@@ -191,7 +191,7 @@ function CustomItemFormModal({
   const [owner, setOwner] = useState<OwnerChoice>({ companyId: null, brandId: null });
   const [kind, setKind] = useState<PayrollCustomItem['kind']>(item?.kind ?? 'deduction');
   const [calcType, setCalcType] = useState<PayrollCustomItem['calcType']>(item?.calcType ?? 'fixed');
-  const [basis, setBasis] = useState<'basic' | 'gross' | 'ctc'>(item?.basis ?? 'gross');
+  const [basis, setBasis] = useState<'basic' | 'gross'>(item?.basis ?? 'gross');
   const [value, setValue] = useState(item ? String(Number(item.value)) : '');
   const [isActive, setIsActive] = useState(item?.isActive ?? true);
   const [limited, setLimited] = useState(!!(item?.months && item.months.length > 0));
@@ -260,9 +260,9 @@ function CustomItemFormModal({
           value={kind}
           onChange={(e) => setKind(e.target.value as PayrollCustomItem['kind'])}
           options={[
-            { value: 'earning', label: 'Allowance (paid every month, part of CTC)' },
+            { value: 'earning', label: 'Allowance (paid every month, part of gross)' },
             { value: 'deduction', label: "Employee deduction (cut from the employee's pay)" },
-            { value: 'employer_contribution', label: 'Employer contribution (paid by the company, inside CTC)' },
+            { value: 'employer_contribution', label: 'Employer contribution (paid by the company on top of gross)' },
           ]}
         />
         <div className="grid grid-cols-2 gap-2">
@@ -279,11 +279,10 @@ function CustomItemFormModal({
             <Select
               label="Percentage of"
               value={basis}
-              onChange={(e) => setBasis(e.target.value as 'basic' | 'gross' | 'ctc')}
+              onChange={(e) => setBasis(e.target.value as 'basic' | 'gross')}
               options={[
                 { value: 'basic', label: 'Basic' },
                 { value: 'gross', label: 'Gross' },
-                { value: 'ctc', label: 'CTC' },
               ]}
             />
           )}

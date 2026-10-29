@@ -73,6 +73,8 @@ export async function updateEmployee(
     hrEmployeeId: string | null;
     workState: string | null;
     weekOffLeaveBlockedDays: number[];
+    // Required with status 'exited' / 'archived' — salary is paid up to it.
+    lastWorkingDate: string | null;
   }>
 ): Promise<Employee> {
   const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}`, input);
@@ -142,8 +144,9 @@ export async function deleteEmployee(id: string): Promise<void> {
 // login's own isActive server-side, if one exists, so deactivating blocks
 // check-in/leave/etc. access immediately and reactivating (e.g. a rejoin)
 // restores it without a fresh invite.
-export async function setEmployeeActive(id: string, isActive: boolean): Promise<Employee> {
-  const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}/active`, { isActive });
+// Deactivating needs the last working day (salary is paid up to it).
+export async function setEmployeeActive(id: string, isActive: boolean, lastWorkingDate?: string): Promise<Employee> {
+  const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}/active`, { isActive, lastWorkingDate });
   return data.data;
 }
 

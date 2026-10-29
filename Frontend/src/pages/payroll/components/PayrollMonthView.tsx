@@ -32,12 +32,12 @@ export function PayrollMonthView({ payroll }: { payroll: EmployeePayroll }) {
             deductions: d.deductions,
             employer: d.employer ?? [],
             pfSplit: d.pfSplit ?? null,
-            wageRule: d.wageRule ?? { basic: 0, ctc: 0, percent: 0, compliant: true },
+            wageRule: d.wageRule ?? { basic: 0, gross: 0, percent: 0, compliant: true },
             warnings: d.warnings ?? [],
             full: d.full,
             actual: d.actual,
           }}
-          monthlyCtc={Number(payroll.monthlyCtc ?? 0)}
+          monthlyGross={Number(payroll.monthlyGross ?? 0)}
           mode="month"
         />
       ) : (
@@ -80,7 +80,7 @@ export function PayrollMonthView({ payroll }: { payroll: EmployeePayroll }) {
           {carries.map((c) => (
             <div key={c.id} className="flex justify-between border-t border-border px-3 py-2 text-ink">
               <span>
-                {c.amount >= 0 ? 'Arrears' : 'Recovery'} for {MONTH_NAMES[c.sourceMonth - 1]} {c.sourceYear}
+                {c.kind === 'shortfall' ? 'Unrecovered deductions' : c.amount >= 0 ? 'Arrears' : 'Recovery'} for {MONTH_NAMES[c.sourceMonth - 1]} {c.sourceYear}
               </span>
               <span className={c.amount >= 0 ? 'text-success' : 'text-danger'}>
                 {c.amount >= 0 ? '+' : '−'}

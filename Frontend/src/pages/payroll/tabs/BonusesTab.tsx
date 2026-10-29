@@ -32,7 +32,7 @@ import { EmployeeMultiPicker } from '../components/EmployeeMultiPicker';
 import { MonthMultiPicker } from '../components/MonthMultiPicker';
 
 const LIMIT = 50;
-const BASIS_LABEL = { basic: 'Basic', gross: 'Gross', ctc: 'CTC' } as const;
+const BASIS_LABEL = { basic: 'Basic', gross: 'Gross' } as const;
 
 function yearOptions() {
   const y = new Date().getFullYear();
@@ -40,7 +40,7 @@ function yearOptions() {
 }
 
 // One-time extra pay (bonus, incentive, overtime, reimbursement…) for one
-// employee in one month. Paid on top of the salary — outside CTC, not cut for
+// employee in one month. Paid on top of the salary — outside gross, not cut for
 // loss-of-pay days, no PF/ESI/PT. Adding one to a month whose payroll is
 // already generated recalculates that month; the difference reaches the next
 // salary as arrears.
@@ -145,7 +145,7 @@ export function BonusesTab({ canManage }: { canManage: boolean }) {
       </div>
       <PayrollFilters value={filters} onChange={resetOffset(setFilters)} />
       <p className="text-xs text-ink-muted">
-        Paid on top of the salary in the chosen month — not part of CTC, not cut for loss-of-pay days, no PF / ESI / PT. Taxable
+        Paid on top of the salary in the chosen month — not part of gross, not cut for loss-of-pay days, no PF / ESI / PT. Taxable
         ones count for TDS. For a month whose payroll is already made, the amount is added through a recalculation and reaches
         the next salary as arrears.
       </p>
@@ -256,7 +256,7 @@ function BonusFormModal({ bonus, onClose, onSaved }: { bonus: PayrollBonus | nul
   const [calcType, setCalcType] = useState<'fixed' | 'percent'>(bonus?.calcType ?? 'fixed');
   const [amount, setAmount] = useState(bonus && bonus.calcType !== 'percent' ? String(bonus.amount) : '');
   const [percent, setPercent] = useState(bonus?.percent ? String(bonus.percent) : '');
-  const [basis, setBasis] = useState<'basic' | 'gross' | 'ctc'>(bonus?.basis ?? 'basic');
+  const [basis, setBasis] = useState<'basic' | 'gross'>(bonus?.basis ?? 'basic');
   const [taxable, setTaxable] = useState(bonus?.taxable ?? true);
   const [note, setNote] = useState(bonus?.note ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -386,11 +386,10 @@ function BonusFormModal({ bonus, onClose, onSaved }: { bonus: PayrollBonus | nul
               <Select
                 label="Of monthly"
                 value={basis}
-                onChange={(e) => setBasis(e.target.value as 'basic' | 'gross' | 'ctc')}
+                onChange={(e) => setBasis(e.target.value as 'basic' | 'gross')}
                 options={[
                   { value: 'basic', label: 'Basic' },
                   { value: 'gross', label: 'Gross salary' },
-                  { value: 'ctc', label: 'CTC' },
                 ]}
               />
             </div>
