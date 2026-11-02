@@ -9,7 +9,9 @@ const {
   resolveLeavePeriod,
   prorateYearlyQuota,
   monthsAccruedInPeriod,
+  accrualWindow,
 } = require('../../utils/leavePeriod');
+const { ymOf, hasQuotaHistory, monthlyAccrualSum } = require('../../utils/leaveQuotaHistory');
 const { computeWeekOffQuota } = require('../../utils/weekOffLeave');
 
 const round2 = (n) => Math.round(Number(n) * 100) / 100;
@@ -100,7 +102,16 @@ function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leav
   if (policy.accrual === 'yearly') {
     return prorateYearlyQuota({ quota: policy.annualQuota, period });
   }
-  const months = monthsAccruedInPeriod({ period, dateOfJoining, asOf: dateStr || dateOnly(toBusinessLocal()) });
+  const asOf = dateStr || dateOnly(toBusinessLocal());
+  // Quota was changed at some point: each month is credited at the rate in
+  // force that month (a change applies from the next month only), so months
+  // already credited never shrink or grow.
+  if (hasQuotaHistory(policy)) {
+    const window = accrualWindow({ period, dateOfJoining, asOf });
+    if (!window) return 0;
+    return round2(monthlyAccrualSum(policy, ymOf(window.from), ymOf(window.until)));
+  }
+  const months = monthsAccruedInPeriod({ period, dateOfJoining, asOf });
   return round2((Number(policy.annualQuota) / 12) * months);
 }
 

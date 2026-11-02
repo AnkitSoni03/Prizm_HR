@@ -107,20 +107,29 @@ function prorateYearlyQuota({ quota, period }) {
 // full (unchanged rule);
 // a period that continues an earlier one mid-month (confirmed on the 11th)
 // starts with the next month, since the earlier period already credited it.
-function monthsAccruedInPeriod({ period, dateOfJoining, asOf }) {
+// The same window as { from, until } dates (null when nothing accrued yet) —
+// used to credit each month at its own rate (utils/leaveQuotaHistory.js).
+function accrualWindow({ period, dateOfJoining, asOf }) {
   let from = period.periodStart;
   if (from && !from.endsWith('-01') && from !== dateOfJoining) {
     from = addMonths(`${from.slice(0, 7)}-01`, 1);
   }
   let until = asOf;
   if (period.periodEnd && period.periodEnd < until) until = period.periodEnd;
-  if (!from || until < from) return 0;
-  const [fy, fm] = from.split('-').map(Number);
-  const [uy, um] = until.split('-').map(Number);
+  if (!from || until < from) return null;
+  return { from, until };
+}
+
+function monthsAccruedInPeriod({ period, dateOfJoining, asOf }) {
+  const window = accrualWindow({ period, dateOfJoining, asOf });
+  if (!window) return 0;
+  const [fy, fm] = window.from.split('-').map(Number);
+  const [uy, um] = window.until.split('-').map(Number);
   return Math.max(0, (uy - fy) * 12 + (um - fm) + 1);
 }
 
 module.exports = {
+  accrualWindow,
   normalizeCycleStartMonth,
   effectiveCycleStartMonth,
   cycleFor,
