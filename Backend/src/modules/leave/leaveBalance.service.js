@@ -120,7 +120,7 @@ function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leav
 // starts on or before the 15th AND no earlier balance of this same leave type
 // already covered that month (e.g. the same type on the probation roster,
 // which credited it). After the 15th it starts with next month.
-async function creditsStartMonth({ employeeId, leaveTypeId, periodStart, dateOfJoining, transaction }) {
+async function creditsStartMonth({ employeeId, leaveTypeId, periodStart, dateOfJoining, excludeId, transaction }) {
   if (!periodStart || periodStart.endsWith('-01') || periodStart === dateOfJoining) return false;
   if (Number(periodStart.slice(8, 10)) > 15) return false;
   const monthStart = `${periodStart.slice(0, 7)}-01`;
@@ -131,6 +131,7 @@ async function creditsStartMonth({ employeeId, leaveTypeId, periodStart, dateOfJ
       month: null,
       periodStart: { [Op.lt]: periodStart },
       [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: monthStart } }],
+      ...(excludeId ? { id: { [Op.ne]: excludeId } } : {}),
     },
     attributes: ['id'],
     transaction,
@@ -351,6 +352,117 @@ async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr }) {
   if (Number(balance.allotted) !== allotted) {
     await balance.update({ allotted, balance: round2(allotted - Number(balance.used)) });
   }
+}
+
+// A balance row's period is fixed when the row is created. If the
+// employee's joining date / employment type / probation length is set or
+// corrected afterwards, the row kept the old dates (e.g. a Probation
+// employee joined 14 May still on a 1 Jan – 31 Dec row, so monthly accrual
+// counted from January). This moves the employee's CURRENT year-grain rows
+// onto the period they should be on as of asOfStr, then recomputes a
+// 'monthly' row's allotted amount (yearly rows keep theirs). `used` is never
+// touched.
+//
+// Deliberately conservative — a row is left alone when:
+//   - the yearly cycle itself differs (a "Yearly Roster Update" change only
+//     applies from the next cycle, by design);
+//   - another live row of the same leave type overlaps the target period
+//     (would need a merge, not a re-key).
+// dryRun: report what would change without writing. Returns the changes.
+async function realignEmployeeLeaveBalances({ employeeId, asOfStr, dryRun = false } = {}) {
+  const asOf = asOfStr || dateOnly(toBusinessLocal());
+  const employee = await db.Employee.findOne({ where: { id: employeeId } });
+  if (!employee || !employee.dateOfJoining) return [];
+  const expected = await resolvePeriodForEmployee(employee, asOf);
+  if (!expected) return [];
+
+  const rows = await db.LeaveBalance.findAll({
+    where: {
+      employeeId,
+      month: null,
+      periodStart: { [Op.lte]: asOf },
+      [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: asOf } }],
+    },
+  });
+
+  const changes = [];
+  for (const row of rows) {
+    let targetStart;
+    let targetEnd;
+    if (expected.kind === 'probation') {
+      targetStart = expected.periodStart;
+      targetEnd = expected.periodEnd; // null while still in probation
+    } else {
+      // Same cycle only (same end date) — just the start moved (DOJ /
+      // confirmation inside the cycle).
+      if (row.periodEnd !== expected.periodEnd) continue;
+      targetStart = expected.periodStart;
+      targetEnd = expected.periodEnd;
+    }
+    if (!targetStart || (row.periodStart === targetStart && row.periodEnd === targetEnd)) continue;
+
+    const overlapping = await db.LeaveBalance.findOne({
+      where: {
+        employeeId,
+        leaveTypeId: row.leaveTypeId,
+        month: null,
+        id: { [Op.ne]: row.id },
+        [Op.and]: [
+          { [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: targetStart } }] },
+          ...(targetEnd ? [{ periodStart: { [Op.lte]: targetEnd } }] : []),
+        ],
+      },
+      attributes: ['id'],
+    });
+    if (overlapping) continue;
+
+    const leaveType = await db.LeaveType.findOne({ where: { id: row.leaveTypeId } });
+    const policy = leaveType
+      ? await resolveLeavePolicy({ companyId: leaveType.companyId, leaveTypeId: row.leaveTypeId, rosterGroupId: employee.rosterGroupId })
+      : null;
+
+    const change = {
+      balanceId: row.id,
+      leaveTypeId: row.leaveTypeId,
+      leaveTypeName: leaveType?.name,
+      from: { periodStart: row.periodStart, periodEnd: row.periodEnd, allotted: Number(row.allotted) },
+      to: { periodStart: targetStart, periodEnd: targetEnd, allotted: Number(row.allotted) },
+      used: Number(row.used),
+    };
+
+    if (policy?.accrual === 'monthly') {
+      const rowPeriod = { ...expected, periodStart: targetStart, periodEnd: targetEnd };
+      const accrued = computeAllottedForPolicy({
+        policy,
+        period: rowPeriod,
+        dateOfJoining: employee.dateOfJoining,
+        dateStr: asOf,
+        // DOJ-start / probation rows count their first month by the normal
+        // joiner rule; a mid-month confirmation start is decided like a new
+        // roster (on/before the 15th, not already credited).
+        creditStartMonth: await creditsStartMonth({
+          employeeId,
+          leaveTypeId: row.leaveTypeId,
+          periodStart: targetStart,
+          dateOfJoining: employee.dateOfJoining,
+          excludeId: row.id,
+        }),
+      });
+      change.to.allotted = round2(accrued + Number(row.carriedForward || 0));
+    }
+    changes.push(change);
+
+    if (!dryRun) {
+      await row.update({
+        periodStart: targetStart,
+        periodEnd: targetEnd,
+        year: Number(targetStart.slice(0, 4)),
+        allotted: change.to.allotted,
+        balance: round2(change.to.allotted - Number(row.used)),
+      });
+    }
+  }
+  return changes;
 }
 
 // A 'yearly'-accrual balance is otherwise never written until something
@@ -668,4 +780,5 @@ module.exports = {
   computeAllottedForPolicy,
   carryAmount,
   refreshMonthlyAccrual,
+  realignEmployeeLeaveBalances,
 };

@@ -558,6 +558,22 @@ async function updateEmployee({ companyId, id, updates, scopedBrandIds, actorUse
     await employee.reload();
   }
 
+  // Joining date / employment type / probation length set or corrected
+  // after balances exist: move the current balances onto the right period
+  // (else monthly accrual keeps counting from the old start). Best-effort.
+  if (
+    !confirmingTo &&
+    (patch.dateOfJoining !== undefined || patch.employmentType !== undefined ||
+      patch.probationPeriodDays !== undefined || patch.probationPeriodUnit !== undefined)
+  ) {
+    try {
+      const { realignEmployeeLeaveBalances } = require('../leave/leaveBalance.service');
+      await realignEmployeeLeaveBalances({ employeeId: employee.id });
+    } catch (err) {
+      console.error('[employee] leave balance realign failed', employee.id, err.message);
+    }
+  }
+
   if (patch.managerId !== undefined) {
     await syncPendingManagerApprovals({ companyId: employee.companyId, employeeId: employee.id });
   }

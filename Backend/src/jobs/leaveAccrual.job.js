@@ -2,7 +2,11 @@
 
 const { Op } = require('sequelize');
 const db = require('../models');
-const { getOrCreateBalance, refreshMonthlyAccrual } = require('../modules/leave/leaveBalance.service');
+const {
+  getOrCreateBalance,
+  refreshMonthlyAccrual,
+  realignEmployeeLeaveBalances,
+} = require('../modules/leave/leaveBalance.service');
 const { toBusinessLocal, dateOnly } = require('../utils/dateRange');
 
 // Repeatable job, scheduled '0 0 1 * *' (midnight on the 1st of each month)
@@ -18,6 +22,21 @@ const { toBusinessLocal, dateOnly } = require('../utils/dateRange');
 //     period (plus its carried-in amount). Idempotent.
 async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
   const asOfStr = dateOnly(asOf);
+
+  // Safety net: any current balance still on the wrong period (joining date
+  // / probation changed after it was created) is moved first, so the
+  // monthly recompute below counts from the right start.
+  const activeEmployees = await db.Employee.findAll({
+    where: { status: { [Op.in]: ['active', 'onboarding', 'on_notice'] } },
+    attributes: ['id'],
+  });
+  for (const { id } of activeEmployees) {
+    try {
+      await realignEmployeeLeaveBalances({ employeeId: id, asOfStr });
+    } catch (err) {
+      console.error('[leaveAccrual] realign failed', id, err.message);
+    }
+  }
 
   const policies = await db.LeavePolicy.findAll();
 
