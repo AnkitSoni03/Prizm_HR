@@ -260,6 +260,12 @@ export function LeavePolicyFormModal({
                 options={ACCRUAL_OPTIONS}
               />
             )}
+            {quotaMode === 'fixed' && policy && accrual === 'monthly' && policy.accrual === 'monthly' && (
+              <p className="-mt-2 text-xs text-ink-muted">
+                Changing the days per year applies from next month — leave already credited
+                (including this month) stays as it is.
+              </p>
+            )}
           </>
         )}
         <Input

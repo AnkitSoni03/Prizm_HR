@@ -44,6 +44,10 @@ module.exports = (sequelize, DataTypes) => {
         defaultValue: 'yearly',
       },
       applicableAfterDays: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+      // 'monthly' accrual only: [{ from: 'YYYY-MM', annualQuota }] — a quota
+      // change applies from next month. NULL = never changed. See
+      // utils/leaveQuotaHistory.js.
+      quotaHistory: { type: DataTypes.JSONB, allowNull: true },
     },
     {
       sequelize,

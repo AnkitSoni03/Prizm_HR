@@ -3,6 +3,8 @@
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
+const { toBusinessLocal, dateOnly } = require('../../utils/dateRange');
+const { historyAfterQuotaChange } = require('../../utils/leaveQuotaHistory');
 const {
   resolveCreateBrandId,
   assertBrandBelongsToCompany,
@@ -195,8 +197,33 @@ async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
         })
       : {};
 
+  // 'monthly' accrual: a quota change applies from next month — months
+  // already credited (incl. the current one) keep their rate, so no
+  // employee's existing balance changes. Switching accrual type or
+  // to/from unlimited is a different scheme: history is dropped then.
+  const nextAccrual = accrual !== undefined ? accrual : policy.accrual;
+  const nextUnlimited = quotaPatch.isUnlimited !== undefined ? quotaPatch.isUnlimited : policy.isUnlimited;
+  let historyPatch = {};
+  if (nextAccrual !== policy.accrual || nextUnlimited !== policy.isUnlimited) {
+    historyPatch = { quotaHistory: null };
+  } else if (
+    nextAccrual === 'monthly' &&
+    !nextUnlimited &&
+    quotaPatch.annualQuota !== undefined &&
+    Number(quotaPatch.annualQuota) !== Number(policy.annualQuota)
+  ) {
+    historyPatch = {
+      quotaHistory: historyAfterQuotaChange({
+        policy,
+        newQuota: quotaPatch.annualQuota,
+        todayStr: dateOnly(toBusinessLocal()),
+      }),
+    };
+  }
+
   await policy.update({
     ...quotaPatch,
+    ...historyPatch,
     ...(accrual !== undefined && { accrual }),
     ...(applicableAfterDays !== undefined && { applicableAfterDays }),
     ...(brandId !== undefined && { brandId: nextBrandId }),
