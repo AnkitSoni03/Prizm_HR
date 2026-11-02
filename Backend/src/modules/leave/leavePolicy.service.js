@@ -123,6 +123,24 @@ async function resolveQuota({ companyId, leaveTypeId, annualQuota, isUnlimited }
   return { annualQuota: quota, isUnlimited: false };
 }
 
+const PARTIAL_YEAR_MODES = ['months_remaining', 'full'];
+
+function assertPartialYearMode(mode) {
+  if (mode !== undefined && !PARTIAL_YEAR_MODES.includes(mode)) {
+    throw new HttpError(400, "partialYearMode must be 'months_remaining' or 'full'");
+  }
+}
+
+// A Yearly policy with a fixed quota must say what a mid-year start gets.
+// Not needed for Monthly / Monthly reset, Unlimited, or a linked type (no
+// quota of its own).
+async function assertPartialYearModeChosen({ companyId, leaveTypeId, accrual, isUnlimited, mode }) {
+  if (accrual !== 'yearly' || isUnlimited || mode) return;
+  const leaveType = await db.LeaveType.findOne({ where: { id: leaveTypeId, companyId }, attributes: ['deductFromLeaveTypeId'] });
+  if (leaveType && leaveType.deductFromLeaveTypeId) return;
+  throw new HttpError(400, 'Choose what an employee joining mid-year gets: Based on months remaining, or Complete leaves');
+}
+
 async function createLeavePolicy({
   companyId,
   brandId,
@@ -133,11 +151,20 @@ async function createLeavePolicy({
   isUnlimited,
   accrual,
   applicableAfterDays,
+  partialYearMode,
 }) {
+  assertPartialYearMode(partialYearMode);
   const resolvedBrandId = resolveCreateBrandId({ brandId, scopedBrandIds });
   await assertBrandBelongsToCompany({ brandId: resolvedBrandId, companyId });
   await assertBelongsToCompany(db.LeaveType, leaveTypeId, companyId, 'Leave type');
   const quota = await resolveQuota({ companyId, leaveTypeId, annualQuota, isUnlimited });
+  await assertPartialYearModeChosen({
+    companyId,
+    leaveTypeId,
+    accrual: accrual || 'yearly',
+    isUnlimited: quota.isUnlimited,
+    mode: partialYearMode,
+  });
   await assertRosterGroupsBelongToCompany(rosterGroupIds, companyId, resolvedBrandId);
   await assertNoLeaveTypeConflict({ companyId, brandId: resolvedBrandId, leaveTypeId, rosterGroupIds, excludePolicyId: null });
 
@@ -148,6 +175,7 @@ async function createLeavePolicy({
     ...quota,
     accrual: accrual || 'yearly',
     applicableAfterDays: applicableAfterDays || 0,
+    ...(partialYearMode !== undefined && { partialYearMode }),
   });
 
   if (rosterGroupIds !== undefined) await syncLeavePolicyRosterGroups(policy.id, leaveTypeId, rosterGroupIds);
@@ -156,7 +184,8 @@ async function createLeavePolicy({
 
 async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
   const policy = await getLeavePolicyForWrite({ companyId, id, scopedBrandIds });
-  const { annualQuota, isUnlimited, accrual, applicableAfterDays, rosterGroupIds, brandId } = updates;
+  const { annualQuota, isUnlimited, accrual, applicableAfterDays, rosterGroupIds, brandId, partialYearMode } = updates;
+  assertPartialYearMode(partialYearMode);
 
   assertBrandReassignAllowed({ scopedBrandIds, brandIdProvided: brandId !== undefined });
   if (brandId !== undefined) await assertBrandBelongsToCompany({ brandId, companyId });
@@ -203,6 +232,13 @@ async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
   // to/from unlimited is a different scheme: history is dropped then.
   const nextAccrual = accrual !== undefined ? accrual : policy.accrual;
   const nextUnlimited = quotaPatch.isUnlimited !== undefined ? quotaPatch.isUnlimited : policy.isUnlimited;
+  await assertPartialYearModeChosen({
+    companyId,
+    leaveTypeId: policy.leaveTypeId,
+    accrual: nextAccrual,
+    isUnlimited: nextUnlimited,
+    mode: partialYearMode !== undefined ? partialYearMode : policy.partialYearMode,
+  });
   let historyPatch = {};
   if (nextAccrual !== policy.accrual || nextUnlimited !== policy.isUnlimited) {
     historyPatch = { quotaHistory: null };
@@ -226,6 +262,7 @@ async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
     ...historyPatch,
     ...(accrual !== undefined && { accrual }),
     ...(applicableAfterDays !== undefined && { applicableAfterDays }),
+    ...(partialYearMode !== undefined && { partialYearMode }),
     ...(brandId !== undefined && { brandId: nextBrandId }),
   });
 

@@ -26,7 +26,8 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
-    const { leaveTypeId, rosterGroupIds, annualQuota, isUnlimited, accrual, applicableAfterDays, brandId } = req.body;
+    const { leaveTypeId, rosterGroupIds, annualQuota, isUnlimited, accrual, applicableAfterDays, brandId, partialYearMode } =
+      req.body;
     // annualQuota itself is validated in the service (it's not needed for
     // an Unlimited quota or a linked leave type).
     if (!leaveTypeId) {
@@ -43,6 +44,7 @@ async function create(req, res, next) {
       isUnlimited: !!isUnlimited,
       accrual,
       applicableAfterDays,
+      partialYearMode,
     });
     res.status(201).json({ data: policy });
   } catch (err) {

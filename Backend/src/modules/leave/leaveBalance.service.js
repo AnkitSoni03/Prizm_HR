@@ -100,7 +100,7 @@ function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leav
   }
   if (!period) return 0;
   if (policy.accrual === 'yearly') {
-    return prorateYearlyQuota({ quota: policy.annualQuota, period });
+    return prorateYearlyQuota({ quota: policy.annualQuota, period, mode: policy.partialYearMode });
   }
   const asOf = dateStr || dateOnly(toBusinessLocal());
   // Quota was changed at some point: each month is credited at the rate in

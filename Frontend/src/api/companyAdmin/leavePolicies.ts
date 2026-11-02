@@ -18,9 +18,14 @@ export interface LeavePolicy {
   // Unlimited quota — annualQuota is ignored (0) and no balance limit applies.
   isUnlimited: boolean;
   accrual: 'yearly' | 'monthly' | 'monthly_reset';
+  // Yearly accrual only: what a mid-year start (joining / roster assigned)
+  // gets — the complete quota, or quota × months left ÷ 12.
+  partialYearMode?: PartialYearMode;
   applicableAfterDays: number;
   leaveType?: LeaveType;
 }
+
+export type PartialYearMode = 'months_remaining' | 'full';
 
 export interface LeavePolicyListResult {
   data: LeavePolicy[];
@@ -49,6 +54,7 @@ export async function createLeavePolicy(input: {
   annualQuota: number;
   isUnlimited?: boolean;
   accrual?: 'yearly' | 'monthly' | 'monthly_reset';
+  partialYearMode?: PartialYearMode;
   applicableAfterDays?: number;
   // Omit (or '') for a Leave Policy shared across every Brand — see
   // utils/brandScope.js.
@@ -64,6 +70,7 @@ export async function updateLeavePolicy(
     annualQuota: number;
     isUnlimited: boolean;
     accrual: 'yearly' | 'monthly' | 'monthly_reset';
+    partialYearMode: PartialYearMode;
     applicableAfterDays: number;
     rosterGroupIds: string[];
     brandId: string;

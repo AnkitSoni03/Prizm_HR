@@ -48,6 +48,16 @@ module.exports = (sequelize, DataTypes) => {
       // change applies from next month. NULL = never changed. See
       // utils/leaveQuotaHistory.js.
       quotaHistory: { type: DataTypes.JSONB, allowNull: true },
+      // 'yearly' accrual only — a period starting mid-year gets
+      // 'months_remaining' (quota × months left ÷ 12) or 'full' (complete
+      // quota). Required for Yearly policies on create/edit; NULL = not
+      // chosen yet (pre-existing), calculated as 'months_remaining'. See
+      // utils/leavePeriod.js::prorateYearlyQuota.
+      partialYearMode: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        validate: { isIn: [['months_remaining', 'full']] },
+      },
     },
     {
       sequelize,

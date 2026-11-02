@@ -86,18 +86,30 @@ function daysInclusive(from, to) {
   return Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
 }
 
-// Yearly quota for a period: the full quota for a whole cycle, otherwise
-// prorated by days (rounded to the nearest 0.5) — e.g. 12/year over a
-// 180-day probation = 6, over 11 Apr–31 Dec = 8.5.
-function prorateYearlyQuota({ quota, period }) {
+// Months in from..to: the starting month counts in full; the last month only
+// if the period runs to its last day (2 Nov → 31 Mar = 5; a 6-month
+// probation 2 May → 1 Nov = 6, not 7).
+function monthsInclusive(from, to) {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  const endsOnMonthEnd = addDays(to, 1).slice(8, 10) === '01';
+  return Math.max(1, (ty - fy) * 12 + (tm - fm) + (endsOnMonthEnd ? 1 : 0));
+}
+
+// Yearly quota for a period (the policy's partial_year_mode):
+//   'full'             — the complete quota, however late the period starts;
+//   'months_remaining' — quota × months in the period ÷ 12, rounded to the
+//                        nearest 0.5; the starting month counts in full
+//                        (joined 2 Nov, cycle ends 31 Mar → 5 months).
+// A whole cycle always gets the full quota.
+function prorateYearlyQuota({ quota, period, mode = 'months_remaining' }) {
   const full = Number(quota);
-  if (!period.accrualEnd) return full;
+  if (!period.accrualEnd || mode === 'full') return full;
   const { cycleStart, cycleEnd } = cycleFor(period.periodStart, period.cycleStartMonth);
-  const cycleDays = daysInclusive(cycleStart, cycleEnd);
-  const covered = daysInclusive(period.periodStart, period.accrualEnd);
-  if (covered <= 0) return 0;
-  if (covered === cycleDays) return full;
-  return Math.round(((full * covered) / cycleDays) * 2) / 2;
+  if (daysInclusive(period.periodStart, period.accrualEnd) <= 0) return 0;
+  if (period.periodStart === cycleStart && period.accrualEnd === cycleEnd) return full;
+  const months = monthsInclusive(period.periodStart, period.accrualEnd);
+  return Math.round(((full * months) / 12) * 2) / 2;
 }
 
 // Whole months credited so far in a period (monthly accrual): every calendar

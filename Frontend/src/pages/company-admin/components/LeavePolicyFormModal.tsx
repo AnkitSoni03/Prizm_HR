@@ -6,7 +6,12 @@ import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { RosterMultiSelect } from '../../../components/ui/RosterMultiSelect';
 import { useAuth } from '../../../context/auth-context';
-import { createLeavePolicy, updateLeavePolicy, type LeavePolicy } from '../../../api/companyAdmin/leavePolicies';
+import {
+  createLeavePolicy,
+  updateLeavePolicy,
+  type LeavePolicy,
+  type PartialYearMode,
+} from '../../../api/companyAdmin/leavePolicies';
 import { listRosterGroups, type RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { useIsBrandAdminPortal } from '../../../hooks/useIsBrandAdminPortal';
 import type { Brand } from '../../../api/tenancy';
@@ -33,9 +38,14 @@ interface LeavePolicyFormModalProps {
 }
 
 const ACCRUAL_OPTIONS = [
-  { value: 'yearly', label: 'Yearly — full quota available immediately' },
+  { value: 'yearly', label: 'Yearly — quota given at the start of each leave year' },
   { value: 'monthly', label: 'Monthly — quota accrues 1/12th each month' },
   { value: 'monthly_reset', label: 'Monthly reset — use-it-or-lose-it each month' },
+];
+
+const PARTIAL_YEAR_OPTIONS = [
+  { value: 'months_remaining', label: 'Based on months remaining (quota × months left ÷ 12)' },
+  { value: 'full', label: 'Complete leaves — full quota straight away' },
 ];
 
 export function LeavePolicyFormModal({
@@ -63,6 +73,9 @@ export function LeavePolicyFormModal({
   const [annualQuota, setAnnualQuota] = useState(policy && !policy.isUnlimited ? String(policy.annualQuota) : '');
   const [quotaMode, setQuotaMode] = useState<'fixed' | 'unlimited'>(policy?.isUnlimited ? 'unlimited' : 'fixed');
   const [accrual, setAccrual] = useState<LeavePolicy['accrual']>(policy?.accrual ?? 'yearly');
+  // '' = not chosen yet (new policy, or an older one saved before this
+  // option existed) — required for a Yearly policy, so the admin must pick.
+  const [partialYearMode, setPartialYearMode] = useState<PartialYearMode | ''>(policy?.partialYearMode ?? '');
   const [applicableAfterDays, setApplicableAfterDays] = useState(
     policy ? String(policy.applicableAfterDays) : '0'
   );
@@ -116,11 +129,19 @@ export function LeavePolicyFormModal({
       ? { annualQuota: 0, isUnlimited: true }
       : { annualQuota: Number(annualQuota), isUnlimited: false };
 
+  // Yearly + fixed quota must say what a mid-year start gets (required).
+  const needsPartialYearMode = !isLinkedType && quotaMode === 'fixed' && accrual === 'yearly';
+  const partialYearPatch = partialYearMode ? { partialYearMode } : {};
+
   const availableRosterGroups = brandId ? rosterGroups.filter((rg) => rg.brandId === brandId) : rosterGroups;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    if (needsPartialYearMode && !partialYearMode) {
+      setError('Choose what an employee joining mid-year gets: Based on months remaining, or Complete leaves.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       // Only ever sent when the field below is actually rendered/editable
@@ -131,6 +152,7 @@ export function LeavePolicyFormModal({
         await updateLeavePolicy(policy.id, {
           ...quotaPayload,
           accrual,
+          ...partialYearPatch,
           applicableAfterDays: Number(applicableAfterDays) || 0,
           rosterGroupIds,
           ...brandPatch,
@@ -141,6 +163,7 @@ export function LeavePolicyFormModal({
           rosterGroupIds,
           ...quotaPayload,
           accrual,
+          ...partialYearPatch,
           applicableAfterDays: Number(applicableAfterDays) || 0,
           ...brandPatch,
         });
@@ -259,6 +282,22 @@ export function LeavePolicyFormModal({
                 onChange={(event) => setAccrual(event.target.value as LeavePolicy['accrual'])}
                 options={ACCRUAL_OPTIONS}
               />
+            )}
+            {quotaMode === 'fixed' && accrual === 'yearly' && (
+              <>
+                <Select
+                  id="leave-policy-partial-year"
+                  label="Joining / roster assigned mid-year"
+                  required
+                  placeholder="Select one…"
+                  value={partialYearMode}
+                  onChange={(event) => setPartialYearMode(event.target.value as PartialYearMode)}
+                  options={PARTIAL_YEAR_OPTIONS}
+                />
+                <p className="-mt-2 text-xs text-ink-muted">
+                  Applies to new balances only — leave already given stays as it is.
+                </p>
+              </>
             )}
             {quotaMode === 'fixed' && policy && accrual === 'monthly' && policy.accrual === 'monthly' && (
               <p className="-mt-2 text-xs text-ink-muted">
