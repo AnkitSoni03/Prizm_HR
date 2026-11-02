@@ -74,7 +74,7 @@ async function resolveLeavePolicy({ companyId, leaveTypeId, rosterGroupId, trans
 //   - monthly: quota/12 per month credited so far (dateStr = "as of");
 //   - monthly_reset: the flat amount for that calendar month's own row.
 // `leaveType` is only needed to detect the "Week Off Leaves" bucket.
-function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leaveType, weekOffBasisDays }) {
+function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leaveType, weekOffBasisDays, creditStartMonth = false }) {
   if (!policy) return 0;
 
   if (policy.accrual === 'monthly_reset') {
@@ -107,12 +107,35 @@ function computeAllottedForPolicy({ policy, period, dateOfJoining, dateStr, leav
   // force that month (a change applies from the next month only), so months
   // already credited never shrink or grow.
   if (hasQuotaHistory(policy)) {
-    const window = accrualWindow({ period, dateOfJoining, asOf });
+    const window = accrualWindow({ period, dateOfJoining, asOf, creditStartMonth });
     if (!window) return 0;
     return round2(monthlyAccrualSum(policy, ymOf(window.from), ymOf(window.until)));
   }
-  const months = monthsAccruedInPeriod({ period, dateOfJoining, asOf });
+  const months = monthsAccruedInPeriod({ period, dateOfJoining, asOf, creditStartMonth });
   return round2((Number(policy.annualQuota) / 12) * months);
+}
+
+// Monthly accrual, period starting mid-month (new roster after probation,
+// not the joining day): the starting month is credited too when the period
+// starts on or before the 15th AND no earlier balance of this same leave type
+// already covered that month (e.g. the same type on the probation roster,
+// which credited it). After the 15th it starts with next month.
+async function creditsStartMonth({ employeeId, leaveTypeId, periodStart, dateOfJoining, transaction }) {
+  if (!periodStart || periodStart.endsWith('-01') || periodStart === dateOfJoining) return false;
+  if (Number(periodStart.slice(8, 10)) > 15) return false;
+  const monthStart = `${periodStart.slice(0, 7)}-01`;
+  const earlier = await db.LeaveBalance.findOne({
+    where: {
+      employeeId,
+      leaveTypeId,
+      month: null,
+      periodStart: { [Op.lt]: periodStart },
+      [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: monthStart } }],
+    },
+    attributes: ['id'],
+    transaction,
+  });
+  return !earlier;
 }
 
 // How much of a previous row's remainder carries into the next period —
@@ -257,6 +280,15 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
     dateStr: asOfStr,
     leaveType,
     weekOffBasisDays: await weekOffBasisDays(),
+    creditStartMonth:
+      policy?.accrual === 'monthly' &&
+      (await creditsStartMonth({
+        employeeId,
+        leaveTypeId,
+        periodStart: period.periodStart,
+        dateOfJoining: employee.dateOfJoining,
+        transaction,
+      })),
   });
 
   // The period right before this one: close it if it was left open (a
@@ -302,7 +334,19 @@ async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr }) {
   const period = await resolvePeriodForEmployee(employee, asOfStr);
   // The row decides the window; the resolved period supplies its cycle.
   const rowPeriod = { ...period, periodStart: balance.periodStart, periodEnd: balance.periodEnd };
-  const accrued = computeAllottedForPolicy({ policy, period: rowPeriod, dateOfJoining: employee.dateOfJoining, dateStr: asOfStr });
+  const creditStartMonth = await creditsStartMonth({
+    employeeId: balance.employeeId,
+    leaveTypeId: balance.leaveTypeId,
+    periodStart: balance.periodStart,
+    dateOfJoining: employee.dateOfJoining,
+  });
+  const accrued = computeAllottedForPolicy({
+    policy,
+    period: rowPeriod,
+    dateOfJoining: employee.dateOfJoining,
+    dateStr: asOfStr,
+    creditStartMonth,
+  });
   const allotted = round2(accrued + Number(balance.carriedForward || 0));
   if (Number(balance.allotted) !== allotted) {
     await balance.update({ allotted, balance: round2(allotted - Number(balance.used)) });

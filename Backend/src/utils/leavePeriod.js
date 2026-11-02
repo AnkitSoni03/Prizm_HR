@@ -121,9 +121,13 @@ function prorateYearlyQuota({ quota, period, mode = 'months_remaining' }) {
 // starts with the next month, since the earlier period already credited it.
 // The same window as { from, until } dates (null when nothing accrued yet) —
 // used to credit each month at its own rate (utils/leaveQuotaHistory.js).
-function accrualWindow({ period, dateOfJoining, asOf }) {
+// creditStartMonth: a period starting mid-month (new roster / confirmation)
+// that starts on or before the 15th, for a leave type the employee wasn't
+// already credited for that month — that month counts too (see
+// leaveBalance.service.js::creditsStartMonth). Otherwise it starts next month.
+function accrualWindow({ period, dateOfJoining, asOf, creditStartMonth = false }) {
   let from = period.periodStart;
-  if (from && !from.endsWith('-01') && from !== dateOfJoining) {
+  if (from && !from.endsWith('-01') && from !== dateOfJoining && !creditStartMonth) {
     from = addMonths(`${from.slice(0, 7)}-01`, 1);
   }
   let until = asOf;
@@ -132,8 +136,8 @@ function accrualWindow({ period, dateOfJoining, asOf }) {
   return { from, until };
 }
 
-function monthsAccruedInPeriod({ period, dateOfJoining, asOf }) {
-  const window = accrualWindow({ period, dateOfJoining, asOf });
+function monthsAccruedInPeriod({ period, dateOfJoining, asOf, creditStartMonth = false }) {
+  const window = accrualWindow({ period, dateOfJoining, asOf, creditStartMonth });
   if (!window) return 0;
   const [fy, fm] = window.from.split('-').map(Number);
   const [uy, um] = window.until.split('-').map(Number);
