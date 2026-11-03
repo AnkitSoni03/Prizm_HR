@@ -1,5 +1,6 @@
 'use strict';
 
+const { Op } = require('sequelize');
 const db = require('../../models');
 const { HttpError } = require('../../utils/errors');
 const { assertRosterGroupsBelongToCompany } = require('../../utils/rosterGroupAssignment');
@@ -230,6 +231,7 @@ async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
   // already credited (incl. the current one) keep their rate, so no
   // employee's existing balance changes. Switching accrual type or
   // to/from unlimited is a different scheme: history is dropped then.
+  const previousAccrual = policy.accrual;
   const nextAccrual = accrual !== undefined ? accrual : policy.accrual;
   const nextUnlimited = quotaPatch.isUnlimited !== undefined ? quotaPatch.isUnlimited : policy.isUnlimited;
   await assertPartialYearModeChosen({
@@ -267,7 +269,37 @@ async function updateLeavePolicy({ companyId, id, updates, scopedBrandIds }) {
   });
 
   if (rosterGroupIds !== undefined) await syncLeavePolicyRosterGroups(id, policy.leaveTypeId, rosterGroupIds);
+  if (nextAccrual === 'monthly' && previousAccrual !== 'monthly') {
+    await markExistingCreditAsAccrued({ leavePolicyId: id, leaveTypeId: policy.leaveTypeId });
+  }
   return db.LeavePolicy.findOne({ where: { id }, include: READ_INCLUDES });
 }
 
-module.exports = { listLeavePolicies, getLeavePolicyForWrite, createLeavePolicy, updateLeavePolicy };
+// Switching a policy TO 'monthly' (e.g. from Yearly, where the whole year was
+// given upfront): what each employee already holds for the current period
+// counts as credited, so the monthly job adds nothing more until the monthly
+// rate actually catches up with it (it never lowers a balance) — instead of
+// adding monthly credit on top of a full yearly grant. Current year-grain
+// rows of employees on this policy's Rosters only.
+async function markExistingCreditAsAccrued({ leavePolicyId, leaveTypeId }) {
+  const today = dateOnly(toBusinessLocal());
+  const links = await db.RosterGroupLeavePolicy.findAll({ where: { leavePolicyId }, attributes: ['rosterGroupId'] });
+  const rosterGroupIds = links.map((l) => l.rosterGroupId);
+  if (rosterGroupIds.length === 0) return;
+  const employees = await db.Employee.findAll({ where: { rosterGroupId: { [Op.in]: rosterGroupIds } }, attributes: ['id'] });
+  if (employees.length === 0) return;
+  const rows = await db.LeaveBalance.findAll({
+    where: {
+      leaveTypeId,
+      employeeId: { [Op.in]: employees.map((e) => e.id) },
+      month: null,
+      periodStart: { [Op.lte]: today },
+      [Op.or]: [{ periodEnd: null }, { periodEnd: { [Op.gte]: today } }],
+    },
+  });
+  for (const row of rows) {
+    await row.update({ accruedCredited: Math.round((Number(row.allotted) - Number(row.carriedForward || 0)) * 100) / 100 });
+  }
+}
+
+module.exports = { listLeavePolicies, getLeavePolicyForWrite, createLeavePolicy, updateLeavePolicy, markExistingCreditAsAccrued };

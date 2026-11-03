@@ -1575,6 +1575,14 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   the type's carry-forward setting and cap (`leaveBalance.service.js::carryAmount`,
   `carryNegative`). Unpaid (LWP) types and month-grain (`monthly_reset`) rows unchanged. UI shows
   "N deducted (over-used last period)" in ESS Leave Balance + admin employee popup. Offline-tested.
+- ✅ First backend test suite (2026-11-03): `Backend/tests/leave-probation.test.js` (79 tests,
+  `npm test` = `node --test tests/*.test.js`) over probation end dates (backend + frontend parity),
+  leave periods, carry-forward, balance creation, monthly top-up, realign and a 3-month job run.
+  `tests/fakeDb.js` swaps the models for in-memory tables and points the DB config at a dead
+  address, so tests never reach a real DB. Fix found by it: a policy switched Yearly → Monthly
+  mid-year added monthly credit on top of the full yearly grant — `leavePolicy.service.js::
+  markExistingCreditAsAccrued` now counts the current grant as credited on the switch, and
+  `refreshMonthlyAccrual` never lowers a balance.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

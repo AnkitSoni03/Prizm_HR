@@ -378,7 +378,12 @@ async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr, basel
   // The row decides the window; the resolved period supplies its cycle.
   const rowPeriod = { ...period, periodStart: balance.periodStart, periodEnd: balance.periodEnd };
   const base = await creditedBaseline({ policy, rowPeriod, employee, row: balance, baselineAsOfStr });
-  const accrued = await monthlyAccrualFor({ policy, rowPeriod, employee, row: balance, dateStr: asOfStr });
+  let accrued = await monthlyAccrualFor({ policy, rowPeriod, employee, row: balance, dateStr: asOfStr });
+  // The monthly top-up only ever adds. Less than already credited (e.g. a
+  // policy switched from Yearly, whose full grant counts as credited) =
+  // nothing new yet; the credited mark stays where it is. (A joining-date
+  // correction lowers it through realignEmployeeLeaveBalances instead.)
+  if (accrued < base) accrued = base;
   const allotted = round2(Number(balance.allotted) + accrued - base);
   const untracked = balance.accruedCredited === null || balance.accruedCredited === undefined;
   if (Number(balance.allotted) !== allotted || untracked || Number(balance.accruedCredited) !== accrued) {
