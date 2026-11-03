@@ -1569,6 +1569,12 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   taken as "allotted already holds everything up to yesterday" (job) / today (employee edit), so
   existing balances are never changed, only topped up. `adjustLeaveBalance` untouched. Offline
   test with stubbed DB (10 checks); realign path not separately tested. **Migration not applied.**
+- ✅ Negative leave balance carries into the next period (2026-11-03): when a year-grain period
+  (yearly cycle, or probation → first cycle) ends below zero for a PAID leave type, the full
+  negative amount is carried into the new period as a deduction (`carriedForward` < 0), ignoring
+  the type's carry-forward setting and cap (`leaveBalance.service.js::carryAmount`,
+  `carryNegative`). Unpaid (LWP) types and month-grain (`monthly_reset`) rows unchanged. UI shows
+  "N deducted (over-used last period)" in ESS Leave Balance + admin employee popup. Offline-tested.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

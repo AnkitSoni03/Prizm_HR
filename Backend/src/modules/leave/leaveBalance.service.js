@@ -142,8 +142,15 @@ async function creditsStartMonth({ employeeId, leaveTypeId, periodStart, dateOfJ
 // How much of a previous row's remainder carries into the next period —
 // capped at the leave type's maxCarryForwardDays (null = uncapped), zero
 // when the type doesn't carry forward at all.
-function carryAmount(leaveType, remainder) {
-  if (!leaveType || !leaveType.carryForward || !(Number(remainder) > 0)) return 0;
+// carryNegative (year-grain rows only): a NEGATIVE remainder of a paid
+// leave type (more taken than earned) is carried in full as a deduction
+// from the next period — whatever the type's carry-forward setting or cap —
+// instead of being written off. Unpaid (LWP) types are allowed to go
+// negative by design, so theirs is never carried.
+function carryAmount(leaveType, remainder, { carryNegative = false } = {}) {
+  if (!leaveType) return 0;
+  if (carryNegative && Number(remainder) < 0 && leaveType.isPaid !== false) return round2(Number(remainder));
+  if (!leaveType.carryForward || !(Number(remainder) > 0)) return 0;
   const cap = leaveType.maxCarryForwardDays;
   return round2(cap != null ? Math.min(Number(remainder), Number(cap)) : Number(remainder));
 }
@@ -310,7 +317,7 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
       await prev.update({ periodEnd: dayBefore }, { transaction });
     }
     if (period.kind === 'cycle' && prev.periodEnd >= dayBefore) {
-      carried = carryAmount(leaveType, prev.balance);
+      carried = carryAmount(leaveType, prev.balance, { carryNegative: true });
       allotted = round2(allotted + carried);
     }
   }

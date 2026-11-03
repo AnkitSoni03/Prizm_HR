@@ -1899,6 +1899,7 @@ export function EmployeeDetailModal({
                               <p className="text-xs text-ink-muted">
                                 {balancePeriodLabel(b)}
                                 {Number(b.carriedForward) > 0 && ` · ${Number(b.carriedForward)} carried forward`}
+                                {Number(b.carriedForward) < 0 && ` · ${-Number(b.carriedForward)} deducted (over-used last period)`}
                               </p>
                             )}
                           </div>

@@ -260,6 +260,7 @@ export function LeaveBalancePage() {
                       <p className="mb-3.5 text-[10px] text-ink-muted sm:mb-5 sm:text-xs">
                         {periodLabel ? `Period: ${periodLabel}` : ''}
                         {balance && Number(balance.carriedForward) > 0 ? ` · ${Number(balance.carriedForward)} carried forward` : ''}
+                        {balance && Number(balance.carriedForward) < 0 ? ` · ${-Number(balance.carriedForward)} deducted (over-used last period)` : ''}
                       </p>
                     </>
                   )}
