@@ -274,7 +274,7 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
   const sameStart = await db.LeaveBalance.findOne({ where: lookupWhere, transaction });
   if (sameStart) return sameStart;
 
-  let allotted = computeAllottedForPolicy({
+  const accrued = computeAllottedForPolicy({
     policy,
     period,
     dateOfJoining: employee.dateOfJoining,
@@ -291,6 +291,7 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
         transaction,
       })),
   });
+  let allotted = accrued;
 
   // The period right before this one: close it if it was left open (a
   // probation period ends the day before this one starts), and — when the
@@ -322,35 +323,59 @@ async function getOrCreateBalance({ employeeId, leaveTypeId, dateStr, year, tran
       periodEnd: period.periodEnd,
       allotted,
       carriedForward: carried,
+      accruedCredited: policy?.accrual === 'monthly' ? accrued : null,
       balance: allotted,
     },
     lookupWhere
   );
 }
 
-// Monthly accrual top-up for one year-grain row (jobs/leaveAccrual.job.js):
-// recomputes what the policy has accrued in the row's period as of
-// asOfStr, keeping the carried-in amount on top. Idempotent.
-async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr }) {
-  const period = await resolvePeriodForEmployee(employee, asOfStr);
-  // The row decides the window; the resolved period supplies its cycle.
-  const rowPeriod = { ...period, periodStart: balance.periodStart, periodEnd: balance.periodEnd };
+// What the policy has accrued in a 'monthly' row's period as of dateStr
+// (carry-forward not included). rowPeriod: the resolved period with the
+// row's own start/end.
+async function monthlyAccrualFor({ policy, rowPeriod, employee, row, dateStr }) {
   const creditStartMonth = await creditsStartMonth({
-    employeeId: balance.employeeId,
-    leaveTypeId: balance.leaveTypeId,
-    periodStart: balance.periodStart,
+    employeeId: row.employeeId,
+    leaveTypeId: row.leaveTypeId,
+    periodStart: rowPeriod.periodStart,
     dateOfJoining: employee.dateOfJoining,
+    excludeId: row.id,
   });
-  const accrued = computeAllottedForPolicy({
+  return computeAllottedForPolicy({
     policy,
     period: rowPeriod,
     dateOfJoining: employee.dateOfJoining,
-    dateStr: asOfStr,
+    dateStr,
     creditStartMonth,
   });
-  const allotted = round2(accrued + Number(balance.carriedForward || 0));
-  if (Number(balance.allotted) !== allotted) {
-    await balance.update({ allotted, balance: round2(allotted - Number(balance.used)) });
+}
+
+// How much of a row's `allotted` the system has already credited. A row
+// from before accrued_credited existed (NULL) is taken to hold everything
+// credited up to baselineAsOfStr — i.e. whatever is in `allotted` now
+// (including any manual correction) is kept as-is.
+async function creditedBaseline({ policy, rowPeriod, employee, row, baselineAsOfStr }) {
+  if (row.accruedCredited !== null && row.accruedCredited !== undefined) return Number(row.accruedCredited);
+  const dateStr = baselineAsOfStr < row.periodStart ? row.periodStart : baselineAsOfStr;
+  return monthlyAccrualFor({ policy, rowPeriod, employee, row, dateStr });
+}
+
+// Monthly accrual top-up for one year-grain row (jobs/leaveAccrual.job.js):
+// adds only what has newly accrued since the last credit on top of the
+// current allotted — never recomputes allotted from scratch, so a manual
+// correction or extra days given by an admin stay. Idempotent.
+// baselineAsOfStr: for a row not tracked yet, the date its allotted is
+// assumed to be credited up to (the job passes the day before the 1st).
+async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr, baselineAsOfStr = asOfStr }) {
+  const period = await resolvePeriodForEmployee(employee, asOfStr);
+  // The row decides the window; the resolved period supplies its cycle.
+  const rowPeriod = { ...period, periodStart: balance.periodStart, periodEnd: balance.periodEnd };
+  const base = await creditedBaseline({ policy, rowPeriod, employee, row: balance, baselineAsOfStr });
+  const accrued = await monthlyAccrualFor({ policy, rowPeriod, employee, row: balance, dateStr: asOfStr });
+  const allotted = round2(Number(balance.allotted) + accrued - base);
+  const untracked = balance.accruedCredited === null || balance.accruedCredited === undefined;
+  if (Number(balance.allotted) !== allotted || untracked || Number(balance.accruedCredited) !== accrued) {
+    await balance.update({ allotted, accruedCredited: accrued, balance: round2(allotted - Number(balance.used)) });
   }
 }
 
@@ -360,8 +385,9 @@ async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr }) {
 // employee joined 14 May still on a 1 Jan – 31 Dec row, so monthly accrual
 // counted from January). This moves the employee's CURRENT year-grain rows
 // onto the period they should be on as of asOfStr, then recomputes a
-// 'monthly' row's allotted amount (yearly rows keep theirs). `used` is never
-// touched.
+// 'monthly' row's credit for the new period, applied as a difference on top
+// of the current allotted so manual corrections stay (yearly rows keep their
+// amount). `used` is never touched.
 //
 // Deliberately conservative — a row is left alone when:
 //   - the yearly cycle itself differs (a "Yearly Roster Update" change only
@@ -369,8 +395,9 @@ async function refreshMonthlyAccrual({ balance, policy, employee, asOfStr }) {
 //   - another live row of the same leave type overlaps the target period
 //     (would need a merge, not a re-key).
 // dryRun: report what would change without writing. Returns the changes.
-async function realignEmployeeLeaveBalances({ employeeId, asOfStr, dryRun = false } = {}) {
+async function realignEmployeeLeaveBalances({ employeeId, asOfStr, baselineAsOfStr, dryRun = false } = {}) {
   const asOf = asOfStr || dateOnly(toBusinessLocal());
+  if (!baselineAsOfStr) baselineAsOfStr = asOf;
   const employee = await db.Employee.findOne({ where: { id: employeeId } });
   if (!employee || !employee.dateOfJoining) return [];
   const expected = await resolvePeriodForEmployee(employee, asOf);
@@ -430,25 +457,18 @@ async function realignEmployeeLeaveBalances({ employeeId, asOfStr, dryRun = fals
       used: Number(row.used),
     };
 
+    let accruedCredited = row.accruedCredited;
     if (policy?.accrual === 'monthly') {
+      // Only the difference the new period makes is applied on top of the
+      // current allotted — a manual correction / extra days stay.
+      const oldPeriod = { ...expected, periodStart: row.periodStart, periodEnd: row.periodEnd };
+      const base = await creditedBaseline({ policy, rowPeriod: oldPeriod, employee, row, baselineAsOfStr });
+      // DOJ-start / probation rows count their first month by the normal
+      // joiner rule; a mid-month confirmation start is decided like a new
+      // roster (on/before the 15th, not already credited).
       const rowPeriod = { ...expected, periodStart: targetStart, periodEnd: targetEnd };
-      const accrued = computeAllottedForPolicy({
-        policy,
-        period: rowPeriod,
-        dateOfJoining: employee.dateOfJoining,
-        dateStr: asOf,
-        // DOJ-start / probation rows count their first month by the normal
-        // joiner rule; a mid-month confirmation start is decided like a new
-        // roster (on/before the 15th, not already credited).
-        creditStartMonth: await creditsStartMonth({
-          employeeId,
-          leaveTypeId: row.leaveTypeId,
-          periodStart: targetStart,
-          dateOfJoining: employee.dateOfJoining,
-          excludeId: row.id,
-        }),
-      });
-      change.to.allotted = round2(accrued + Number(row.carriedForward || 0));
+      accruedCredited = await monthlyAccrualFor({ policy, rowPeriod, employee, row, dateStr: asOf });
+      change.to.allotted = round2(Number(row.allotted) + accruedCredited - base);
     }
     changes.push(change);
 
@@ -458,6 +478,7 @@ async function realignEmployeeLeaveBalances({ employeeId, asOfStr, dryRun = fals
         periodEnd: targetEnd,
         year: Number(targetStart.slice(0, 4)),
         allotted: change.to.allotted,
+        accruedCredited,
         balance: round2(change.to.allotted - Number(row.used)),
       });
     }

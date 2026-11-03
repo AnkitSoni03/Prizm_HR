@@ -1548,6 +1548,27 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   Group Admin structurally, scoped via `getEmployeeForWrite`; employee notified).
   `registerFaceProfile` 403s `FACE_RETAKE_NOT_ALLOWED` while locked and re-locks after a
   successful re-registration. First-time registration unaffected. **Migration not applied.**
+- ✅ Probation end on month end, 15th cut-off (2026-11-03): a months-based Probation/Intern
+  period now always ends on a month's last day — joined on/before the 15th, the joining month
+  is month 1 (10 Mar + 6 → 31 Aug); after the 15th, counting starts next month (20 Mar + 6 →
+  30 Sep). Days-based periods unchanged. `utils/probation.js::computeProbationEndDate`
+  (+ `probationStartsNextMonth`), mirrored in `Frontend/src/utils/probation.ts`; reminders,
+  auto-confirmation + queued roster switch and the probation leave period all follow it, and
+  it applies to current probationers too (computed live). Leave: a Probation/Intern period of
+  an after-15th joiner earns nothing for the joining month (`leavePeriod.js::leaveStartOf`,
+  used by `accrualWindow` + `prorateYearlyQuota`); Full-time joiners unchanged. Existing
+  monthly probation rows pick this up at the next monthly accrual run; existing yearly rows
+  keep their amount. Checked offline with node; tsc/eslint clean. Not live-tested.
+- ✅ Monthly leave keeps manual corrections + never counts before joining (2026-11-03):
+  (1) `leavePeriod.js::accrualWindow` clamps the start to the joining date, whatever start a
+  balance row has saved (an old 1 Jan row of a Sep joiner can no longer earn Jan–Aug, even when
+  realign skips it). (2) New `leave_balances.accrued_credited` (migration `20261103090000`,
+  additive, NULL for existing rows): what the system itself has credited. `refreshMonthlyAccrual`
+  and `realignEmployeeLeaveBalances` now ADD (new accrual − accrued_credited) on top of the
+  current `allotted` instead of recomputing it — admin edits / extra days stay. A NULL row is
+  taken as "allotted already holds everything up to yesterday" (job) / today (employee edit), so
+  existing balances are never changed, only topped up. `adjustLeaveBalance` untouched. Offline
+  test with stubbed DB (10 checks); realign path not separately tested. **Migration not applied.**
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

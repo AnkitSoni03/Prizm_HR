@@ -1,7 +1,7 @@
 'use strict';
 
 const { addDays } = require('./dateRange');
-const { PERIOD_EMPLOYMENT_TYPES, computeProbationEndDate, addMonths } = require('./probation');
+const { PERIOD_EMPLOYMENT_TYPES, computeProbationEndDate, probationStartsNextMonth, addMonths } = require('./probation');
 
 // Which leave "period" a date falls in for an employee — the unit a
 // year-grain leave_balances row covers (period_start / period_end):
@@ -96,6 +96,18 @@ function monthsInclusive(from, to) {
   return Math.max(1, (ty - fy) * 12 + (tm - fm) + (endsOnMonthEnd ? 1 : 0));
 }
 
+// First day leave is earned from in a period. A Probation/Intern period of
+// someone who joined after the 15th earns nothing for the joining month —
+// it starts on the 1st of the next month (same cut-off as the probation end
+// date, utils/probation.js). Every other period: its own start.
+function leaveStartOf(period) {
+  const start = period.periodStart;
+  if (period.kind === 'probation' && start && probationStartsNextMonth(start)) {
+    return addMonths(`${start.slice(0, 7)}-01`, 1);
+  }
+  return start;
+}
+
 // Yearly quota for a period (the policy's partial_year_mode):
 //   'full'             — the complete quota, however late the period starts;
 //   'months_remaining' — quota × months in the period ÷ 12, rounded to the
@@ -106,9 +118,10 @@ function prorateYearlyQuota({ quota, period, mode = 'months_remaining' }) {
   const full = Number(quota);
   if (!period.accrualEnd || mode === 'full') return full;
   const { cycleStart, cycleEnd } = cycleFor(period.periodStart, period.cycleStartMonth);
-  if (daysInclusive(period.periodStart, period.accrualEnd) <= 0) return 0;
-  if (period.periodStart === cycleStart && period.accrualEnd === cycleEnd) return full;
-  const months = monthsInclusive(period.periodStart, period.accrualEnd);
+  const from = leaveStartOf(period);
+  if (daysInclusive(from, period.accrualEnd) <= 0) return 0;
+  if (from === cycleStart && period.accrualEnd === cycleEnd) return full;
+  const months = monthsInclusive(from, period.accrualEnd);
   return Math.round(((full * months) / 12) * 2) / 2;
 }
 
@@ -126,7 +139,10 @@ function prorateYearlyQuota({ quota, period, mode = 'months_remaining' }) {
 // already credited for that month — that month counts too (see
 // leaveBalance.service.js::creditsStartMonth). Otherwise it starts next month.
 function accrualWindow({ period, dateOfJoining, asOf, creditStartMonth = false }) {
-  let from = period.periodStart;
+  let from = leaveStartOf(period);
+  // Never before joining — whatever start date a balance row has saved
+  // (an old row can still say 1 Jan for a September joiner).
+  if (from && dateOfJoining && from < dateOfJoining) from = dateOfJoining;
   if (from && !from.endsWith('-01') && from !== dateOfJoining && !creditStartMonth) {
     from = addMonths(`${from.slice(0, 7)}-01`, 1);
   }

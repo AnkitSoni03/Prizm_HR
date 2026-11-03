@@ -7,7 +7,7 @@ const {
   refreshMonthlyAccrual,
   realignEmployeeLeaveBalances,
 } = require('../modules/leave/leaveBalance.service');
-const { toBusinessLocal, dateOnly } = require('../utils/dateRange');
+const { toBusinessLocal, dateOnly, addDays } = require('../utils/dateRange');
 
 // Repeatable job, scheduled '0 0 1 * *' (midnight on the 1st of each month)
 // from src/server.js. Touches every active employee's balance for every
@@ -18,10 +18,15 @@ const { toBusinessLocal, dateOnly } = require('../utils/dateRange');
 //     "Yearly Roster Update" month without anyone opening the page; a
 //     Probation/Intern employee's single probation row is simply found again
 //     (no renewal while the period runs — utils/leavePeriod.js);
-//   - for 'monthly' accrual, recomputes what has accrued so far in the row's
-//     period (plus its carried-in amount). Idempotent.
+//   - for 'monthly' accrual, adds what has newly accrued since the last
+//     credit on top of the current allotted (manual corrections stay).
+//     Idempotent.
 async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
   const asOfStr = dateOnly(asOf);
+  // A balance not tracked yet (from before accrued_credited) is assumed to
+  // hold everything credited up to yesterday — today's run adds only this
+  // month's credit on top, keeping any manual correction.
+  const baselineAsOfStr = addDays(asOfStr, -1);
 
   // Safety net: any current balance still on the wrong period (joining date
   // / probation changed after it was created) is moved first, so the
@@ -32,7 +37,7 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
   });
   for (const { id } of activeEmployees) {
     try {
-      await realignEmployeeLeaveBalances({ employeeId: id, asOfStr });
+      await realignEmployeeLeaveBalances({ employeeId: id, asOfStr, baselineAsOfStr });
     } catch (err) {
       console.error('[leaveAccrual] realign failed', id, err.message);
     }
@@ -84,7 +89,7 @@ async function runLeaveAccrual({ asOf = toBusinessLocal() } = {}) {
       const balance = await getOrCreateBalance({ employeeId: employee.id, leaveTypeId: policy.leaveTypeId, dateStr: asOfStr });
 
       if (policy.accrual === 'monthly' && balance && balance.month === null) {
-        await refreshMonthlyAccrual({ balance, policy, employee, asOfStr });
+        await refreshMonthlyAccrual({ balance, policy, employee, asOfStr, baselineAsOfStr });
       }
       // 'monthly_reset' needs nothing further here — each calendar month
       // now gets its OWN balance row (see leaveBalance.service.js::
