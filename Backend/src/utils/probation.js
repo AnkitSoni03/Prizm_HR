@@ -31,14 +31,28 @@ function addMonths(dateStr, months) {
   return dateOnly(target);
 }
 
-// Last day of the period, DOJ counted as day 1: DOJ 2026-01-01 + 180 days
-// ends 2026-06-29; DOJ 2026-10-10 + 6 months ends 2027-04-09.
-// probationPeriodDays holds the length in probationPeriodUnit ('days' by
-// default). null when either input is missing.
+// Months-based periods always end on a month's last day: a joiner on or
+// before the 15th has the joining month counted as month 1 (the missing
+// 1–14 days count as served); a joiner after the 15th starts counting from
+// the next month (the rest of the joining month is extra).
+//   DOJ 10 Mar + 6 months → 31 Aug;  DOJ 20 Mar + 6 months → 30 Sep.
+const PROBATION_MONTH_CUTOFF_DAY = 15;
+
+function probationStartsNextMonth(dateOfJoining) {
+  return Number(String(dateOfJoining).slice(8, 10)) > PROBATION_MONTH_CUTOFF_DAY;
+}
+
+// Last day of the period. Days: DOJ counted as day 1 (DOJ 2026-01-01 + 180
+// days ends 2026-06-29). Months: see above. probationPeriodDays holds the
+// length in probationPeriodUnit ('days' by default). null when either input
+// is missing.
 function computeProbationEndDate({ dateOfJoining, probationPeriodDays, probationPeriodUnit }) {
   if (!dateOfJoining || !probationPeriodDays) return null;
   if (probationPeriodUnit === 'months') {
-    return addDays(addMonths(dateOfJoining, Number(probationPeriodDays)), -1);
+    const [y, m] = String(dateOfJoining).split('-').map(Number);
+    const months = Number(probationPeriodDays) + (probationStartsNextMonth(dateOfJoining) ? 1 : 0);
+    // Day 0 of month index (m - 1 + months) = last day of the month before it.
+    return dateOnly(new Date(y, m - 1 + months, 0));
   }
   return addDays(dateOfJoining, Number(probationPeriodDays) - 1);
 }
@@ -98,6 +112,7 @@ module.exports = {
   REMINDER_LEAD_DAYS,
   addMonths,
   computeProbationEndDate,
+  probationStartsNextMonth,
   probationAlertFor,
   describeRemaining,
   periodLabel,

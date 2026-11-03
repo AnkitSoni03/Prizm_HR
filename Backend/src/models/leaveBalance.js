@@ -31,6 +31,13 @@ module.exports = (sequelize, DataTypes) => {
       // leave type's maxCarryForwardDays). Monthly accrual recomputes
       // allotted as accrued + carriedForward.
       carriedForward: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+      // 'monthly' accrual only: how much of `allotted` the system has
+      // credited so far. The monthly job adds (new accrual − this) to
+      // allotted instead of recomputing allotted from scratch, so a manual
+      // correction / extra days set by an admin are kept. NULL = not tracked
+      // yet (rows from before this column) — taken as "allotted already
+      // holds everything credited up to now" the first time it's needed.
+      accruedCredited: { type: DataTypes.DECIMAL(5, 2), allowNull: true },
       allotted: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       used: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
       balance: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
