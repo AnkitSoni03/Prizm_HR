@@ -101,17 +101,26 @@ function reset() {
     LeavePolicy: makeTable({ isUnlimited: false, quotaHistory: null, partialYearMode: null }),
     RosterGroupLeavePolicy: makeTable(),
     LeaveBalance: makeTable({ used: 0, carriedForward: 0, accruedCredited: null, month: null }),
+    // shifts: non-empty by default, so the "shiftless roster → Week Off
+    // Leaves" provisioning (weekOffLeave.service.js) stays out of the way.
+    RosterGroup: makeTable({ brandId: null, shifts: [{ id: 1, weekOffLeaveBasisDays: null }] }),
+    RosterTransferLog: makeTable(),
   };
-  for (const name of ['Company', 'Employee', 'LeaveType', 'LeavePolicy', 'LeaveBalance']) {
+  for (const name of ['Company', 'Employee', 'LeaveType', 'LeavePolicy', 'LeaveBalance', 'RosterGroup', 'RosterTransferLog']) {
     Object.assign(db[name], t[name].model);
   }
-  // resolveLeavePolicy: findOne with include → { leavePolicy }.
+  const withIncludes = (link) => ({
+    ...link,
+    leavePolicy: t.LeavePolicy.rows.find((p) => String(p.id) === String(link.leavePolicyId)),
+    leaveType: t.LeaveType.rows.find((lt) => String(lt.id) === String(link.leaveTypeId)),
+  });
+  // findOne / findAll with include → { leavePolicy, leaveType } attached.
   Object.assign(db.RosterGroupLeavePolicy, t.RosterGroupLeavePolicy.model, {
     findOne: async ({ where }) => {
       const link = t.RosterGroupLeavePolicy.rows.find((r) => matches(r, where));
-      if (!link) return null;
-      return { ...link, leavePolicy: t.LeavePolicy.rows.find((p) => String(p.id) === String(link.leavePolicyId)) };
+      return link ? withIncludes(link) : null;
     },
+    findAll: async ({ where } = {}) => t.RosterGroupLeavePolicy.rows.filter((r) => matches(r, where)).map(withIncludes),
   });
   return t;
 }
