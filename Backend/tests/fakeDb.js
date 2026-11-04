@@ -125,4 +125,4 @@ function reset() {
   return t;
 }
 
-module.exports = { db, reset };
+module.exports = { db, reset, matches };

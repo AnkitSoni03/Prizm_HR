@@ -1583,6 +1583,14 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   mid-year added monthly credit on top of the full yearly grant — `leavePolicy.service.js::
   markExistingCreditAsAccrued` now counts the current grant as credited on the switch, and
   `refreshMonthlyAccrual` never lowers a balance.
+- ✅ Tenancy + RBAC tests (2026-11-04): `tests/tenancy.test.js` (real Sequelize SQL captured
+  offline — tenant hook, model audits, company/brand scope helpers) and `tests/rbac.test.js`
+  (grants, requirePermission, requireAuth incl. X-Acting-Company-Id, powerAuthority,
+  approvalAccess). Two known issues kept as `todo` tests: an explicit `companyId` in a `where`
+  replaces the hook's tenant filter; 8 per-employee tables (attendance, leave_requests,
+  leave_balances, od_requests, attendance_regularizations, comp_off_credits,
+  employee_documents, employee_shifts) have no `company_id`, so isolation depends on each
+  service adding an Employee include with `companyId`.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 
