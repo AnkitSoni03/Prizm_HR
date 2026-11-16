@@ -163,7 +163,7 @@ export function MyCompOffPage() {
             >
               <RequestCardRow label="Expires" value={c.expiryDate ? formatDisplayDate(c.expiryDate) : 'Never'} />
               {c.status === 'revoked' && c.revokeReason && (
-                <p className="line-clamp-3 text-sm text-danger">Reverted: {c.revokeReason}</p>
+                <p className="line-clamp-3 text-sm text-danger [overflow-wrap:anywhere]">Reverted: {c.revokeReason}</p>
               )}
               {expiringSoon && (
                 <div className="flex justify-end">

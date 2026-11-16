@@ -173,7 +173,7 @@ export function MyOdPage() {
               </div>
             )}
             {r.status === 'revoked' && r.revokeReason && (
-              <p className="line-clamp-3 text-sm text-danger">Reverted: {r.revokeReason}</p>
+              <p className="line-clamp-3 text-sm text-danger [overflow-wrap:anywhere]">Reverted: {r.revokeReason}</p>
             )}
             {r.status !== 'cancelled' && (
               <div className="border-t border-border pt-2">

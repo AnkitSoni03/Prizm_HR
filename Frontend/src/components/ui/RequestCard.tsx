@@ -45,7 +45,9 @@ export function RequestCardRow({ label, value }: { label: string; value: ReactNo
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="shrink-0 pt-px text-xs text-ink-muted">{label}</span>
-      <span className="text-right text-sm text-ink">{value}</span>
+      {/* min-w-0 + overflow-wrap:anywhere — a long unbroken value (an email
+          in a reason) must wrap inside the card instead of pushing past it. */}
+      <span className="min-w-0 text-right text-sm text-ink [overflow-wrap:anywhere]">{value}</span>
     </div>
   );
 }
@@ -98,7 +100,7 @@ export function RequestCardGrid<T>({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
       {items.map((item) => (
-        <div key={rowKey(item)}>{renderCard(item)}</div>
+        <div key={rowKey(item)} className="min-w-0">{renderCard(item)}</div>
       ))}
     </div>
   );
