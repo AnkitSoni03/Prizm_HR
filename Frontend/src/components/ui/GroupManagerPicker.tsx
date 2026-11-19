@@ -46,6 +46,14 @@ function toUnits(companies: ManagerCompanyOption[]): OrgUnit[] {
           isOwnCompany: company.isOwnCompany,
         });
       }
+      // Company-level employees of a Brand-mode company ("No Brand").
+      units.push({
+        key: `${company.id}:none`,
+        companyId: company.id,
+        brandId: 'none',
+        label: `${company.name} › No Brand`,
+        isOwnCompany: company.isOwnCompany,
+      });
     } else {
       units.push({ key: company.id, companyId: company.id, label: company.name, isOwnCompany: company.isOwnCompany });
     }

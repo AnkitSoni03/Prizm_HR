@@ -62,6 +62,7 @@ import type { Brand, Department, Designation, Employee } from '../../../api/tena
 import type { RosterPolicyGroup } from '../../../api/companyAdmin/rosterGroups';
 import { assignCompOffPolicy, listCompOffPolicies, type CompOffPolicy } from '../../../api/companyAdmin/compOffPolicies';
 import { INDIAN_STATES } from '../../../utils/indianStates';
+import { NO_BRAND_LABEL, NO_BRAND_VALUE, canUseNoBrand, toApiBrandId } from '../../../utils/noBrand';
 import { GENDER_OPTIONS } from '../../../utils/gender';
 import { holidayAuditName } from '../../../api/companyAdmin/holidays';
 import { formatDisplayDate, formatDisplayDateTime, daysUntil } from '../../../utils/dateDisplay';
@@ -157,6 +158,12 @@ export function EmployeeDetailModal({
   const confirm = useConfirm();
   const showToast = useToast();
   const usesBrands = user?.companyUsesBrands ?? true;
+  // A company-level employee of a Brand-mode company shows as "No Brand".
+  const currentBrandValue = employee.brandId ?? (usesBrands ? NO_BRAND_VALUE : '');
+  const allowNoBrand = usesBrands && (canUseNoBrand(user) || currentBrandValue === NO_BRAND_VALUE);
+  // Departments valid for a Brand choice ("No Brand" = shared ones only).
+  const brandMatches = (recordBrandId: string | null, value: string) =>
+    value === NO_BRAND_VALUE ? !recordBrandId : recordBrandId === value;
   const canUpdate = hasPermission('employee:update');
   // Group Admin / Super Admin assign powers without holding employee:update
   // themselves — they're the only ones who can grant Group level (see
@@ -260,7 +267,7 @@ export function EmployeeDetailModal({
     setWeekOffLeaveBlockedDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)));
   }
 
-  const [transferBrandId, setTransferBrandId] = useState(employee.brandId ?? '');
+  const [transferBrandId, setTransferBrandId] = useState(currentBrandValue);
   const [transferDepartmentId, setTransferDepartmentId] = useState(employee.departmentId ?? '');
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
@@ -791,7 +798,7 @@ export function EmployeeDetailModal({
     setIsTransferring(true);
     try {
       await transferEmployee(employee.id, {
-        brandId: usesBrands && transferBrandId !== (employee.brandId ?? '') ? transferBrandId : undefined,
+        brandId: usesBrands && transferBrandId !== currentBrandValue ? toApiBrandId(transferBrandId) : undefined,
         departmentId: transferDepartmentId !== employee.departmentId ? transferDepartmentId : undefined,
       });
       onUpdated();
@@ -951,7 +958,9 @@ export function EmployeeDetailModal({
             {usesBrands && (
               <>
                 <p className="text-ink-muted">Brand</p>
-                <p className="text-ink">{brands.find((b) => b.id === employee.brandId)?.name ?? '—'}</p>
+                <p className="text-ink">
+                  {employee.brandId ? brands.find((b) => b.id === employee.brandId)?.name ?? '—' : NO_BRAND_LABEL}
+                </p>
               </>
             )}
             <p className="text-ink-muted">Department</p>
@@ -1342,10 +1351,13 @@ export function EmployeeDetailModal({
                       // backend would reject anyway (see
                       // employee.service.js::assertOwnedByBrand).
                       setTransferDepartmentId((prev) =>
-                        departments.find((d) => d.id === prev)?.brandId === nextBrandId ? prev : ''
+                        brandMatches(departments.find((d) => d.id === prev)?.brandId ?? null, nextBrandId) ? prev : ''
                       );
                     }}
-                    options={brands.map((b) => ({ value: b.id, label: b.name }))}
+                    options={[
+                      ...brands.map((b) => ({ value: b.id, label: b.name })),
+                      ...(allowNoBrand ? [{ value: NO_BRAND_VALUE, label: NO_BRAND_LABEL }] : []),
+                    ]}
                   />
                 )}
                 <Select
@@ -1355,7 +1367,7 @@ export function EmployeeDetailModal({
                   onChange={(event) => setTransferDepartmentId(event.target.value)}
                   placeholder={usesBrands && transferBrandId ? 'Select a department' : undefined}
                   options={(usesBrands && transferBrandId
-                    ? departments.filter((d) => d.brandId === transferBrandId)
+                    ? departments.filter((d) => brandMatches(d.brandId, transferBrandId))
                     : departments
                   ).map((d) => ({ value: d.id, label: d.name }))}
                 />
@@ -1366,7 +1378,7 @@ export function EmployeeDetailModal({
                   variant="secondary"
                   isLoading={isTransferring}
                   disabled={
-                    (!usesBrands || transferBrandId === (employee.brandId ?? '')) &&
+                    (!usesBrands || transferBrandId === currentBrandValue) &&
                     transferDepartmentId === employee.departmentId
                   }
                 >
