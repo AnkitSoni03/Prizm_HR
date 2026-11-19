@@ -13,6 +13,7 @@ import { listEmployees } from '../../api/companyAdmin/employees';
 import { listBrands, listDepartments, listDesignations } from '../../api/companyAdmin/org';
 import { listRosterGroups, type RosterPolicyGroup } from '../../api/companyAdmin/rosterGroups';
 import type { Brand, Department, Designation, Employee } from '../../api/tenancy';
+import { NO_BRAND_LABEL, NO_BRAND_VALUE, canUseNoBrand } from '../../utils/noBrand';
 import { EmployeeFormModal } from './components/EmployeeFormModal';
 import { EmployeeDetailModal } from './components/EmployeeDetailModal';
 import { Avatar } from '../../components/ui/Avatar';
@@ -97,7 +98,10 @@ function EmployeeListBody({
                   {
                     key: 'brand',
                     header: 'Brand',
-                    render: (employee: Employee) => brands.find((b) => b.id === employee.brandId)?.name ?? '—',
+                    render: (employee: Employee) =>
+                      employee.brandId || brands.length === 0
+                        ? brands.find((b) => b.id === employee.brandId)?.name ?? '—'
+                        : NO_BRAND_LABEL,
                   },
                 ]
               : []),
@@ -210,6 +214,10 @@ function EmployeeListBody({
   );
 }
 
+// Pseudo-Brand for the grouped view's company-level section (API filter
+// brandId=none).
+const NO_BRAND_GROUP = { id: NO_BRAND_VALUE, name: NO_BRAND_LABEL } as Brand;
+
 interface BrandGroup {
   brand: Brand;
   employees: Employee[];
@@ -219,7 +227,9 @@ interface BrandGroup {
 }
 
 export function EmployeesPage() {
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
+  // Company-wide callers also see company-level ("No Brand") employees.
+  const showNoBrand = canUseNoBrand(user);
   const canCreate = hasPermission('employee:create');
   const canAssignHr = hasPermission('employee:update');
   const [isAssignHrOpen, setIsAssignHrOpen] = useState(false);
@@ -298,8 +308,10 @@ export function EmployeesPage() {
     setIsGroupsLoading(true);
     setError(null);
     try {
+      // Company-level ("No Brand") employees get their own section, last.
+      const groupBrands = showNoBrand ? [...brands, NO_BRAND_GROUP] : brands;
       const results = await Promise.all(
-        brands.map((brand) =>
+        groupBrands.map((brand) =>
           listEmployees({
             brandId: brand.id,
             departmentId: departmentFilter || undefined,
@@ -310,7 +322,7 @@ export function EmployeesPage() {
         )
       );
       setBrandGroups(
-        brands
+        groupBrands
           .map((brand, i) => ({
             brand,
             employees: results[i].data,
@@ -401,7 +413,10 @@ export function EmployeesPage() {
               value={brandFilter}
               onChange={(event) => handleFilterChange(setBrandFilter)(event.target.value)}
               placeholder="All brands"
-              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+              options={[
+                ...brands.map((b) => ({ value: b.id, label: b.name })),
+                ...(showNoBrand && brands.length > 0 ? [{ value: NO_BRAND_VALUE, label: NO_BRAND_LABEL }] : []),
+              ]}
             />
           </div>
           <div className="w-full sm:w-48">

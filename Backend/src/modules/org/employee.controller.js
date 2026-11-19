@@ -165,7 +165,6 @@ async function create(req, res, next) {
     const {
       name,
       employeeCode,
-      brandId,
       departmentId,
       designationId,
       managerId,
@@ -182,6 +181,9 @@ async function create(req, res, next) {
       nextRosterGroupId,
       yearlyCycleStartMonth,
     } = req.body;
+    // `brandId: null` (key present) is the deliberate "No Brand" choice;
+    // a missing key stays undefined so the service still rejects it.
+    const brandId = 'brandId' in req.body ? req.body.brandId : undefined;
 
     // brandId is conditionally required (validated in the service against
     // company.usesBrands) — not every company operates with Brands.

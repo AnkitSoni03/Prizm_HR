@@ -27,6 +27,7 @@ import { WEEKDAY_LABELS } from '../../../utils/weekdays';
 import { ProbationPeriodField } from '../../../components/ProbationPeriodField';
 import { RosterQueueFields } from '../../../components/RosterQueueFields';
 import { probationEndDate, type ProbationPeriodUnit } from '../../../utils/probation';
+import { NO_BRAND_LABEL, NO_BRAND_VALUE, canUseNoBrand, toApiBrandId } from '../../../utils/noBrand';
 
 interface EmployeeFormModalProps {
   brands: Brand[];
@@ -67,6 +68,9 @@ export function EmployeeFormModal({
   const { user, hasPermission } = useAuth();
   const showToast = useToast();
   const usesBrands = user?.companyUsesBrands ?? true;
+  // "No Brand" = company-level employee in a Brand-mode company; company-wide
+  // callers only (never a Brand Admin / Brand-level power).
+  const allowNoBrand = usesBrands && canUseNoBrand(user);
   const canCreateDepartment = hasPermission('department:create');
   const canCreateDesignation = hasPermission('designation:create');
   // Assigning powers is gated on employee:update (same permission the edit
@@ -78,6 +82,7 @@ export function EmployeeFormModal({
   const [name, setName] = useState('');
   const [employeeCode, setEmployeeCode] = useState('');
   const [brandId, setBrandId] = useState('');
+  const isNoBrand = brandId === NO_BRAND_VALUE;
   const [departmentId, setDepartmentId] = useState('');
   const [newDepartmentName, setNewDepartmentName] = useState('');
   const [designationId, setDesignationId] = useState('');
@@ -112,6 +117,8 @@ export function EmployeeFormModal({
   // exception: it may be anyone in the Group (GroupManagerPicker).
   function ownedByBrand<T extends { brandId: string | null }>(items: T[], forBrandId: string): T[] {
     if (!usesBrands || !forBrandId) return items;
+    // "No Brand": only the company's shared records (no Brand of their own).
+    if (forBrandId === NO_BRAND_VALUE) return items.filter((item) => !item.brandId);
     return items.filter((item) => item.brandId === forBrandId);
   }
 
@@ -158,7 +165,7 @@ export function EmployeeFormModal({
       // backend's own default for a company-wide caller like Company Admin),
       // invisible to that Brand's own Brand Admin. Same brandId the employee
       // itself is about to be created with.
-      const newRecordBrandId = usesBrands ? brandId : undefined;
+      const newRecordBrandId = usesBrands && !isNoBrand ? brandId : undefined;
 
       let resolvedDepartmentId = departmentId;
       if (departmentId === NEW_OPTION_VALUE) {
@@ -186,7 +193,7 @@ export function EmployeeFormModal({
       const employee = await createEmployee({
         name,
         employeeCode,
-        brandId: usesBrands ? brandId : undefined,
+        brandId: usesBrands ? toApiBrandId(brandId) : undefined,
         departmentId: resolvedDepartmentId,
         designationId: resolvedDesignationId || null,
         managerId: managerIds[0] || null,
@@ -299,9 +306,12 @@ export function EmployeeFormModal({
             required
             value={brandId}
             onChange={(event) => handleBrandChange(event.target.value)}
-            disabled={brands.length === 0}
-            placeholder={brands.length === 0 ? 'No brands available' : 'Select a brand'}
-            options={brands.map((brand) => ({ value: brand.id, label: brand.name }))}
+            disabled={brands.length === 0 && !allowNoBrand}
+            placeholder={brands.length === 0 && !allowNoBrand ? 'No brands available' : 'Select a brand'}
+            options={[
+              ...brands.map((brand) => ({ value: brand.id, label: brand.name })),
+              ...(allowNoBrand ? [{ value: NO_BRAND_VALUE, label: NO_BRAND_LABEL }] : []),
+            ]}
           />
         )}
         <div>
@@ -494,7 +504,7 @@ export function EmployeeFormModal({
             <p className="mb-2 text-xs text-ink-muted">
               Hand-pick extra capabilities for this employee, independent of their role.
             </p>
-            <PowerAssignment value={powerLevels} onChange={setPowerLevels} employeeHasBrand={!!brandId} />
+            <PowerAssignment value={powerLevels} onChange={setPowerLevels} employeeHasBrand={!!brandId && !isNoBrand} />
           </div>
         )}
         <div className="flex justify-end gap-2 pt-2">
@@ -505,7 +515,7 @@ export function EmployeeFormModal({
             type="submit"
             isLoading={isSubmitting}
             disabled={
-              (availableDepartments.length === 0 && !canCreateDepartment) || (usesBrands && brands.length === 0)
+              (availableDepartments.length === 0 && !canCreateDepartment) || (usesBrands && brands.length === 0 && !allowNoBrand)
             }
           >
             Add Employee

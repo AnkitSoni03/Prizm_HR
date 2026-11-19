@@ -114,7 +114,9 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
   // company's employees have no brandId to filter by, so this can no
   // longer be left implicit.
   if (companyId) where.companyId = companyId;
-  if (brandId) where.brandId = brandId;
+  // 'none' = the company-level employees with no Brand ("No Brand" filter).
+  if (brandId === 'none') where.brandId = null;
+  else if (brandId) where.brandId = brandId;
   // scopedBrandIds (rbac.middleware.js's requirePermission output) is the
   // real enforcement boundary for a brand-scoped caller (Brand Admin): an
   // explicit brandId is already validated by the middleware to be one of
@@ -328,8 +330,12 @@ async function createEmployee({
   if (Number.isNaN(cycleStartMonth)) throw new HttpError(400, 'yearlyCycleStartMonth must be a month number 1-12');
   const company = await db.Company.findByPk(companyId);
   if (!company) throw new HttpError(404, 'Company not found');
-  if (company.usesBrands && !brandId) {
-    throw new HttpError(400, 'brandId is required for this company');
+  // Brand-mode company: brandId is required, but an explicit `null` is the
+  // deliberate "No Brand" choice — the employee sits at company level
+  // (Company Admin / HR see them; Brand Admins don't). A missing / empty
+  // brandId is still rejected, so nothing lands at company level by accident.
+  if (company.usesBrands && brandId !== null && !brandId) {
+    throw new HttpError(400, 'brandId is required for this company (send null for "No Brand")');
   }
   if (!company.usesBrands && brandId) {
     throw new HttpError(400, 'This company operates directly and does not use Brands');

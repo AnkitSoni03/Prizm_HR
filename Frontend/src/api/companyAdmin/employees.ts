@@ -35,7 +35,8 @@ export async function getEmployee(id: string): Promise<Employee> {
 export async function createEmployee(input: {
   name: string;
   employeeCode: string;
-  brandId?: string;
+  // null = "No Brand" (company level, Brand-mode company only).
+  brandId?: string | null;
   departmentId: string;
   designationId: string | null;
   managerId: string | null;
@@ -130,7 +131,7 @@ export async function listRosterTransferHistory(id: string): Promise<RosterTrans
 
 export async function transferEmployee(
   id: string,
-  input: { brandId?: string; departmentId?: string }
+  input: { brandId?: string | null; departmentId?: string }
 ): Promise<Employee> {
   const { data } = await apiClient.patch<{ data: Employee }>(`/employees/${id}/transfer`, input);
   return data.data;

@@ -48,7 +48,13 @@ async function notifyApprovers({
   body,
 }) {
   try {
-    const brandScope = brandId ? [{ brandId: null }, { brandId }] : null;
+    // A Brand employee: brand-wide holders + that Brand's own. A company-level
+    // employee (brandId explicitly null — "No Brand"): brand-wide holders only,
+    // so Brand Admins aren't told about people outside their Brand.
+    // undefined = no brand filter at all.
+    let brandScope = null;
+    if (brandId) brandScope = [{ brandId: null }, { brandId }];
+    else if (brandId === null) brandScope = [{ brandId: null }];
     const roleInclude = [
       {
         model: db.Role,

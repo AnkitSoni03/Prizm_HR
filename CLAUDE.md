@@ -1609,6 +1609,14 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   as those brands only — no RBAC change. Picker in both Group Admin's (`EmployeePowersEditor.tsx`)
   and Company Admin's (`company-admin/.../EmployeeDetailModal.tsx`) Powers tab, brands from
   `GET /powers/brands?employeeId=`. Authority = Company level (needs the codes company-wide).
+- ✅ "No Brand" employees in a Brand-mode company (2026-11-19): the Brand picker (create form +
+  Transfer) gains "No Brand (company level)" → API `brandId: null` (create: key must be present —
+  missing/empty still 400; `employee.controller.js::create`). Only company-wide callers see it
+  (`Frontend/src/utils/noBrand.ts::canUseNoBrand` = no role with a brandId); Brand Admin / Brand-level
+  powers are still rejected server-side. List filter `brandId=none` (`listEmployees`), "No Brand"
+  filter + grouped section on Employees page, "Company › No Brand" in the manager picker.
+  `notifyApprovers` with `brandId: null` now notifies brand-wide holders only (Brand Admins aren't
+  told about company-level employees). No migration. tsc/eslint/tests clean; not live-tested.
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 
