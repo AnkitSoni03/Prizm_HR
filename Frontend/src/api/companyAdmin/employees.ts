@@ -1,5 +1,5 @@
 import { apiClient } from '../client';
-import type { PowerLevelMap } from '../powers';
+import type { PowerBrandMap, PowerCompanyMap, PowerLevelMap } from '../powers';
 import type { Employee, InviteResult } from '../tenancy';
 
 export interface EmployeeListParams {
@@ -152,9 +152,23 @@ export async function setEmployeeActive(id: string, isActive: boolean, lastWorki
 
 // Replaces this employee's assigned "powers" wholesale, each at its own
 // level (empty map = revoke all) — see api/powers.ts for the catalog.
-export async function assignEmployeePowers(id: string, powers: PowerLevelMap): Promise<Employee> {
+// `companies` (Group Admin / Super Admin screen only): for each Group-level
+// power, the chosen companies, or every company when absent from the map.
+// Left out entirely, the server keeps each power's current companies.
+// `brands`: same for Company-level powers and the brands of the company.
+export async function assignEmployeePowers(
+  id: string,
+  powers: PowerLevelMap,
+  companies?: PowerCompanyMap,
+  brands?: PowerBrandMap
+): Promise<Employee> {
   const { data } = await apiClient.put<{ data: Employee }>(`/employees/${id}/powers`, {
-    powers: Object.entries(powers).map(([key, level]) => ({ key, level })),
+    powers: Object.entries(powers).map(([key, level]) => ({
+      key,
+      level,
+      ...(companies && level === 'group' ? { companyIds: companies[key] ?? null } : {}),
+      ...(brands && level === 'company' ? { brandIds: brands[key] ?? null } : {}),
+    })),
   });
   return data.data;
 }

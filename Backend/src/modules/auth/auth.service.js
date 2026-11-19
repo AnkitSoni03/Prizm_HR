@@ -737,17 +737,26 @@ async function loadCurrentUser({ userId, companyId, homeCompanyId }) {
   const ownCompanyId = homeCompanyId || companyId;
   let groupPowerCompanies = [];
   if (ownCompanyId) {
-    const groupGrant = await db.UserRole.findOne({
+    const groupGrants = await db.UserRole.findAll({
       where: { userId, companyId: ownCompanyId, groupId: { [Op.ne]: null } },
-      attributes: ['groupId'],
+      attributes: ['groupId', 'allowedCompanyIds'],
     });
-    if (groupGrant) {
+    if (groupGrants.length > 0) {
+      // A grant limited to chosen companies (allowed_company_ids) only opens
+      // those; any unlimited grant opens the whole Group. Home is always
+      // listed so the switcher can come back to it.
+      const unlimited = groupGrants.some((g) => !Array.isArray(g.allowedCompanyIds));
+      const reachable = new Set(groupGrants.flatMap((g) => (Array.isArray(g.allowedCompanyIds) ? g.allowedCompanyIds : [])).map(String));
       const companies = await db.Company.findAll({
-        where: { groupId: groupGrant.groupId },
+        where: { groupId: groupGrants[0].groupId },
         attributes: ['id', 'name', 'status'],
         order: [['name', 'ASC']],
       });
-      const visible = companies.filter((c) => String(c.id) === String(ownCompanyId) || !isCompanyInactive(c.status));
+      const visible = companies.filter(
+        (c) =>
+          String(c.id) === String(ownCompanyId) ||
+          (!isCompanyInactive(c.status) && (unlimited || reachable.has(String(c.id))))
+      );
       // Each company's active Brands, so the switcher can show "One Global ›
       // Game Luxe". Brand is tenant-scoped — read with the hook off.
       const brands = await runWithTenant({ companyId: null }, () =>

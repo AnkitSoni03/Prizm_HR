@@ -37,6 +37,7 @@ function matchCond(val, cond) {
         case Op.gt: return val != null && cmp(val, c) > 0;
         case Op.gte: return val != null && cmp(val, c) >= 0;
         case Op.in: return c.map(String).includes(String(val));
+        case Op.contains: return Array.isArray(val) && c.every((x) => val.map(String).includes(String(x)));
         default: throw new Error(`fakeDb: unsupported operator ${String(op)}`);
       }
     });

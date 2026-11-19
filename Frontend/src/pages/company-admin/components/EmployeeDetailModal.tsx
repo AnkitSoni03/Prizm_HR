@@ -47,7 +47,15 @@ import {
   type EmployeeDocument,
   type DocumentUploadRequest,
 } from '../../../api/companyAdmin/employeeDocuments';
-import { listPowers, resolvePowerLevels, type PowerLevelMap } from '../../../api/powers';
+import {
+  listPowerBrands,
+  listPowers,
+  resolvePowerBrands,
+  resolvePowerLevels,
+  type PowerBrand,
+  type PowerBrandMap,
+  type PowerLevelMap,
+} from '../../../api/powers';
 import { PowerAssignment } from '../../../components/PowerAssignment';
 import { listLeaveBalances, bulkAdjustLeaveBalances, type LeaveBalance } from '../../../api/companyAdmin/leaveBalance';
 import type { Brand, Department, Designation, Employee } from '../../../api/tenancy';
@@ -604,17 +612,22 @@ export function EmployeeDetailModal({
   const [isSavingPowers, setIsSavingPowers] = useState(false);
   const [powersError, setPowersError] = useState<string | null>(null);
   const [powersSuccess, setPowersSuccess] = useState(false);
+  // Company-level powers can be limited to some brands of the company.
+  const [powerBrands, setPowerBrands] = useState<PowerBrandMap>({});
+  const [companyBrands, setCompanyBrands] = useState<PowerBrand[]>([]);
 
   useEffect(() => {
     if (activeTab !== 'powers' || !canManagePowers) return;
     // The `employee` prop comes from the list view (no customRole/levels
     // eager-load) — fetch the full record here instead, so each power
     // pre-selects at the level it's already granted at.
-    Promise.all([listPowers(), getEmployee(employee.id)])
-      .then(([catalog, freshEmployee]) => {
+    Promise.all([listPowers(), getEmployee(employee.id), listPowerBrands(employee.id).catch((): PowerBrand[] => [])])
+      .then(([catalog, freshEmployee, brands]) => {
         const levels = resolvePowerLevels(catalog, freshEmployee);
         setPowerLevels(levels);
         setInitialPowerLevels(levels);
+        setPowerBrands(resolvePowerBrands(freshEmployee));
+        setCompanyBrands(brands);
       })
       .catch(() => setPowersError('Could not load current powers.'));
   }, [activeTab, canManagePowers, employee.id]);
@@ -625,9 +638,19 @@ export function EmployeeDetailModal({
   async function handleSavePowers() {
     setPowersError(null);
     setPowersSuccess(false);
+    if (Object.entries(powerBrands).some(([key, ids]) => powerLevels[key] === 'company' && ids.length === 0)) {
+      setPowersError('Tick at least one brand for each power limited to selected brands.');
+      return;
+    }
     setIsSavingPowers(true);
     try {
-      await assignEmployeePowers(employee.id, powerLevels);
+      // Company choices aren't shown here, so they're left as they are.
+      await assignEmployeePowers(
+        employee.id,
+        powerLevels,
+        undefined,
+        companyBrands.length > 0 ? powerBrands : undefined
+      );
       setInitialPowerLevels(powerLevels);
       setPowersSuccess(true);
     } catch (err) {
@@ -1815,6 +1838,9 @@ export function EmployeeDetailModal({
                 onChange={setPowerLevels}
                 initialValue={initialPowerLevels}
                 employeeHasBrand={!!employee.brandId}
+                brands={powerBrands}
+                onBrandsChange={setPowerBrands}
+                companyBrands={companyBrands}
               />
               <div className="flex justify-end">
                 <Button onClick={handleSavePowers} isLoading={isSavingPowers}>

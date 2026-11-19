@@ -4,7 +4,9 @@ const { verifyAccessToken } = require('../utils/tokens');
 const { runWithTenant, runAsCompany } = require('../config/tenant-context');
 const { isCompanyInactive } = require('../utils/companyStatus');
 const { resolveEscalationContact } = require('../utils/accountEscalation');
+const { Op } = require('sequelize');
 const db = require('../models');
+const { companyLimitClause } = require('./rbac.middleware');
 
 // Shared by requireAuth (header-only) and requireAuthSSE (header or query
 // token — EventSource can't set custom headers, so the SSE stream route
@@ -110,9 +112,16 @@ async function authenticate(token, req, res, next) {
         if (isCompanyInactive(target.status)) {
           return res.status(403).json({ error: 'That company has been deactivated.', code: 'COMPANY_DEACTIVATED' });
         }
+        // A group-level grant that reaches THIS company — one limited to
+        // other companies (user_roles.allowed_company_ids) doesn't count.
         const groupGrant = await runAsCompany(null, () =>
           db.UserRole.findOne({
-            where: { userId: req.auth.userId, companyId: home.id, groupId: home.groupId },
+            where: {
+              userId: req.auth.userId,
+              companyId: home.id,
+              groupId: home.groupId,
+              [Op.and]: [companyLimitClause(target.id)],
+            },
             attributes: ['id'],
           })
         );

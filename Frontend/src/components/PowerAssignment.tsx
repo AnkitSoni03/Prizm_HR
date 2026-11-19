@@ -5,8 +5,12 @@ import {
   POWER_LEVEL_HINTS,
   POWER_LEVEL_LABELS,
   type Power,
+  type PowerBrand,
+  type PowerCompanyMap,
+  type PowerGroupCompany,
   type PowerLevel,
   type PowerLevelMap,
+  type PowerLimitMap,
 } from '../api/powers';
 
 interface PowerAssignmentProps {
@@ -19,15 +23,122 @@ interface PowerAssignmentProps {
   initialValue?: PowerLevelMap;
   // Brand level needs the employee to actually belong to a Brand.
   employeeHasBrand: boolean;
+  // Group Admin / Super Admin screen only: choose which companies of the
+  // Group a Group-level power covers. Without these props no company choice
+  // is shown and each power keeps its current companies.
+  companies?: PowerCompanyMap;
+  onCompaniesChange?: (next: PowerCompanyMap) => void;
+  groupCompanies?: PowerGroupCompany[];
+  // Same for which brands of the employee's company a Company-level power
+  // covers (Group Admin / Super Admin / Company Admin screens).
+  brands?: PowerLimitMap;
+  onBrandsChange?: (next: PowerLimitMap) => void;
+  companyBrands?: PowerBrand[];
 }
 
 const LEVEL_ORDER: PowerLevel[] = ['brand', 'company', 'group'];
+
+interface LimitOption {
+  id: string;
+  name: string;
+  note?: string;
+  isDefault: boolean;
+}
+
+// "All <things>" vs "Selected <things>" + a checkbox per option. `selected`
+// null = all (incl. ones added later); an array = only those.
+function LimitPicker({
+  label,
+  noun,
+  options,
+  selected,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  noun: string;
+  options: LimitOption[];
+  selected: string[] | null;
+  disabled: boolean;
+  onChange: (next: string[] | null) => void;
+}) {
+  const choices = [
+    { all: true, title: `All ${noun}`, hint: `Every ${noun.replace(/ies$/, 'y').replace(/s$/, '')}, incl. ones added later` },
+    { all: false, title: `Selected ${noun}`, hint: 'Only the ones ticked below' },
+  ];
+
+  function toggle(id: string) {
+    const current = selected ?? [];
+    onChange(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+  }
+
+  return (
+    <div className="mt-3">
+      <p className="mb-1.5 text-xs font-medium text-ink-muted">{label}</p>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
+        {choices.map((choice) => {
+          const active = choice.all ? selected === null : selected !== null;
+          return (
+            <button
+              key={choice.title}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              disabled={disabled}
+              onClick={() =>
+                onChange(choice.all ? null : (selected ?? options.filter((o) => o.isDefault).map((o) => o.id)))
+              }
+              className={`rounded-lg border px-3 py-1.5 text-left text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                active ? 'border-primary bg-primary text-white' : 'border-border bg-card text-ink hover:border-primary/40'
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <span className="block font-semibold">{choice.title}</span>
+              <span className={`block ${active ? 'text-white/80' : 'text-ink-muted'}`}>{choice.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selected !== null && (
+        <div className="mt-2 space-y-1">
+          {options.map((option) => (
+            <label key={option.id} className="flex cursor-pointer items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={selected.includes(option.id)}
+                disabled={disabled}
+                onChange={() => toggle(option.id)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+              />
+              <span>
+                {option.name}
+                {option.note && <span className="text-ink-muted"> {option.note}</span>}
+              </span>
+            </label>
+          ))}
+          {selected.length === 0 && <p className="text-xs text-danger">Tick at least one.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Checkbox + scope picker per power from the curated catalog (see
 // Backend/src/config/powerCatalog.js) — reused as-is by EmployeeFormModal.tsx
 // (create) and EmployeeDetailModal.tsx (edit). Fully optional: nothing
 // checked is a valid, default state.
-export function PowerAssignment({ value, onChange, initialValue = {}, employeeHasBrand }: PowerAssignmentProps) {
+export function PowerAssignment({
+  value,
+  onChange,
+  initialValue = {},
+  employeeHasBrand,
+  companies,
+  onCompaniesChange,
+  groupCompanies = [],
+  brands,
+  onBrandsChange,
+  companyBrands = [],
+}: PowerAssignmentProps) {
   const [powers, setPowers] = useState<Power[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +179,29 @@ export function PowerAssignment({ value, onChange, initialValue = {}, employeeHa
   function setLevel(power: Power, level: PowerLevel) {
     onChange({ ...value, [power.key]: level });
   }
+
+  // null = every company / brand (incl. ones added later).
+  function setLimit(map: PowerLimitMap, emit: (next: PowerLimitMap) => void, key: string, ids: string[] | null) {
+    const next = { ...map };
+    if (ids === null) delete next[key];
+    else next[key] = ids;
+    emit(next);
+  }
+
+  const companyOptions: LimitOption[] = groupCompanies.map((c) => ({
+    id: c.id,
+    name: c.name,
+    note: [c.isEmployeeCompany ? '(their own company)' : '', c.status !== 'active' ? `· ${c.status}` : '']
+      .filter(Boolean)
+      .join(' '),
+    isDefault: c.isEmployeeCompany,
+  }));
+  const brandOptions: LimitOption[] = companyBrands.map((b) => ({
+    id: b.id,
+    name: b.name,
+    note: [b.isEmployeeBrand ? '(their own brand)' : '', b.isActive ? '' : '· inactive'].filter(Boolean).join(' '),
+    isDefault: b.isEmployeeBrand,
+  }));
 
   if (isLoading) return <p className="text-sm text-ink-muted">Loading powers…</p>;
   if (error) return <p className="text-sm text-danger">{error}</p>;
@@ -147,6 +281,32 @@ export function PowerAssignment({ value, onChange, initialValue = {}, employeeHa
                     );
                   })}
                 </div>
+
+                {selectedLevel === 'group' &&
+                  power.companyLimitable &&
+                  companies &&
+                  onCompaniesChange &&
+                  companyOptions.length > 1 && (
+                    <LimitPicker
+                      label="Companies"
+                      noun="companies"
+                      options={companyOptions}
+                      selected={companies[power.key] ?? null}
+                      disabled={locked}
+                      onChange={(ids) => setLimit(companies, onCompaniesChange, power.key, ids)}
+                    />
+                  )}
+
+                {selectedLevel === 'company' && brands && onBrandsChange && brandOptions.length > 1 && (
+                  <LimitPicker
+                    label="Brands"
+                    noun="brands"
+                    options={brandOptions}
+                    selected={brands[power.key] ?? null}
+                    disabled={locked}
+                    onChange={(ids) => setLimit(brands, onBrandsChange, power.key, ids)}
+                  />
+                )}
               </div>
             )}
           </div>

@@ -1591,6 +1591,24 @@ deferred-FK migration. Applied order: `plans` → `groups` → `permissions` →
   leave_balances, od_requests, attendance_regularizations, comp_off_credits,
   employee_documents, employee_shifts) have no `company_id`, so isolation depends on each
   service adding an Employee include with `companyId`.
+- ✅ Group-level powers limited to chosen companies (2026-11-19): a Group-level power can cover
+  "All companies" (as before, incl. companies added later) or only ticked companies of the Group,
+  chosen per power in Group Admin / Super Admin's employee Powers tab (`EmployeePowersEditor.tsx`,
+  `GET /powers/companies?employeeId=`). Stored in `employees.custom_power_companies`
+  `{ key: [companyId] }`; each limited power gets its own Role `Custom Powers – <id> (group:<key>)`
+  whose UserRole carries `user_roles.allowed_company_ids` (migration `20261119090000`; NULL = no
+  limit, so existing grants are unchanged). Enforced in `rbac.middleware.js::grantWhere`
+  (`companyLimitClause` — also limits the HOME company if it isn't ticked), the
+  `X-Acting-Company-Id` check and the `/auth/me` company switcher. `companyIds` omitted on save =
+  keep current list (Company Admin's Powers tab never resets it). **Manage Payroll is excluded**
+  (`companyLimitable: false`) — Group payroll owns Group-wide templates/salaries. Offline tests:
+  `tests/power-companies.test.js` + rbac tests. **Migration not applied** (.env is prod).
+  **Same for Company level → chosen brands** (same day): `employees.custom_power_brands`
+  `{ key: [brandId] }` (same migration); a limited power gets Role `Custom Powers – <id>
+  (brands:<key>)` granted ONCE PER CHOSEN BRAND (`UserRole.brand_id`), so `getBrandScope` treats it
+  as those brands only — no RBAC change. Picker in both Group Admin's (`EmployeePowersEditor.tsx`)
+  and Company Admin's (`company-admin/.../EmployeeDetailModal.tsx`) Powers tab, brands from
+  `GET /powers/brands?employeeId=`. Authority = Company level (needs the codes company-wide).
 - ⏳ Next: Phase-6+ — Recruitment (ATS) → Performance → Exit → Billing/Subscription → Platform &
   System (see build order below), or Old Tax Regime as a follow-up to the TDS work above.
 

@@ -28,8 +28,8 @@ function grantQuery(where, include) {
 db.UserRole.findOne = async ({ where, include } = {}) => grantQuery(where, include)[0] || null;
 db.UserRole.findAll = async ({ where, include } = {}) => grantQuery(where, include);
 
-const grant = (userId, codes, { companyId = 1, groupId = null, brandId = null } = {}) =>
-  grants.push({ userId, companyId, groupId, brandId, codes });
+const grant = (userId, codes, { companyId = 1, groupId = null, brandId = null, allowedCompanyIds = null } = {}) =>
+  grants.push({ userId, companyId, groupId, brandId, allowedCompanyIds, codes });
 
 function freshWorld() {
   grants = [];
@@ -69,7 +69,10 @@ function call(mw, { auth, headers = {}, params = {}, query = {}, body = {} } = {
 
 // ── 1. grantWhere / userHasPermission / getBrandScope ──────────────────
 test('grantWhere: own company normally; only group-level home grants while acting', () => {
-  assert.deepEqual(grantWhere({ userId: 1, companyId: 2 }), { userId: 1, companyId: 2 });
+  const own = grantWhere({ userId: 1, companyId: 2 });
+  assert.equal(own.userId, 1);
+  assert.equal(own.companyId, 2);
+  assert.equal(own.groupId, undefined, 'any own-company grant, not only group-level');
   const acting = grantWhere({ userId: 1, companyId: 2, homeCompanyId: 1 });
   assert.equal(acting.companyId, 1);
   assert.ok(acting.groupId, 'requires group_id set');
@@ -114,6 +117,22 @@ test('acting in a sibling company: only group-level grants count, tenant hook of
     assert.equal(await userHasPermission(auth, 'employee:delete'), false, 'own-company role must not reach a sibling company');
   });
   assert.ok(tenantSeenByGrantQuery.every((c) => c === null), 'grant lookups ran with the hook off');
+});
+
+test('group-level power limited to chosen companies only counts in those', async () => {
+  freshWorld();
+  {
+    grant(1, ['holiday:create'], { companyId: 1, groupId: 10, allowedCompanyIds: [1] }); // home only
+    grant(1, ['employee:read'], { companyId: 1, groupId: 10, allowedCompanyIds: [2] }); // sibling only
+  }
+  const home = { userId: 1, companyId: 1 };
+  const acting = { userId: 1, companyId: 2, homeCompanyId: 1 };
+  assert.equal(await userHasPermission(home, 'holiday:create'), true);
+  assert.equal(await userHasPermission(home, 'employee:read'), false, 'home not on the list');
+  await runWithTenant({ companyId: 2 }, async () => {
+    assert.equal(await userHasPermission(acting, 'employee:read'), true);
+    assert.equal(await userHasPermission(acting, 'holiday:create'), false, 'sibling not on the list');
+  });
 });
 
 // ── 2. requirePermission middleware ────────────────────────────────────
@@ -229,6 +248,16 @@ test('requireAuth: X-Acting-Company-Id — every bad case is a hard 403, never a
 
   const same = await call(requireAuth, { headers: h('1') });
   assert.equal(same.req.auth.homeCompanyId, undefined, 'own company header is a no-op');
+});
+
+test('requireAuth: X-Acting-Company-Id refused for a company outside its chosen companies', async () => {
+  const t = freshWorld();
+  t.Company.insert({ id: 5, groupId: 10, status: 'active' });
+  users = { 1: { id: 1, isActive: true, status: 'active' } };
+  grant(1, ['employee:read'], { companyId: 1, groupId: 10, allowedCompanyIds: [1, 5] });
+  const h = (v) => ({ ...bearer({ userId: 1, companyId: 1 }), 'X-Acting-Company-Id': v });
+  assert.equal((await call(requireAuth, { headers: h('2') })).body?.code, 'ACTING_COMPANY_FORBIDDEN');
+  assert.equal((await call(requireAuth, { headers: h('5') })).status, 'next');
 });
 
 test('requireAuth: a company without a Group can never act elsewhere', async () => {

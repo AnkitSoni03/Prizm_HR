@@ -15,9 +15,23 @@ const { runWithTenant, getTenantStore } = require('../config/tenant-context');
 // (auth.middleware.js sets homeCompanyId), ONLY their group-level grants
 // count (rows on their home company with group_id set) — their ordinary
 // roles never reach into another company.
+//
+// A Group-level power can be limited to chosen companies
+// (user_roles.allowed_company_ids, see utils/customPowerSync.js): such a
+// grant only counts in a company on its list — the caller's home company
+// included. Every other grant has the column NULL and is unaffected.
+function companyLimitClause(companyId) {
+  return {
+    [Op.or]: [{ allowedCompanyIds: null }, { allowedCompanyIds: { [Op.contains]: [Number(companyId)] } }],
+  };
+}
+
 function grantWhere({ userId, companyId, homeCompanyId }) {
-  if (homeCompanyId) return { userId, companyId: homeCompanyId, groupId: { [Op.ne]: null } };
-  return { userId, companyId };
+  if (homeCompanyId) {
+    return { userId, companyId: homeCompanyId, groupId: { [Op.ne]: null }, [Op.and]: [companyLimitClause(companyId)] };
+  }
+  if (!companyId) return { userId, companyId };
+  return { userId, companyId, [Op.and]: [companyLimitClause(companyId)] };
 }
 
 // UserRole is tenant-scoped (models/hooks/tenant-scope.js). While acting,
@@ -135,4 +149,4 @@ function requirePermission(code) {
   };
 }
 
-module.exports = { requirePermission, userHasPermission, getBrandScope, grantWhere };
+module.exports = { requirePermission, userHasPermission, getBrandScope, grantWhere, companyLimitClause };

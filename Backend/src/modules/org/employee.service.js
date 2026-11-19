@@ -3,10 +3,20 @@
 const crypto = require('crypto');
 const { Op } = require('sequelize');
 const db = require('../../models');
+const { runWithTenant } = require('../../config/tenant-context');
 const { HttpError } = require('../../utils/errors');
-const { ensureCustomRoleGrant, findCustomPowerRoles, customPowerRoleName } = require('../../utils/customPowerSync');
+const {
+  ensureCustomRoleGrant,
+  findCustomPowerRoles,
+  customPowerRoleName,
+  limitedGroupRoleName,
+  limitedGroupRolePrefix,
+  limitedBrandRoleName,
+  limitedBrandRolePrefix,
+  normalizeCompanyIds,
+} = require('../../utils/customPowerSync');
 const { checkGrantAuthority } = require('../../utils/powerAuthority');
-const { POWER_CATALOG, POWER_KEYS, findPower } = require('../../config/powerCatalog');
+const { POWER_CATALOG, POWER_KEYS, findPower, isCompanyLimitable } = require('../../config/powerCatalog');
 const { buildObjectPath, uploadBuffer, getSignedDownloadUrl, deleteObject } = require('../../utils/gcs');
 const { deleteFace: deleteRekognitionFace } = require('../../utils/rekognition');
 const { getActiveRosterEntry } = require('../attendance/shiftRoster.service');
@@ -775,7 +785,11 @@ async function deleteEmployeePermanently({ companyId, id, scopedBrandIds, groupI
     await db.Role.destroy({
       where: {
         companyId: employee.companyId,
-        name: { [Op.in]: ['brand', 'group'].map((level) => customPowerRoleName(employee.id, level)) },
+        [Op.or]: [
+          { name: { [Op.in]: ['brand', 'group'].map((level) => customPowerRoleName(employee.id, level)) } },
+          { name: { [Op.like]: `${limitedGroupRolePrefix(employee.id)}%` } },
+          { name: { [Op.like]: `${limitedBrandRolePrefix(employee.id)}%` } },
+        ],
       },
       force: true,
       transaction: t,
@@ -851,7 +865,14 @@ async function getEmployeePowerLevels(employee) {
 // Normalizes the request body into { powerKey: level }. Accepts the new
 // `powers: [{ key, level }]` shape, or the older `powerKeys: string[]`
 // (treated as company level) so an un-updated client keeps working.
-function normalizeRequestedPowers({ powers, powerKeys }) {
+//
+// Each entry may also carry `companyIds` for a Group-level power: an array =
+// only those companies of the Group, null = every company, omitted = keep
+// what it had (so a screen that doesn't show companies never resets them).
+// Collected in `companyRequests` and resolved in resolvePowerCompanies.
+// Same for `brandIds` on a Company-level power (chosen brands of the
+// employee's company) → `brandRequests`, resolvePowerBrands.
+function normalizeRequestedPowers({ powers, powerKeys }, companyRequests = {}, brandRequests = {}) {
   if (Array.isArray(powers)) {
     const levels = {};
     for (const entry of powers) {
@@ -863,6 +884,27 @@ function normalizeRequestedPowers({ powers, powerKeys }) {
         throw new HttpError(400, `"${findPower(key).label}" can't be granted at ${level} level`);
       }
       levels[key] = level;
+      if (entry.companyIds !== undefined) {
+        if (entry.companyIds !== null && !Array.isArray(entry.companyIds)) {
+          throw new HttpError(400, 'companyIds must be a list of companies or null');
+        }
+        if (Array.isArray(entry.companyIds) && level !== 'group') {
+          throw new HttpError(400, `"${findPower(key).label}": companies can only be chosen at Group level`);
+        }
+        if (Array.isArray(entry.companyIds) && !isCompanyLimitable(findPower(key))) {
+          throw new HttpError(400, `"${findPower(key).label}" at Group level always covers the whole Group`);
+        }
+        companyRequests[key] = entry.companyIds;
+      }
+      if (entry.brandIds !== undefined) {
+        if (entry.brandIds !== null && !Array.isArray(entry.brandIds)) {
+          throw new HttpError(400, 'brandIds must be a list of brands or null');
+        }
+        if (Array.isArray(entry.brandIds) && level !== 'company') {
+          throw new HttpError(400, `"${findPower(key).label}": brands can only be chosen at Company level`);
+        }
+        brandRequests[key] = entry.brandIds;
+      }
     }
     return levels;
   }
@@ -874,6 +916,69 @@ function normalizeRequestedPowers({ powers, powerKeys }) {
   return Object.fromEntries(keys.map((key) => [key, 'company']));
 }
 
+// { powerKey: [companyId, ...] } for every Group-level power limited to some
+// companies, after this save. Omitted companyIds keep the previous list
+// (only while the power stays at Group level); every id must be a company of
+// the employee's own Group.
+async function resolvePowerCompanies(employee, requested, companyRequests, previous, previousCompanies) {
+  const wanted = {};
+  for (const [key, level] of Object.entries(requested)) {
+    if (level !== 'group' || !isCompanyLimitable(findPower(key))) continue;
+    let ids;
+    if (companyRequests[key] !== undefined) ids = companyRequests[key];
+    else if (previous[key] === 'group') ids = previousCompanies[key] || null;
+    else ids = null;
+    if (ids === null) continue;
+    if (ids.length === 0) throw new HttpError(400, `"${findPower(key).label}": choose at least one company`);
+    if (ids.some((cid) => !/^\d+$/.test(String(cid)))) throw new HttpError(400, 'Invalid company id');
+    wanted[key] = normalizeCompanyIds(ids);
+  }
+  if (Object.keys(wanted).length === 0) return {};
+
+  const company = await db.Company.findByPk(employee.companyId, { attributes: ['id', 'groupId'] });
+  if (!company || !company.groupId) {
+    throw new HttpError(400, "This employee's company isn't part of a Group, so companies can't be chosen");
+  }
+  const groupCompanies = await db.Company.findAll({ where: { groupId: company.groupId }, attributes: ['id'] });
+  const inGroup = new Set(groupCompanies.map((c) => Number(c.id)));
+  for (const [key, ids] of Object.entries(wanted)) {
+    if (ids.some((cid) => !inGroup.has(cid))) {
+      throw new HttpError(400, `"${findPower(key).label}": every chosen company must be in this employee's Group`);
+    }
+  }
+  return wanted;
+}
+
+// { powerKey: [brandId, ...] } for every Company-level power limited to some
+// brands, after this save — same rules as resolvePowerCompanies; every id
+// must be a brand of the employee's own company.
+async function resolvePowerBrands(employee, requested, brandRequests, previous, previousBrands) {
+  const wanted = {};
+  for (const [key, level] of Object.entries(requested)) {
+    if (level !== 'company') continue;
+    let ids;
+    if (brandRequests[key] !== undefined) ids = brandRequests[key];
+    else if (previous[key] === 'company') ids = previousBrands[key] || null;
+    else ids = null;
+    if (ids === null) continue;
+    if (ids.length === 0) throw new HttpError(400, `"${findPower(key).label}": choose at least one brand`);
+    if (ids.some((bid) => !/^\d+$/.test(String(bid)))) throw new HttpError(400, 'Invalid brand id');
+    wanted[key] = normalizeCompanyIds(ids);
+  }
+  if (Object.keys(wanted).length === 0) return {};
+
+  const brands = await runWithTenant({ companyId: null }, () =>
+    db.Brand.findAll({ where: { companyId: employee.companyId }, attributes: ['id'] })
+  );
+  const own = new Set(brands.map((b) => Number(b.id)));
+  for (const [key, ids] of Object.entries(wanted)) {
+    if (ids.some((bid) => !own.has(bid))) {
+      throw new HttpError(400, `"${findPower(key).label}": every chosen brand must belong to this employee's company`);
+    }
+  }
+  return wanted;
+}
+
 // Replaces an employee's powers wholesale, each at its own scope level
 // (see utils/customPowerSync.js for the one-Role-per-level layout). Every
 // added, removed, or re-levelled power is checked against the caller's own
@@ -883,8 +988,18 @@ function normalizeRequestedPowers({ powers, powerKeys }) {
 // without being able to alter or remove that one.
 async function assignEmployeePowers({ companyId, groupId, id, powers, powerKeys, scopedBrandIds, auth }) {
   const employee = await getEmployeeForWrite({ companyId, id, scopedBrandIds, groupId });
-  const requested = normalizeRequestedPowers({ powers, powerKeys });
+  const companyRequests = {};
+  const brandRequests = {};
+  const requested = normalizeRequestedPowers({ powers, powerKeys }, companyRequests, brandRequests);
   const previous = await getEmployeePowerLevels(employee);
+  const previousCompanies = employee.customPowerCompanies || {};
+  const requestedCompanies = await resolvePowerCompanies(employee, requested, companyRequests, previous, previousCompanies);
+  const sameCompanies = (key) =>
+    JSON.stringify(requestedCompanies[key] || null) === JSON.stringify(previousCompanies[key] || null);
+  const previousBrands = employee.customPowerBrands || {};
+  const requestedBrands = await resolvePowerBrands(employee, requested, brandRequests, previous, previousBrands);
+  const sameBrands = (key) =>
+    JSON.stringify(requestedBrands[key] || null) === JSON.stringify(previousBrands[key] || null);
 
   for (const [key, level] of Object.entries(requested)) {
     if (level === 'brand' && !employee.brandId) {
@@ -894,7 +1009,7 @@ async function assignEmployeePowers({ companyId, groupId, id, powers, powerKeys,
 
   const touched = new Set([...Object.keys(requested), ...Object.keys(previous)]);
   for (const key of touched) {
-    if (requested[key] === previous[key]) continue;
+    if (requested[key] === previous[key] && sameCompanies(key) && sameBrands(key)) continue;
     const power = findPower(key);
     if (!power) continue;
     // Adding/re-levelling needs authority at the new level; removing or
@@ -908,11 +1023,31 @@ async function assignEmployeePowers({ companyId, groupId, id, powers, powerKeys,
 
   // Codes per level; a code shared by two powers at different levels is
   // simply granted at both (the RBAC union resolves to the wider one).
+  // A Group-level power limited to chosen companies goes in a Role of its
+  // own (codesByLimitedKey), not the shared "(group)" one.
   const codesByLevel = { brand: new Set(), company: new Set(), group: new Set() };
+  // Same for a Company-level power limited to chosen brands
+  // (codesByBrandLimitedKey).
+  const codesByLimitedKey = {};
+  const codesByBrandLimitedKey = {};
   for (const [key, level] of Object.entries(requested)) {
+    if (level === 'group' && requestedCompanies[key]) {
+      codesByLimitedKey[key] = [...findPower(key).permissionCodes];
+      continue;
+    }
+    if (level === 'company' && requestedBrands[key]) {
+      codesByBrandLimitedKey[key] = [...findPower(key).permissionCodes];
+      continue;
+    }
     findPower(key).permissionCodes.forEach((code) => codesByLevel[level].add(code));
   }
-  const allCodes = [...new Set(Object.values(codesByLevel).flatMap((set) => [...set]))];
+  const allCodes = [
+    ...new Set([
+      ...Object.values(codesByLevel).flatMap((set) => [...set]),
+      ...Object.values(codesByLimitedKey).flat(),
+      ...Object.values(codesByBrandLimitedKey).flat(),
+    ]),
+  ];
   const permissions = allCodes.length > 0 ? await db.Permission.findAll({ where: { code: { [Op.in]: allCodes } } }) : [];
   const permissionIdByCode = new Map(permissions.map((p) => [p.code, p.id]));
 
@@ -975,7 +1110,45 @@ async function assignEmployeePowers({ companyId, groupId, id, powers, powerKeys,
       if (rows.length > 0) await db.RolePermission.bulkCreate(rows, { transaction: t });
     }
 
-    await employee.update({ customPowerLevels: requested }, { transaction: t });
+    // Limited Roles (Group level → chosen companies, Company level → chosen
+    // brands): one per power, removed when the power is gone or no longer
+    // limited.
+    const limitedKinds = [
+      { existing: roles.groupLimited || {}, codesByKey: codesByLimitedKey, nameFor: limitedGroupRoleName, what: 'group level, chosen companies' },
+      { existing: roles.brandLimited || {}, codesByKey: codesByBrandLimitedKey, nameFor: limitedBrandRoleName, what: 'company level, chosen brands' },
+    ];
+    for (const { existing, codesByKey, nameFor, what } of limitedKinds) {
+      for (const [key, role] of Object.entries(existing)) {
+        if (codesByKey[key]) continue;
+        await db.UserRole.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+        await db.RolePermission.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+        await role.destroy({ force: true, transaction: t });
+      }
+      for (const [key, codes] of Object.entries(codesByKey)) {
+        let role = existing[key];
+        if (!role) {
+          [role] = await db.Role.findOrCreate({
+            where: { companyId: employeeCompanyId, name: nameFor(employee.id, key) },
+            defaults: { isSystem: false, description: `Per-employee custom power (${what}): ${key}` },
+            transaction: t,
+          });
+        }
+        await db.RolePermission.destroy({ where: { roleId: role.id }, force: true, transaction: t });
+        const rows = codes
+          .filter((code) => permissionIdByCode.has(code))
+          .map((code) => ({ roleId: role.id, permissionId: permissionIdByCode.get(code) }));
+        if (rows.length > 0) await db.RolePermission.bulkCreate(rows, { transaction: t });
+      }
+    }
+
+    await employee.update(
+      {
+        customPowerLevels: requested,
+        customPowerCompanies: Object.keys(requestedCompanies).length > 0 ? requestedCompanies : null,
+        customPowerBrands: Object.keys(requestedBrands).length > 0 ? requestedBrands : null,
+      },
+      { transaction: t }
+    );
 
     // Creates/re-scopes the UserRole grant per level for an employee who
     // already has an ESS login; one invited later gets them at activation

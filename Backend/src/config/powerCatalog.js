@@ -152,6 +152,10 @@ const POWER_CATALOG = [
     // with every power, nobody grants wider than they hold
     // (utils/powerAuthority.js) — Group level only by Group Admin / Super Admin.
     levels: ['brand', 'company', 'group'],
+    // Group level always means the whole Group here: Group payroll owns
+    // Group-wide templates / extra items and salary ownership
+    // (payrollAccess.js), which can't be cut down to some companies.
+    companyLimitable: false,
     description:
       'Create salary templates and deductions, assign gross salary, add bonuses, generate and share payslips — for the chosen level (Brand, Company or whole Group).',
     // The payroll pages use their own employee/company pickers
@@ -161,6 +165,11 @@ const POWER_CATALOG = [
 ];
 
 const POWER_KEYS = new Set(POWER_CATALOG.map((power) => power.key));
+
+// Group level can be limited to chosen companies of the Group
+// (employees.custom_power_companies) unless a power sets
+// `companyLimitable: false`.
+const isCompanyLimitable = (power) => power.companyLimitable !== false;
 
 // Scope a power can be granted at, narrowest first:
 //   brand   — only the employee's own Brand (a UserRole with brand_id set)
@@ -183,4 +192,4 @@ function permissionCodesForKeys(powerKeys) {
   return [...codes];
 }
 
-module.exports = { POWER_CATALOG, POWER_KEYS, POWER_LEVELS, findPower, permissionCodesForKeys };
+module.exports = { POWER_CATALOG, POWER_KEYS, POWER_LEVELS, findPower, permissionCodesForKeys, isCompanyLimitable };

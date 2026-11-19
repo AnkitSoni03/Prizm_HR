@@ -21,6 +21,9 @@ module.exports = (sequelize, DataTypes) => {
       companyId: { type: DataTypes.BIGINT, allowNull: true },
       groupId: { type: DataTypes.BIGINT, allowNull: true },
       brandId: { type: DataTypes.BIGINT, allowNull: true },
+      // Group-level power limited to these companies (JSON array of numbers);
+      // NULL = no limit. See utils/customPowerSync.js.
+      allowedCompanyIds: { type: DataTypes.JSONB, allowNull: true },
     },
     {
       sequelize,

@@ -1,5 +1,6 @@
 'use strict';
 
+const { Op } = require('sequelize');
 const db = require('../models');
 const { runWithTenant } = require('../config/tenant-context');
 
@@ -23,7 +24,29 @@ function customPowerRoleName(employeeId, level) {
   return level === 'company' ? `Custom Powers – ${employeeId}` : `Custom Powers – ${employeeId} (${level})`;
 }
 
-// { brand?: Role, company?: Role, group?: Role } — only the ones that exist.
+// A Group-level power limited to chosen companies gets a Role of its own —
+// its grant carries user_roles.allowed_company_ids, so it can't share the
+// "(group)" Role, whose powers reach every company of the Group.
+function limitedGroupRoleName(employeeId, powerKey) {
+  return `Custom Powers – ${employeeId} (group:${powerKey})`;
+}
+const limitedGroupRolePrefix = (employeeId) => `Custom Powers – ${employeeId} (group:`;
+
+// Likewise a Company-level power limited to chosen brands: its Role is
+// granted once per chosen brand (UserRole.brand_id = that brand), which
+// rbac.middleware.js::getBrandScope already reads as "these brands only".
+function limitedBrandRoleName(employeeId, powerKey) {
+  return `Custom Powers – ${employeeId} (brands:${powerKey})`;
+}
+const limitedBrandRolePrefix = (employeeId) => `Custom Powers – ${employeeId} (brands:`;
+
+// Clean company-id list for allowed_company_ids: numbers, unique, sorted.
+function normalizeCompanyIds(ids) {
+  return [...new Set(ids.map(Number))].sort((a, b) => a - b);
+}
+
+// { brand?, company?, group?, groupLimited?: { powerKey: Role },
+//   brandLimited?: { powerKey: Role } } — only the ones that exist.
 async function findCustomPowerRoles(employee, transaction) {
   const roles = {};
   if (employee.customRoleId) {
@@ -36,6 +59,24 @@ async function findCustomPowerRoles(employee, transaction) {
       transaction,
     });
     if (role) roles[level] = role;
+  }
+  const limited = await db.Role.findAll({
+    where: { companyId: employee.companyId, name: { [Op.like]: `${limitedGroupRolePrefix(employee.id)}%` } },
+    transaction,
+  });
+  for (const role of limited) {
+    const key = role.name.slice(limitedGroupRolePrefix(employee.id).length, -1);
+    roles.groupLimited = roles.groupLimited || {};
+    roles.groupLimited[key] = role;
+  }
+  const brandLimited = await db.Role.findAll({
+    where: { companyId: employee.companyId, name: { [Op.like]: `${limitedBrandRolePrefix(employee.id)}%` } },
+    transaction,
+  });
+  for (const role of brandLimited) {
+    const key = role.name.slice(limitedBrandRolePrefix(employee.id).length, -1);
+    roles.brandLimited = roles.brandLimited || {};
+    roles.brandLimited[key] = role;
   }
   return roles;
 }
@@ -61,9 +102,16 @@ async function ensureCustomRoleGrant({ employeeId, transaction }) {
 
     const company = await db.Company.findByPk(employee.companyId, { attributes: ['id', 'groupId'], transaction });
 
-    for (const level of POWER_LEVELS) {
-      const role = roles[level];
-      if (!role) continue;
+    const sameIds = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    const limits = employee.customPowerCompanies || {};
+    const grants = POWER_LEVELS.filter((level) => roles[level]).map((level) => ({ level, role: roles[level], allowed: null }));
+    for (const [key, role] of Object.entries(roles.groupLimited || {})) {
+      // A limited Role whose list went missing is granted nowhere (empty
+      // list) rather than everywhere.
+      grants.push({ level: 'group', role, allowed: normalizeCompanyIds(Array.isArray(limits[key]) ? limits[key] : []) });
+    }
+
+    for (const { level, role, allowed } of grants) {
 
       const existing = await db.UserRole.findOne({
         where: { userId: employee.userId, roleId: role.id },
@@ -81,6 +129,7 @@ async function ensureCustomRoleGrant({ employeeId, transaction }) {
         // A company with no Group can't have sibling companies — the grant
         // then simply behaves as company level.
         groupId: level === 'group' && company ? company.groupId : null,
+        allowedCompanyIds: allowed,
       };
 
       if (!existing) {
@@ -88,12 +137,49 @@ async function ensureCustomRoleGrant({ employeeId, transaction }) {
       } else if (
         String(existing.companyId) !== String(desired.companyId) ||
         String(existing.brandId) !== String(desired.brandId) ||
-        String(existing.groupId) !== String(desired.groupId)
+        String(existing.groupId) !== String(desired.groupId) ||
+        !sameIds(existing.allowedCompanyIds, desired.allowedCompanyIds)
       ) {
         await existing.update(desired, { transaction });
+      }
+    }
+
+    // Brand-limited Company-level powers: exactly one grant per chosen brand.
+    const brandLimits = employee.customPowerBrands || {};
+    for (const [key, role] of Object.entries(roles.brandLimited || {})) {
+      const wanted = new Set((Array.isArray(brandLimits[key]) ? brandLimits[key] : []).map(String));
+      const existingGrants = await db.UserRole.findAll({ where: { userId: employee.userId, roleId: role.id }, transaction });
+      for (const row of existingGrants) {
+        const keep =
+          String(row.companyId) === String(employee.companyId) &&
+          row.brandId !== null &&
+          row.groupId === null &&
+          wanted.has(String(row.brandId));
+        if (keep) {
+          wanted.delete(String(row.brandId));
+          continue;
+        }
+        await row.destroy({ force: true, transaction });
+      }
+      for (const brandId of wanted) {
+        await db.UserRole.create(
+          { userId: employee.userId, roleId: role.id, companyId: employee.companyId, brandId, groupId: null, allowedCompanyIds: null },
+          { transaction }
+        );
       }
     }
   });
 }
 
-module.exports = { ensureCustomRoleGrant, findCustomPowerRoles, customPowerRoleName, POWER_LEVELS, CUSTOM_POWER_ROLE_PREFIX };
+module.exports = {
+  ensureCustomRoleGrant,
+  findCustomPowerRoles,
+  customPowerRoleName,
+  limitedGroupRoleName,
+  limitedGroupRolePrefix,
+  limitedBrandRoleName,
+  limitedBrandRolePrefix,
+  normalizeCompanyIds,
+  POWER_LEVELS,
+  CUSTOM_POWER_ROLE_PREFIX,
+};

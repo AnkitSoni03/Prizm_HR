@@ -12,5 +12,7 @@ router.use(requireAuth);
 // by the admin-facing "assign powers" UI and by the ESS Dashboard's "Your
 // Additional Responsibilities" section.
 router.get('/', controller.list);
+router.get('/companies', controller.groupCompanies);
+router.get('/brands', controller.companyBrands);
 
 module.exports = router;

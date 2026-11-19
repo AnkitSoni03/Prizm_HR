@@ -203,6 +203,10 @@ export interface Employee {
   // { powerKey: 'brand' | 'company' | 'group' } — null for an employee whose
   // powers predate per-power levels (see api/powers.ts::resolvePowerLevels).
   customPowerLevels?: Record<string, 'brand' | 'company' | 'group'> | null;
+  // Group-level powers limited to chosen companies (see api/powers.ts).
+  customPowerCompanies?: Record<string, (string | number)[]> | null;
+  // Company-level powers limited to chosen brands (see api/powers.ts).
+  customPowerBrands?: Record<string, (string | number)[]> | null;
   // Signed, short-lived download URL resolved fresh on every response — see
   // employee.service.js::withPhotoUrl. Null when no photo has been uploaded
   // (the common case; always optional).

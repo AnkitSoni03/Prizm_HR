@@ -105,6 +105,12 @@ module.exports = (sequelize, DataTypes) => {
       // Per-power scope ('brand' | 'company' | 'group') keyed by power key —
       // see employee.service.js::assignEmployeePowers.
       customPowerLevels: { type: DataTypes.JSONB, allowNull: true },
+      // { powerKey: [companyId, ...] } - Group-level powers limited to some
+      // companies of the Group; absent = every company.
+      customPowerCompanies: { type: DataTypes.JSONB, allowNull: true },
+      // { powerKey: [brandId, ...] } - Company-level powers limited to some
+      // brands of the employee's company; absent = every brand.
+      customPowerBrands: { type: DataTypes.JSONB, allowNull: true },
       userId: { type: DataTypes.BIGINT, allowNull: true },
       dateOfJoining: { type: DataTypes.DATEONLY, allowNull: true },
       // Optional — captured by Company Admin/Brand Admin when filling in an
