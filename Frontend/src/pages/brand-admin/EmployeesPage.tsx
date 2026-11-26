@@ -28,6 +28,13 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'archived', label: 'Archived' },
 ];
 
+// Account = employees.isActive (login switched on/off). Default: Active.
+const ACCOUNT_FILTER_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+];
+type AccountFilter = '' | 'active' | 'inactive';
+
 function statusTone(status: Employee['status']) {
   if (status === 'active') return 'success';
   if (status === 'onboarding' || status === 'on_notice') return 'warning';
@@ -58,6 +65,7 @@ export function EmployeesPage() {
   const [offset, setOffset] = useState(0);
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>('active');
   // What's typed vs. what's actually queried — the query only updates
   // 1.5s after the last keystroke, so typing a name doesn't fire a request
   // per character.
@@ -98,6 +106,7 @@ export function EmployeesPage() {
         brandId,
         departmentId: departmentFilter || undefined,
         status: statusFilter || undefined,
+        account: accountFilter || undefined,
         search: search || undefined,
         limit: LIMIT,
         offset,
@@ -115,7 +124,7 @@ export function EmployeesPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brandId, departmentFilter, statusFilter, search, offset]);
+  }, [brandId, departmentFilter, statusFilter, accountFilter, search, offset]);
 
   useEffect(() => {
     const trimmed = searchInput.trim();
@@ -175,6 +184,16 @@ export function EmployeesPage() {
               onChange={(event) => handleFilterChange(setStatusFilter)(event.target.value)}
               placeholder="All statuses"
               options={STATUS_FILTER_OPTIONS}
+            />
+          </div>
+          <div className="w-full sm:w-auto sm:flex-1 sm:min-w-[160px]">
+            <Select
+              id="filter-account"
+              label="Account"
+              value={accountFilter}
+              onChange={(event) => handleFilterChange((v) => setAccountFilter(v as AccountFilter))(event.target.value)}
+              placeholder="All accounts"
+              options={ACCOUNT_FILTER_OPTIONS}
             />
           </div>
         </div>

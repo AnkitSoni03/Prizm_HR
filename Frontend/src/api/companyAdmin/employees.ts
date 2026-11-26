@@ -11,6 +11,8 @@ export interface EmployeeListParams {
   departmentId?: string;
   rosterGroupId?: string;
   status?: string;
+  // Account switch (employees.isActive). Omitted = both.
+  account?: 'active' | 'inactive';
   // Matches name or employee code (case-insensitive, partial).
   search?: string;
   limit?: number;

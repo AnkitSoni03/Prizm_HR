@@ -105,7 +105,7 @@ async function assertOwnedByBrand(model, id, companyId, employeeBrandId, label) 
   }
 }
 
-async function listEmployees({ limit, offset, companyId, brandId, departmentId, rosterGroupId, status, search, scopedBrandIds }) {
+async function listEmployees({ limit, offset, companyId, brandId, departmentId, rosterGroupId, status, account, search, scopedBrandIds }) {
   const where = {};
   // Explicit companyId filter for callers whose tenant-scope hook is a
   // no-op (Super Admin's context is null — see CLAUDE.md's "tenant-scope
@@ -127,6 +127,9 @@ async function listEmployees({ limit, offset, companyId, brandId, departmentId, 
   if (departmentId) where.departmentId = departmentId;
   if (rosterGroupId) where.rosterGroupId = rosterGroupId;
   if (status) where.status = status;
+  // Account (employees.is_active): 'active' | 'inactive'; anything else = both.
+  if (account === 'active') where.isActive = true;
+  else if (account === 'inactive') where.isActive = false;
   // Used by the Super Admin "Users" directory (no companyId filter — every
   // employee on the platform) to search by name or code without the
   // caller needing to know which company/brand an employee belongs to.

@@ -34,6 +34,13 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'archived', label: 'Archived' },
 ];
 
+// Account = employees.isActive (login switched on/off). Default: Active.
+const ACCOUNT_FILTER_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+];
+type AccountFilter = '' | 'active' | 'inactive';
+
 function statusTone(status: Employee['status']) {
   if (status === 'active') return 'success';
   if (status === 'onboarding' || status === 'on_notice') return 'warning';
@@ -245,6 +252,7 @@ export function EmployeesPage() {
   const [brandFilter, setBrandFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>('active');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -292,6 +300,7 @@ export function EmployeesPage() {
         brandId: brandFilter || undefined,
         departmentId: departmentFilter || undefined,
         status: statusFilter || undefined,
+        account: accountFilter || undefined,
         limit: LIMIT,
         offset,
       });
@@ -316,6 +325,7 @@ export function EmployeesPage() {
             brandId: brand.id,
             departmentId: departmentFilter || undefined,
             status: statusFilter || undefined,
+        account: accountFilter || undefined,
             limit: GROUP_PREVIEW_LIMIT,
             offset: 0,
           })
@@ -353,7 +363,7 @@ export function EmployeesPage() {
       loadEmployees();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brandsLoaded, brandFilter, departmentFilter, statusFilter, offset, isGroupedView]);
+  }, [brandsLoaded, brandFilter, departmentFilter, statusFilter, accountFilter, offset, isGroupedView]);
 
   function handleFilterChange(setter: (value: string) => void) {
     return (value: string) => {
@@ -373,6 +383,7 @@ export function EmployeesPage() {
         brandId,
         departmentId: departmentFilter || undefined,
         status: statusFilter || undefined,
+        account: accountFilter || undefined,
         limit: group.total,
         offset: 0,
       });
@@ -437,6 +448,16 @@ export function EmployeesPage() {
               onChange={(event) => handleFilterChange(setStatusFilter)(event.target.value)}
               placeholder="All statuses"
               options={STATUS_FILTER_OPTIONS}
+            />
+          </div>
+          <div className="w-full sm:w-40">
+            <Select
+              id="filter-account"
+              label="Account"
+              value={accountFilter}
+              onChange={(event) => handleFilterChange((v) => setAccountFilter(v as AccountFilter))(event.target.value)}
+              placeholder="All accounts"
+              options={ACCOUNT_FILTER_OPTIONS}
             />
           </div>
         </div>

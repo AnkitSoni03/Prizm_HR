@@ -561,17 +561,28 @@ async function toRosterRow(employee, attendance, leaveTypeName) {
 // specific leave type by id) — since only a real attendance row can match,
 // a 'not_marked' employee is never returned by a filtered call, only by the
 // unfiltered default below.
+// An employee whose account is switched off (isActive false) still shows up
+// to and including their last working day (set when the account is switched
+// off), never after it. No date saved = hidden on every date.
+function shownOnOrAfter(date) {
+  return { [Op.or]: [{ isActive: true }, { lastWorkingDate: { [Op.gte]: date } }] };
+}
+
 async function listAttendanceRoster({ companyId, brandIds, date, search, status, leaveTypeId, limit, offset }) {
   if (!date) throw new HttpError(400, 'date is required');
 
   const employeeWhere = { companyId, status: 'active' };
   if (brandIds) employeeWhere.brandId = { [Op.in]: brandIds };
+  const conditions = [shownOnOrAfter(date)];
   if (search) {
-    employeeWhere[Op.or] = [
-      { name: { [Op.iLike]: `%${search}%` } },
-      { employeeCode: { [Op.iLike]: `%${search}%` } },
-    ];
+    conditions.push({
+      [Op.or]: [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { employeeCode: { [Op.iLike]: `%${search}%` } },
+      ],
+    });
   }
+  employeeWhere[Op.and] = conditions;
 
   if (status) {
     const attendanceWhere = { date, status };
@@ -703,12 +714,14 @@ async function listAttendanceBoard({ companyId, brandIds, year, month, employeeI
   // than a misleading 'absent'.
   const dataEnd = monthEnd < todayStr ? monthEnd : todayStr;
 
-  const employeeWhere = onlyEmployeeIds ? { companyId, id: { [Op.in]: onlyEmployeeIds } } : { companyId, status: 'active' };
+  const employeeWhere = onlyEmployeeIds
+    ? { companyId, id: { [Op.in]: onlyEmployeeIds } }
+    : { companyId, status: 'active', ...shownOnOrAfter(monthStart) };
   if (brandIds) employeeWhere.brandId = { [Op.in]: brandIds };
 
   const employees = await db.Employee.findAll({
     where: employeeWhere,
-    attributes: ['id', 'employeeCode', 'name', 'companyId', 'brandId', 'dateOfJoining', 'rosterGroupId'],
+    attributes: ['id', 'employeeCode', 'name', 'companyId', 'brandId', 'dateOfJoining', 'rosterGroupId', 'isActive', 'lastWorkingDate'],
     include: EMPLOYEE_ORG_INCLUDES,
     // Company first so a Group Admin's group-wide board reads as one
     // block per company; a no-op ordering for a single-company caller.
@@ -920,7 +933,12 @@ async function listAttendanceBoard({ companyId, brandIds, year, month, employeeI
       present: 0, absent: 0, half_day: 0, leave: 0, holiday: 0, weekoff: 0, on_duty: 0, workedMinutes: 0,
     };
     // Payroll view of the same days (export only): counted, paid, LOP.
-    const lastWorkingDate = lastWorkingDateByEmployee.get(key) ?? null;
+    // Earlier of an accepted resignation's last day and the employee's own
+    // last working date — same as payrollEngine.js::exitDateOf.
+    const lastWorkingDate =
+      [lastWorkingDateByEmployee.get(key), employee.lastWorkingDate].filter(Boolean).sort()[0] ?? null;
+    // Account switched off: days after its last working day are blank.
+    const inactiveAfter = employee.isActive === false ? employee.lastWorkingDate || '0000-00-00' : null;
     const pay = {
       countedDays: 0, payableDays: 0, lopDays: 0, paidLeave: 0, unpaidLeave: 0, sandwichLop: 0,
       missedCheckouts: 0, lopDates: [],
@@ -941,7 +959,7 @@ async function listAttendanceBoard({ companyId, brandIds, year, month, employeeI
     for (let day = 1; day <= daysInMonth; day++) {
       const d = `${y}-${pad2(m)}-${pad2(day)}`;
 
-      if ((employee.dateOfJoining && d < employee.dateOfJoining) || d > dataEnd) {
+      if ((employee.dateOfJoining && d < employee.dateOfJoining) || d > dataEnd || (inactiveAfter && d > inactiveAfter)) {
         days.push({ day, code: null, category: null, checkIn: null, checkOut: null });
         continue;
       }

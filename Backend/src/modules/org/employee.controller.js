@@ -45,6 +45,7 @@ async function list(req, res, next) {
       departmentId: req.query.departmentId,
       rosterGroupId: req.query.rosterGroupId,
       status: req.query.status,
+      account: req.query.account,
       search: req.query.search,
       scopedBrandIds: req.auth.scopedBrandIds,
     });
